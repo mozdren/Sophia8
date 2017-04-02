@@ -49,8 +49,8 @@ static uint8_t  c;              /* carry flag                                */
 #define CMPR    0x09            /* compares register to register        A    */
 #define JZ      0x0A            /* jump if reg set to zero              A    */
 #define JNZ     0x0B            /* jump if reg not set to zero          A    */
-#define JC      0x0C            /* jump if carry is set                 N    */
-#define JNC     0x0D            /* jump if carry is not set             N    */
+#define JC      0x0C            /* jump if carry is set                 A    */
+#define JNC     0x0D            /* jump if carry is not set             A    */
 #define ADD     0x0E            /* adds value to register               N    */
 #define ADDR    0x0F            /* adds register to register            N    */
 #define PUSH    0x10            /* pushes register to stack             A    */
@@ -624,6 +624,50 @@ void jnzInstruction()
 
 /**
  *
+ * "Jump if carry set" instruction. Jumps to a specific 16 bit address if
+ * carry is set.
+ *
+ */
+void jcInstruction()
+{
+    static uint16_t jumpAddress;
+    
+    jumpAddress = ((uint16_t)mem[ip + 1]) << 8;
+    jumpAddress += (uint16_t)mem[ip + 2];
+    
+    if (c != 0)
+    {
+        ip = jumpAddress;
+        return;
+    }
+    
+    ip += 3;
+}
+
+/**
+ *
+ * "Jump if carry not set" instruction. Jumps to a specific 16 bit address if
+ * carry is not set.
+ *
+ */
+void jncInstruction()
+{
+    static uint16_t jumpAddress;
+    
+    jumpAddress = ((uint16_t)mem[ip + 1]) << 8;
+    jumpAddress += (uint16_t)mem[ip + 2];
+    
+    if (c == 0)
+    {
+        ip = jumpAddress;
+        return;
+    }
+    
+    ip += 3;
+}
+
+/**
+ *
  * Processes instruction. If unknown instruction or halt, then the VM stops.
  *
  */
@@ -644,6 +688,8 @@ void processInstruction()
         case CMPR: cmprInstruction(); break;
         case JZ: jzInstruction(); break;
         case JNZ: jnzInstruction(); break;
+        case JC: jcInstruction(); break;
+        case JNC: jncInstruction(); break;
         case NOP: ip++; break;
         default: STOP = 1; break;
     }
