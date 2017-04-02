@@ -193,6 +193,69 @@ void storeInstruction()
 }
 
 /**
+ * Processing a store instruction. This instruction stores data from a specific
+ * register to a 16bit memory location defined by two additional registers.
+ * 
+ * STORER R0, R1, R2 -> 02 00 01 02
+ */
+void storerInstruction()
+{
+    static uint8_t sourceRegister;
+    static uint8_t destinationRegisterH;
+    static uint8_t destinationRegisterL;
+    
+    static uint8_t value;
+    static uint16_t destinationAddress;
+
+    sourceRegister = mem[ip + 1];
+    destinationRegisterH = mem[ip + 2];
+    destinationRegisterL = mem[ip + 3];
+    
+    switch (sourceRegister) 
+    {
+        case IR0: value = r[0]; break;
+        case IR1: value = r[1]; break;
+        case IR2: value = r[2]; break;
+        case IR3: value = r[3]; break;
+        case IR4: value = r[4]; break;
+        case IR5: value = r[5]; break;
+        case IR6: value = r[6]; break;
+        case IR7: value = r[7]; break;
+        default: STOP = 1; break;
+    }
+
+    switch (destinationRegisterH) 
+    {
+        case IR0: destinationAddress = ((uint16_t)r[0]) << 8; break;
+        case IR1: destinationAddress = ((uint16_t)r[1]) << 8; break;
+        case IR2: destinationAddress = ((uint16_t)r[2]) << 8; break;
+        case IR3: destinationAddress = ((uint16_t)r[3]) << 8; break;
+        case IR4: destinationAddress = ((uint16_t)r[4]) << 8; break;
+        case IR5: destinationAddress = ((uint16_t)r[5]) << 8; break;
+        case IR6: destinationAddress = ((uint16_t)r[6]) << 8; break;
+        case IR7: destinationAddress = ((uint16_t)r[7]) << 8; break;
+        default: STOP = 1; break;
+    }
+    
+    switch (destinationRegisterL) 
+    {
+        case IR0: destinationAddress += ((uint16_t)r[0]); break;
+        case IR1: destinationAddress += ((uint16_t)r[1]); break;
+        case IR2: destinationAddress += ((uint16_t)r[2]); break;
+        case IR3: destinationAddress += ((uint16_t)r[3]); break;
+        case IR4: destinationAddress += ((uint16_t)r[4]); break;
+        case IR5: destinationAddress += ((uint16_t)r[5]); break;
+        case IR6: destinationAddress += ((uint16_t)r[6]); break;
+        case IR7: destinationAddress += ((uint16_t)r[7]); break;
+        default: STOP = 1; break;
+    }
+    
+    mem[destinationAddress] = value;
+    
+    ip += 4;
+}
+
+/**
  * Processing a set instruction. This instruction stores imidiate value to a
  * specific register.
  * 
@@ -430,6 +493,7 @@ void processInstruction()
     {
         case LOAD: loadInstruction(); break;
         case STORE: storeInstruction(); break;
+        case STORER: storerInstruction(); break;
         case SET: setInstruction(); break;
         case PUSH: pushInstruction(); break;
         case POP: popInstruction(); break;
@@ -494,43 +558,47 @@ void run()
 
 void loadTestCode()
 {
-    uint8_t testCode[80] =
-        {SET,   0x0A,       IR0,        // 3
-         STORE, IR0,        0xFF, 0xC0, // 7
-         LOAD,  0xFF, 0xC0, IR1,        // 11
-         SET,   0x01,       IR0,        // 14
-         SET,   0x02,       IR1,        // 17
-         SET,   0x03,       IR2,        // 20
-         SET,   0x04,       IR3,        // 23
-         SET,   0x05,       IR4,        // 26
-         SET,   0x06,       IR5,        // 29
-         SET,   0x07,       IR6,        // 32
-         SET,   0x08,       IR7,        // 35
-         PUSH,  IR0,                    // 37
-         PUSH,  IR1,                    // 39
-         PUSH,  IR2,                    // 41
-         PUSH,  IR3,                    // 43
-         PUSH,  IR4,                    // 45
-         PUSH,  IR5,                    // 47
-         PUSH,  IR6,                    // 49
-         PUSH,  IR7,                    // 51
-         POP,   IR0,                    // 53
-         POP,   IR1,                    // 55
-         POP,   IR2,                    // 57
-         POP,   IR3,                    // 59
-         POP,   IR4,                    // 61
-         POP,   IR5,                    // 63
-         POP,   IR6,                    // 65
-         POP,   IR7,                    // 67
-         SET,   0x00,       IR7,        // 70
-         SET,   0xFF,       IR6,        // 73
-         DEC,   IR7,                    // 75
-         INC,   IR6,                    // 77
-         JMP,   0xAB, 0xCD};            // 80
+    uint8_t testCode[93] = {
+        SET,   0x0A,       IR0,        // 3
+        STORE, IR0,        0xFF, 0xC0, // 7
+        LOAD,  0xFF, 0xC0, IR1,        // 11
+        SET,   0x01,       IR0,        // 14
+        SET,   0x02,       IR1,        // 17
+        SET,   0x03,       IR2,        // 20
+        SET,   0x04,       IR3,        // 23
+        SET,   0x05,       IR4,        // 26
+        SET,   0x06,       IR5,        // 29
+        SET,   0x07,       IR6,        // 32
+        SET,   0x08,       IR7,        // 35
+        PUSH,  IR0,                    // 37
+        PUSH,  IR1,                    // 39
+        PUSH,  IR2,                    // 41
+        PUSH,  IR3,                    // 43
+        PUSH,  IR4,                    // 45
+        PUSH,  IR5,                    // 47
+        PUSH,  IR6,                    // 49
+        PUSH,  IR7,                    // 51
+        POP,   IR0,                    // 53
+        POP,   IR1,                    // 55
+        POP,   IR2,                    // 57
+        POP,   IR3,                    // 59
+        POP,   IR4,                    // 61
+        POP,   IR5,                    // 63
+        POP,   IR6,                    // 65
+        POP,   IR7,                    // 67
+        SET,   0x00,       IR7,        // 70
+        SET,   0xFF,       IR6,        // 73
+        DEC,   IR7,                    // 75
+        INC,   IR6,                    // 77
+        SET,   0xBB,       IR0,        // 80
+        SET,   0xFF,       IR1,        // 83
+        SET,   0xC1,       IR2,        // 86
+        STORER,IR0,        IR1, IR2,   // 90
+        JMP,   0xAB, 0xCD};            // 93
 
     uint16_t i;
 
-    for (i=0; i<80; i++)
+    for (i=0; i < 93; i++)
     {
         mem[i] = testCode[i];
     }
