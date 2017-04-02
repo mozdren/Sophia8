@@ -3,7 +3,7 @@
 /* Project: Sophia8 - an 8 bit virtual machine                               */
 /* Author:  Karel Mozdren                                                    */
 /* File:    sophia8.c                                                        */
-/* Date:    30.03.2017                                                       */
+/* Date:    02.04.2017                                                       */
 /*                                                                           */
 /* Description:                                                              */
 /*                                                                           */
@@ -45,8 +45,8 @@ static uint8_t  c;              /* carry flag                                */
 #define INC     0x05            /* increases register by 1              A    */
 #define DEC     0x06            /* decreases register by 1              A    */
 #define JMP     0x07            /* jumps to location                    A    */
-#define CMP     0x08            /* compares register to value           N    */
-#define CMPR    0x09            /* compares register to register        N    */
+#define CMP     0x08            /* compares register to value           A    */
+#define CMPR    0x09            /* compares register to register        A    */
 #define JZ      0x0A            /* jump if reg set to zero              N    */
 #define JNZ     0x0B            /* jump if reg not set to zero          N    */
 #define JC      0x0C            /* jump if carry is set                 N    */
@@ -61,8 +61,8 @@ static uint8_t  c;              /* carry flag                                */
 
 /* special instructions */
 
-#define HALT    0x00            /* no operation                              */
-#define NOP     0xFF            /* stops/exits the virtual machine           */
+#define HALT    0x00            /* no operation                         A    */
+#define NOP     0xFF            /* stops/exits the virtual machine      A    */
 
 /* REGISTERS CODES ***********************************************************/
 
@@ -499,14 +499,59 @@ void cmpInstruction()
     
     switch (sourceRegister) 
     {
-        case IR0: c = (r[0] > value) ? 0 : 1; r[0] -= value; break;
-        case IR1: c = (r[1] > value) ? 0 : 1; r[1] -= value; break;
-        case IR2: c = (r[2] > value) ? 0 : 1; r[2] -= value; break;
-        case IR3: c = (r[3] > value) ? 0 : 1; r[3] -= value; break;
-        case IR4: c = (r[4] > value) ? 0 : 1; r[4] -= value; break;
-        case IR5: c = (r[5] > value) ? 0 : 1; r[5] -= value; break;
-        case IR6: c = (r[6] > value) ? 0 : 1; r[6] -= value; break;
-        case IR7: c = (r[7] > value) ? 0 : 1; r[7] -= value; break;
+        case IR0: c = (r[0] >= value) ? 0 : 1; r[0] -= value; break;
+        case IR1: c = (r[1] >= value) ? 0 : 1; r[1] -= value; break;
+        case IR2: c = (r[2] >= value) ? 0 : 1; r[2] -= value; break;
+        case IR3: c = (r[3] >= value) ? 0 : 1; r[3] -= value; break;
+        case IR4: c = (r[4] >= value) ? 0 : 1; r[4] -= value; break;
+        case IR5: c = (r[5] >= value) ? 0 : 1; r[5] -= value; break;
+        case IR6: c = (r[6] >= value) ? 0 : 1; r[6] -= value; break;
+        case IR7: c = (r[7] >= value) ? 0 : 1; r[7] -= value; break;
+        default: STOP = 1; break;
+    }
+    
+    ip += 3;
+}
+
+/**
+ *
+ * compares register to another register. If register value is less than
+ * imediate value it sets the carry bit to true. Does subscration on the
+ * backend. Substracted value is set in the register that has been used 
+ * for comparison.
+ *
+ */
+void cmprInstruction()
+{
+    static uint8_t register0;
+    static uint8_t register1;
+    static uint8_t value;
+    
+    register1 = mem[ip + 2];
+    
+    switch (register1) 
+    {
+        case IR0: value = r[0]; break;
+        case IR1: value = r[1]; break;
+        case IR2: value = r[2]; break;
+        case IR3: value = r[3]; break;
+        case IR4: value = r[4]; break;
+        case IR5: value = r[5]; break;
+        case IR6: value = r[6]; break;
+        case IR7: value = r[7]; break;
+        default: STOP = 1; break;
+    }
+    
+    switch (register0) 
+    {
+        case IR0: c = (r[0] >= value) ? 0 : 1;  r[0] -= value; break;
+        case IR1: c = (r[1] >= value) ? 0 : 1;  r[1] -= value; break;
+        case IR2: c = (r[2] >= value) ? 0 : 1;  r[2] -= value; break;
+        case IR3: c = (r[3] >= value) ? 0 : 1;  r[3] -= value; break;
+        case IR4: c = (r[4] >= value) ? 0 : 1;  r[4] -= value; break;
+        case IR5: c = (r[5] >= value) ? 0 : 1;  r[5] -= value; break;
+        case IR6: c = (r[6] >= value) ? 0 : 1;  r[6] -= value; break;
+        case IR7: c = (r[7] >= value) ? 0 : 1;  r[7] -= value; break;
         default: STOP = 1; break;
     }
     
@@ -532,6 +577,8 @@ void processInstruction()
         case DEC: decInstruction(); break;
         case JMP: jmpInstruction(); break;
         case CMP: cmpInstruction(); break;
+        case CMPR: cmprInstruction(); break;
+        case NOP: ip++; break;
         default: STOP = 1; break;
     }
 }
@@ -590,7 +637,7 @@ void run()
 
 void loadTestCode()
 {
-    uint8_t testCode[96] = {
+    uint8_t testCode[99] = {
         SET,   0x0A,       IR0,        // 3
         STORE, IR0,        0xFF, 0xC0, // 7
         LOAD,  0xFF, 0xC0, IR1,        // 11
@@ -627,11 +674,12 @@ void loadTestCode()
         SET,   0xC1,       IR2,        // 86
         STORER,IR0,        IR1, IR2,   // 90
         CMP,   IR0,        0x10,       // 93
-        JMP,   0xAB, 0xCD};            // 96
+        CMPR,  IR0,        IR1,        // 96
+        JMP,   0xAB, 0xCD};            // 99
 
     uint16_t i;
 
-    for (i=0; i < 96; i++)
+    for (i=0; i < 99; i++)
     {
         mem[i] = testCode[i];
     }
