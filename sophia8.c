@@ -40,7 +40,7 @@ static uint8_t  c;              /* carry flag                                */
 
 #define LOAD    0x01            /* loads memory to register             A    */
 #define STORE   0x02            /* stores register to memory            A    */
-#define STORER  0x03            /* sto. reg. val. to mem. def in regs   N    */
+#define STORER  0x03            /* sto. reg. val. to mem. def in regs   A    */
 #define SET     0x04            /* sets register to value               A    */
 #define INC     0x05            /* increases register by 1              A    */
 #define DEC     0x06            /* decreases register by 1              A    */
@@ -484,6 +484,37 @@ void jmpInstruction()
 
 /**
  *
+ * compares register to a value. If register value is less than imediate value
+ * it sets the carry bit to true. Does subscration on the backend. Substracted
+ * value is set in the register that has been used for comparison.
+ *
+ */
+void cmpInstruction()
+{
+    uint8_t sourceRegister;
+    uint8_t value;
+    
+    sourceRegister = mem[ip + 1];
+    value = mem[ip + 2];
+    
+    switch (sourceRegister) 
+    {
+        case IR0: c = (r[0] > value) ? 0 : 1; r[0] -= value; break;
+        case IR1: c = (r[1] > value) ? 0 : 1; r[1] -= value; break;
+        case IR2: c = (r[2] > value) ? 0 : 1; r[2] -= value; break;
+        case IR3: c = (r[3] > value) ? 0 : 1; r[3] -= value; break;
+        case IR4: c = (r[4] > value) ? 0 : 1; r[4] -= value; break;
+        case IR5: c = (r[5] > value) ? 0 : 1; r[5] -= value; break;
+        case IR6: c = (r[6] > value) ? 0 : 1; r[6] -= value; break;
+        case IR7: c = (r[7] > value) ? 0 : 1; r[7] -= value; break;
+        default: STOP = 1; break;
+    }
+    
+    ip += 3;
+}
+
+/**
+ *
  * Processes instruction. If unknown instruction or halt, then the VM stops.
  *
  */
@@ -500,6 +531,7 @@ void processInstruction()
         case INC: incInstruction(); break;
         case DEC: decInstruction(); break;
         case JMP: jmpInstruction(); break;
+        case CMP: cmpInstruction(); break;
         default: STOP = 1; break;
     }
 }
@@ -558,7 +590,7 @@ void run()
 
 void loadTestCode()
 {
-    uint8_t testCode[93] = {
+    uint8_t testCode[96] = {
         SET,   0x0A,       IR0,        // 3
         STORE, IR0,        0xFF, 0xC0, // 7
         LOAD,  0xFF, 0xC0, IR1,        // 11
@@ -594,11 +626,12 @@ void loadTestCode()
         SET,   0xFF,       IR1,        // 83
         SET,   0xC1,       IR2,        // 86
         STORER,IR0,        IR1, IR2,   // 90
-        JMP,   0xAB, 0xCD};            // 93
+        CMP,   IR0,        0x10,       // 93
+        JMP,   0xAB, 0xCD};            // 96
 
     uint16_t i;
 
-    for (i=0; i < 93; i++)
+    for (i=0; i < 96; i++)
     {
         mem[i] = testCode[i];
     }
