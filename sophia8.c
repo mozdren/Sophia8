@@ -47,8 +47,8 @@ static uint8_t  c;              /* carry flag                                */
 #define JMP     0x07            /* jumps to location                    A    */
 #define CMP     0x08            /* compares register to value           A    */
 #define CMPR    0x09            /* compares register to register        A    */
-#define JZ      0x0A            /* jump if reg set to zero              N    */
-#define JNZ     0x0B            /* jump if reg not set to zero          N    */
+#define JZ      0x0A            /* jump if reg set to zero              A    */
+#define JNZ     0x0B            /* jump if reg not set to zero          A    */
 #define JC      0x0C            /* jump if carry is set                 N    */
 #define JNC     0x0D            /* jump if carry is not set             N    */
 #define ADD     0x0E            /* adds value to register               N    */
@@ -420,7 +420,7 @@ void popInstruction()
  */
 void incInstruction()
 {
-    uint8_t what;
+    static uint8_t what;
     
     what = mem[ip + 1];
 
@@ -447,7 +447,7 @@ void incInstruction()
  */
 void decInstruction()
 {
-    uint8_t what;
+    static uint8_t what;
     
     what = mem[ip + 1];
 
@@ -474,7 +474,7 @@ void decInstruction()
  */
 void jmpInstruction()
 {
-    uint16_t jumpAddress;
+    static uint16_t jumpAddress;
 
     jumpAddress = ((uint16_t)mem[ip + 1]) << 8;
     jumpAddress += (uint16_t)mem[ip + 2];
@@ -491,8 +491,8 @@ void jmpInstruction()
  */
 void cmpInstruction()
 {
-    uint8_t sourceRegister;
-    uint8_t value;
+    static uint8_t sourceRegister;
+    static uint8_t value;
     
     sourceRegister = mem[ip + 1];
     value = mem[ip + 2];
@@ -560,6 +560,70 @@ void cmprInstruction()
 
 /**
  *
+ * "Jump if zero" instruction. Jumps to a specific 16 bit address if selected
+ * register is set to zero.
+ *
+ */
+void jzInstruction()
+{
+    static uint8_t sourceRegister;
+    static uint16_t jumpAddress;
+    
+    sourceRegister = mem[ip + 1];
+    
+    jumpAddress = ((uint16_t)mem[ip + 2]) << 8;
+    jumpAddress += (uint16_t)mem[ip + 3];
+    
+    switch (sourceRegister) 
+    {
+        case IR0: if (r[0] == 0) {ip = jumpAddress; return;} break;
+        case IR1: if (r[1] == 0) {ip = jumpAddress; return;} break;
+        case IR2: if (r[2] == 0) {ip = jumpAddress; return;} break;
+        case IR3: if (r[3] == 0) {ip = jumpAddress; return;} break;
+        case IR4: if (r[4] == 0) {ip = jumpAddress; return;} break;
+        case IR5: if (r[5] == 0) {ip = jumpAddress; return;} break;
+        case IR6: if (r[6] == 0) {ip = jumpAddress; return;} break;
+        case IR7: if (r[7] == 0) {ip = jumpAddress; return;} break;
+        default: STOP = 1; break;
+    }
+    
+    ip += 4;
+}
+
+/**
+ *
+ * "Jump if not zero" instruction. Jumps to a specific 16 bit address if
+ * selected register is not set to zero.
+ *
+ */
+void jnzInstruction()
+{
+    static uint8_t sourceRegister;
+    static uint16_t jumpAddress;
+    
+    sourceRegister = mem[ip + 1];
+    
+    jumpAddress = ((uint16_t)mem[ip + 2]) << 8;
+    jumpAddress += (uint16_t)mem[ip + 3];
+    
+    switch (sourceRegister) 
+    {
+        case IR0: if (r[0] != 0) {ip = jumpAddress; return;} break;
+        case IR1: if (r[1] != 0) {ip = jumpAddress; return;} break;
+        case IR2: if (r[2] != 0) {ip = jumpAddress; return;} break;
+        case IR3: if (r[3] != 0) {ip = jumpAddress; return;} break;
+        case IR4: if (r[4] != 0) {ip = jumpAddress; return;} break;
+        case IR5: if (r[5] != 0) {ip = jumpAddress; return;} break;
+        case IR6: if (r[6] != 0) {ip = jumpAddress; return;} break;
+        case IR7: if (r[7] != 0) {ip = jumpAddress; return;} break;
+        default: STOP = 1; break;
+    }
+    
+    ip += 4;
+}
+
+/**
+ *
  * Processes instruction. If unknown instruction or halt, then the VM stops.
  *
  */
@@ -578,6 +642,8 @@ void processInstruction()
         case JMP: jmpInstruction(); break;
         case CMP: cmpInstruction(); break;
         case CMPR: cmprInstruction(); break;
+        case JZ: jzInstruction(); break;
+        case JNZ: jnzInstruction(); break;
         case NOP: ip++; break;
         default: STOP = 1; break;
     }
@@ -637,7 +703,7 @@ void run()
 
 void loadTestCode()
 {
-    uint8_t testCode[99] = {
+    uint8_t testCode[116] = {
         SET,   0x0A,       IR0,        // 3
         STORE, IR0,        0xFF, 0xC0, // 7
         LOAD,  0xFF, 0xC0, IR1,        // 11
@@ -675,11 +741,17 @@ void loadTestCode()
         STORER,IR0,        IR1, IR2,   // 90
         CMP,   IR0,        0x10,       // 93
         CMPR,  IR0,        IR1,        // 96
-        JMP,   0xAB, 0xCD};            // 99
+        NOP,                           // 97
+        SET,   0xFF,       IR0,        // 100
+        SET,   0x0A,       IR1,        // 103
+        STORER,IR1,        IR0, IR1,   // 107
+        DEC,   IR1,                    // 109
+        JNZ,   IR1,        0x00, 0x67, // 113
+        JMP,   0xAB, 0xCD};            // 116
 
     uint16_t i;
 
-    for (i=0; i < 99; i++)
+    for (i=0; i < 116; i++)
     {
         mem[i] = testCode[i];
     }
