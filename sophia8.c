@@ -51,13 +51,20 @@ static uint8_t  c;              /* carry flag                                */
 #define JNZ     0x0B            /* jump if reg not set to zero          A    */
 #define JC      0x0C            /* jump if carry is set                 A    */
 #define JNC     0x0D            /* jump if carry is not set             A    */
-#define ADD     0x0E            /* adds value to register               N    */
-#define ADDR    0x0F            /* adds register to register            N    */
+#define ADD     0x0E            /* adds value to register               A    */
+#define ADDR    0x0F            /* adds register to register            A    */
 #define PUSH    0x10            /* pushes register to stack             A    */
 #define POP     0x11            /* pops from stack to register          A    */
-#define CLR     0x12            /* clears register                      N    */
-#define CALL    0x13            /* calls procedure                      N    */
-#define RET     0x14            /* returns from the procedure           N    */
+#define CALL    0x12            /* calls procedure                      A    */
+#define RET     0x13            /* returns from the procedure           A    */
+#define SUB     0x14            /* subtracts value from register        N    */
+#define SUBR    0x15            /* subtracts register from register     N    */
+#define MUL     0x16            /* multiplies register by value         N    */
+#define MULR    0x17            /* multiplies register by register      N    */
+#define DIV     0x18            /* divides register by value            N    */
+#define DIVR    0x19            /* divides register by register         N    */
+#define SHL     0x1A            /* shifts register to the left          N    */
+#define SHR     0x1B            /* shifts register to the right         N    */
 
 /* special instructions */
 
@@ -737,6 +744,42 @@ void addrInstruction()
 
 /**
  *
+ * Call instruction. Jumps to a specified address and pushes return instruction
+ * address onto a stack.
+ *
+ */
+void callInstruction()
+{
+    static uint16_t callAddress;
+    static uint16_t returnAddress;
+    
+    callAddress = ((uint16_t)mem[ip + 1]) << 8;
+    callAddress += (uint16_t)mem[ip + 2];
+    
+    returnAddress = ip + 3;
+    
+    mem[sp - 2] = (uint8_t)((returnAddress & 0xFF00) >> 8);
+    mem[sp - 1] = (uint8_t)(returnAddress & 0x00FF);
+    sp -= 2;
+    
+    ip = callAddress;
+}
+
+/**
+ *
+ * Ret instruction. Returns from a procedure using the top of the stack as a
+ * return address.
+ *
+ */
+void retInstruction()
+{
+    ip = ((uint16_t)mem[sp]) << 8;
+    ip += (uint16_t)mem[sp + 1];
+    sp += 2;
+}
+
+/**
+ *
  * Processes instruction. If unknown instruction or halt, then the VM stops.
  *
  */
@@ -761,6 +804,8 @@ void processInstruction()
         case JNC: jncInstruction(); break;
         case ADD: addInstruction(); break;
         case ADDR: addrInstruction(); break;
+        case CALL: callInstruction(); break;
+        case RET: retInstruction(); break;
         case NOP: ip++; break;
         default: STOP = 1; break;
     }
@@ -820,7 +865,7 @@ void run()
 
 void loadTestCode()
 {
-    uint8_t testCode[131] = {
+    uint8_t testCode[135] = {
         SET,   0x0A,       IR0,        // 3
         STORE, IR0,        0xFF, 0xC0, // 7
         LOAD,  0xFF, 0xC0, IR1,        // 11
@@ -869,11 +914,13 @@ void loadTestCode()
         ADD,   0xFF,       IR0,        // 122
         SET,   0x00,       IR1,        // 125
         ADDR,  IR0,        IR1,        // 128
-        JMP,   0xAB, 0xCD};            // 131
+        CALL,  0x00, 0x86,             // 131
+        JMP,   0xAB, 0xCD,             // 134
+        RET,};                         // 135
 
     uint16_t i;
 
-    for (i=0; i < 131; i++)
+    for (i=0; i < 135; i++)
     {
         mem[i] = testCode[i];
     }
