@@ -57,8 +57,8 @@ static uint8_t  c;              /* carry flag                                */
 #define POP     0x11            /* pops from stack to register          A    */
 #define CALL    0x12            /* calls procedure                      A    */
 #define RET     0x13            /* returns from the procedure           A    */
-#define SUB     0x14            /* subtracts value from register        N    */
-#define SUBR    0x15            /* subtracts register from register     N    */
+#define SUB     0x14            /* subtracts value from register        A    */
+#define SUBR    0x15            /* subtracts register from register     A    */
 #define MUL     0x16            /* multiplies register by value         N    */
 #define MULR    0x17            /* multiplies register by register      N    */
 #define DIV     0x18            /* divides register by value            N    */
@@ -780,6 +780,75 @@ void retInstruction()
 
 /**
  *
+ * Sub instruction. Subtracts a value from a register.
+ *
+ */
+void subInstruction()
+{
+    static uint8_t destRegister;
+    static uint8_t value;
+    
+    value = mem[ip + 1];
+    destRegister = mem[ip + 2];
+    
+    switch (destRegister)
+    {
+        case IR0: c = r[0] < value ? 1 : 0; r[0] -= value; break;
+        case IR1: c = r[1] < value ? 1 : 0; r[1] -= value; break;
+        case IR2: c = r[2] < value ? 1 : 0; r[2] -= value; break;
+        case IR3: c = r[3] < value ? 1 : 0; r[3] -= value; break;
+        case IR4: c = r[4] < value ? 1 : 0; r[4] -= value; break;
+        case IR5: c = r[5] < value ? 1 : 0; r[5] -= value; break;
+        case IR6: c = r[6] < value ? 1 : 0; r[6] -= value; break;
+        case IR7: c = r[7] < value ? 1 : 0; r[7] -= value; break;
+    }
+    
+    ip += 3;
+}
+
+/**
+ *
+ * Subr instruction. Subtracts a value of a specific register from a value in destination register.
+ *
+ */
+void subrInstruction()
+{
+    static uint8_t destRegister;
+    static uint8_t sourceRegister;
+    static uint8_t value;
+    
+    sourceRegister = mem[ip + 1];
+    destRegister = mem[ip + 2];
+    
+    switch (sourceRegister)
+    {
+        case IR0: value = r[0]; break;
+        case IR1: value = r[1]; break;
+        case IR2: value = r[2]; break;
+        case IR3: value = r[3]; break;
+        case IR4: value = r[4]; break;
+        case IR5: value = r[5]; break;
+        case IR6: value = r[6]; break;
+        case IR7: value = r[7]; break;
+    }
+    
+    switch (destRegister)
+    {
+        case IR0: c = r[0] < value ? 1 : 0; r[0] -= value; break;
+        case IR1: c = r[1] < value ? 1 : 0; r[1] -= value; break;
+        case IR2: c = r[2] < value ? 1 : 0; r[2] -= value; break;
+        case IR3: c = r[3] < value ? 1 : 0; r[3] -= value; break;
+        case IR4: c = r[4] < value ? 1 : 0; r[4] -= value; break;
+        case IR5: c = r[5] < value ? 1 : 0; r[5] -= value; break;
+        case IR6: c = r[6] < value ? 1 : 0; r[6] -= value; break;
+        case IR7: c = r[7] < value ? 1 : 0; r[7] -= value; break;
+    }
+    
+    ip += 3;
+}
+
+/**
+ *
  * Processes instruction. If unknown instruction or halt, then the VM stops.
  *
  */
@@ -806,6 +875,8 @@ void processInstruction()
         case ADDR: addrInstruction(); break;
         case CALL: callInstruction(); break;
         case RET: retInstruction(); break;
+        case SUB: subInstruction(); break;
+        case SUBR: subrInstruction(); break;
         case NOP: ip++; break;
         default: STOP = 1; break;
     }
@@ -865,7 +936,7 @@ void run()
 
 void loadTestCode()
 {
-    uint8_t testCode[135] = {
+    uint8_t testCode[150] = {
         SET,   0x0A,       IR0,        // 3
         STORE, IR0,        0xFF, 0xC0, // 7
         LOAD,  0xFF, 0xC0, IR1,        // 11
@@ -914,13 +985,18 @@ void loadTestCode()
         ADD,   0xFF,       IR0,        // 122
         SET,   0x00,       IR1,        // 125
         ADDR,  IR0,        IR1,        // 128
-        CALL,  0x00, 0x86,             // 131
-        JMP,   0xAB, 0xCD,             // 134
-        RET,};                         // 135
+        CALL,  0x00, 0x95,             // 131
+        SET,   0x09,       IR0,        // 134
+        SUB,   0x0A,       IR0,        // 137
+        SET,   0x09,       IR1,        // 140
+        SET,   0x0A,       IR2,        // 143
+        SUBR,  IR1,        IR2,        // 146
+        JMP,   0xAB, 0xCD,             // 149
+        RET};                          // 150
 
     uint16_t i;
 
-    for (i=0; i < 135; i++)
+    for (i=0; i < 150; i++)
     {
         mem[i] = testCode[i];
     }
