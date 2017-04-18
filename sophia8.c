@@ -63,8 +63,8 @@ static uint8_t  c;              /* carry flag                                */
 #define MULR    0x17            /* multiplies register by register      A    */
 #define DIV     0x18            /* divides register by value            A    */
 #define DIVR    0x19            /* divides register by register         A    */
-#define SHL     0x1A            /* shifts register to the left          N    */
-#define SHR     0x1B            /* shifts register to the right         N    */
+#define SHL     0x1A            /* shifts register to the left          A    */
+#define SHR     0x1B            /* shifts register to the right         A    */
 
 /* special instructions */
 
@@ -731,6 +731,7 @@ void addInstruction()
         case IR5: c = ((uint16_t)r[5] + (uint16_t)value > 0xFF) ? 1 : 0; r[5] += value; break;
         case IR6: c = ((uint16_t)r[6] + (uint16_t)value > 0xFF) ? 1 : 0; r[6] += value; break;
         case IR7: c = ((uint16_t)r[7] + (uint16_t)value > 0xFF) ? 1 : 0; r[7] += value; break;
+        default: STOP = 1; break;
     }
     
     ip += 3;
@@ -760,6 +761,7 @@ void addrInstruction()
         case IR5: value = r[5]; break;
         case IR6: value = r[6]; break;
         case IR7: value = r[7]; break;
+        default: STOP = 1; break;
     }
     
     switch (destRegister)
@@ -772,6 +774,7 @@ void addrInstruction()
         case IR5: c = ((uint16_t)r[5] + (uint16_t)value > 0xFF) ? 1 : 0; r[5] += value; break;
         case IR6: c = ((uint16_t)r[6] + (uint16_t)value > 0xFF) ? 1 : 0; r[6] += value; break;
         case IR7: c = ((uint16_t)r[7] + (uint16_t)value > 0xFF) ? 1 : 0; r[7] += value; break;
+        default: STOP = 1; break;
     }
     
     ip += 3;
@@ -836,6 +839,7 @@ void subInstruction()
         case IR5: c = r[5] < value ? 1 : 0; r[5] -= value; break;
         case IR6: c = r[6] < value ? 1 : 0; r[6] -= value; break;
         case IR7: c = r[7] < value ? 1 : 0; r[7] -= value; break;
+        default: STOP = 1; break;
     }
     
     ip += 3;
@@ -865,6 +869,7 @@ void subrInstruction()
         case IR5: value = r[5]; break;
         case IR6: value = r[6]; break;
         case IR7: value = r[7]; break;
+        default: STOP = 1; break;
     }
     
     switch (destRegister)
@@ -877,6 +882,7 @@ void subrInstruction()
         case IR5: c = r[5] < value ? 1 : 0; r[5] -= value; break;
         case IR6: c = r[6] < value ? 1 : 0; r[6] -= value; break;
         case IR7: c = r[7] < value ? 1 : 0; r[7] -= value; break;
+        default: STOP = 1; break;
     }
     
     ip += 3;
@@ -933,6 +939,7 @@ void mulInstruction()
             result = (uint16_t)r[7] * value; 
             r[7] = (uint8_t)(result & 0x00FF); 
             break;
+        default: STOP = 1; break;
     }
     
     c = (result > 0xFF) ? 1 : 0;
@@ -947,6 +954,7 @@ void mulInstruction()
         case IR5: r[5] = (uint8_t)((result & 0xFF00) >> 8); break;
         case IR6: r[6] = (uint8_t)((result & 0xFF00) >> 8); break;
         case IR7: r[7] = (uint8_t)((result & 0xFF00) >> 8); break;
+        default: STOP = 1; break;
     }
     
     ip += 4;
@@ -980,6 +988,7 @@ void mulrInstruction()
         case IR5: value = (uint16_t)r[5]; break;
         case IR6: value = (uint16_t)r[6]; break;
         case IR7: value = (uint16_t)r[7]; break;
+        default: STOP = 1; break;
     }
     
     switch (destRegisterL)
@@ -1016,6 +1025,7 @@ void mulrInstruction()
             result = (uint16_t)r[7] * value; 
             r[7] = (uint8_t)(result & 0x00FF); 
             break;
+        default: STOP = 1; break;
     }
     
     c = (result > 0xFF) ? 1 : 0;
@@ -1030,6 +1040,7 @@ void mulrInstruction()
         case IR5: r[5] = (uint8_t)((result & 0xFF00) >> 8); break;
         case IR6: r[6] = (uint8_t)((result & 0xFF00) >> 8); break;
         case IR7: r[7] = (uint8_t)((result & 0xFF00) >> 8); break;
+        default: STOP = 1; break;
     }
     
     ip += 4;
@@ -1064,6 +1075,7 @@ void divInstruction()
         case IR5: result = r[5] / value; rest = r[5] % value; r[5] = result; break;
         case IR6: result = r[6] / value; rest = r[6] % value; r[6] = result; break;
         case IR7: result = r[7] / value; rest = r[7] % value; r[7] = result; break;
+        default: STOP = 1; break;
     }
     
     switch (destRegisterRest)
@@ -1076,6 +1088,7 @@ void divInstruction()
         case IR5: r[5] = rest; break;
         case IR6: r[6] = rest; break;
         case IR7: r[7] = rest; break;
+        default: STOP = 1; break;
     }
     
     ip += 4;
@@ -1109,6 +1122,7 @@ void divrInstruction()
         case IR5: value = r[5]; break;
         case IR6: value = r[6]; break;
         case IR7: value = r[7]; break;
+        default: STOP = 1; break;
     }
     
     destRegisterResult = mem[ip + 2];
@@ -1124,6 +1138,7 @@ void divrInstruction()
         case IR5: result = r[5] / value; rest = r[5] % value; r[5] = result; break;
         case IR6: result = r[6] / value; rest = r[6] % value; r[6] = result; break;
         case IR7: result = r[7] / value; rest = r[7] % value; r[7] = result; break;
+        default: STOP = 1; break;
     }
     
     switch (destRegisterRest)
@@ -1136,9 +1151,68 @@ void divrInstruction()
         case IR5: r[5] = rest; break;
         case IR6: r[6] = rest; break;
         case IR7: r[7] = rest; break;
+        default: STOP = 1; break;
     }
     
     ip += 4;
+}
+
+/*
+ *
+ * Shifts value to the right. If last shifted bit was 1, then sets carry to 1.
+ *
+ */
+void shrInstruction()
+{
+    static uint8_t what;
+    static uint8_t val;
+    
+    val = mem[ip + 1];
+    what = mem[ip + 2];
+
+    switch (what) 
+    {
+        case IR0: c = (r[0] >> (val - 1)) % 2; r[0] >>= val; break;
+        case IR1: c = (r[1] >> (val - 1)) % 2; r[1] >>= val; break;
+        case IR2: c = (r[2] >> (val - 1)) % 2; r[2] >>= val; break;
+        case IR3: c = (r[3] >> (val - 1)) % 2; r[3] >>= val; break;
+        case IR4: c = (r[4] >> (val - 1)) % 2; r[4] >>= val; break;
+        case IR5: c = (r[5] >> (val - 1)) % 2; r[5] >>= val; break;
+        case IR6: c = (r[6] >> (val - 1)) % 2; r[6] >>= val; break;
+        case IR7: c = (r[7] >> (val - 1)) % 2; r[7] >>= val; break;
+        default: STOP = 1; break;
+    }
+
+    ip += 3;
+}
+
+/*
+ *
+ * Shifts value to the left. If last shifted bit was 1, then sets carry to 1.
+ *
+ */
+void shlInstruction()
+{
+    static uint8_t what;
+    static uint8_t val;
+    
+    val = mem[ip + 1];
+    what = mem[ip + 2];
+
+    switch (what) 
+    {
+        case IR0: c = r[0] << (val - 1) > 127 ? 1 : 0; r[0] <<= val; break;
+        case IR1: c = r[1] << (val - 1) > 127 ? 1 : 0; r[1] <<= val; break;
+        case IR2: c = r[2] << (val - 1) > 127 ? 1 : 0; r[2] <<= val; break;
+        case IR3: c = r[3] << (val - 1) > 127 ? 1 : 0; r[3] <<= val; break;
+        case IR4: c = r[4] << (val - 1) > 127 ? 1 : 0; r[4] <<= val; break;
+        case IR5: c = r[5] << (val - 1) > 127 ? 1 : 0; r[5] <<= val; break;
+        case IR6: c = r[6] << (val - 1) > 127 ? 1 : 0; r[6] <<= val; break;
+        case IR7: c = r[7] << (val - 1) > 127 ? 1 : 0; r[7] <<= val; break;
+        default: STOP = 1; break;
+    }
+
+    ip += 3;
 }
 
 /**
@@ -1175,6 +1249,8 @@ void processInstruction()
         case MULR: mulrInstruction(); break;
         case DIV: divInstruction(); break;
         case DIVR: divrInstruction(); break;
+        case SHL: shlInstruction(); break;
+        case SHR: shrInstruction(); break;
         case NOP: ip++; break;
         default: STOP = 1; break;
     }
@@ -1234,7 +1310,7 @@ void run()
 
 void loadTestCode()
 {
-    uint8_t testCode[184] = {
+    uint8_t testCode[202] = {
         SET,   0x0A,       IR0,        // 3
         STORE, IR0,        0xFF, 0xC0, // 7
         LOAD,  0xFF, 0xC0, IR1,        // 11
@@ -1283,7 +1359,7 @@ void loadTestCode()
         ADD,   0xFF,       IR0,        // 122
         SET,   0x00,       IR1,        // 125
         ADDR,  IR0,        IR1,        // 128
-        CALL,  0x00, 0xB7,             // 131
+        CALL,  0x00, 0xC9,             // 131
         SET,   0x09,       IR0,        // 134
         SUB,   0x0A,       IR0,        // 137
         SET,   0x09,       IR1,        // 140
@@ -1299,12 +1375,18 @@ void loadTestCode()
         SET,   0x06,       IR0,        // 173
         SET,   0x0A,       IR1,        // 176
         DIVR,  IR0,        IR1, IR2,   // 180
-        JMP,   0xAB, 0xCD,             // 183
-        RET};                          // 184
+        SET,   0x01,       IR0,        // 183
+        SHL,   0x07,       IR0,        // 186
+        SHL,   0x01,       IR0,        // 189
+        SET,   0x80,       IR0,        // 192
+        SHR,   0x07,       IR0,        // 195
+        SHR,   0x01,       IR0,        // 198
+        JMP,   0xAB, 0xCD,             // 201
+        RET};                          // 202
 
     uint16_t i;
 
-    for (i=0; i < 184; i++)
+    for (i=0; i < 202; i++)
     {
         mem[i] = testCode[i];
     }
