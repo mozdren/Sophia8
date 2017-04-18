@@ -59,8 +59,8 @@ static uint8_t  c;              /* carry flag                                */
 #define RET     0x13            /* returns from the procedure           A    */
 #define SUB     0x14            /* subtracts value from register        A    */
 #define SUBR    0x15            /* subtracts register from register     A    */
-#define MUL     0x16            /* multiplies register by value         N    */
-#define MULR    0x17            /* multiplies register by register      N    */
+#define MUL     0x16            /* multiplies register by value         A    */
+#define MULR    0x17            /* multiplies register by register      A    */
 #define DIV     0x18            /* divides register by value            N    */
 #define DIVR    0x19            /* divides register by register         N    */
 #define SHL     0x1A            /* shifts register to the left          N    */
@@ -849,6 +849,159 @@ void subrInstruction()
 
 /**
  *
+ * Mul instruction. multiplies a register by value. Saves result into two
+ * registers.
+ *
+ */
+void mulInstruction()
+{
+    static uint8_t destRegisterL;
+    static uint8_t destRegisterH;
+    static uint16_t value;
+    static uint16_t result;
+    
+    value = (uint16_t)mem[ip + 1];
+    destRegisterH = mem[ip + 2];
+    destRegisterL = mem[ip + 3];
+    
+    switch (destRegisterL)
+    {
+        case IR0: 
+            result = (uint16_t)r[0] * value;
+            r[0] = (uint8_t)(result & 0x00FF); 
+            break;
+        case IR1: 
+            result = (uint16_t)r[1] * value; 
+            r[1] = (uint8_t)(result & 0x00FF); 
+            break;
+        case IR2: 
+            result = (uint16_t)r[2] * value; 
+            r[2] = (uint8_t)(result & 0x00FF); 
+            break;
+        case IR3: 
+            result = (uint16_t)r[3] * value; 
+            r[3] = (uint8_t)(result & 0x00FF); 
+            break;
+        case IR4: 
+            result = (uint16_t)r[4] * value; 
+            r[4] = (uint8_t)(result & 0x00FF); 
+            break;
+        case IR5: 
+            result = (uint16_t)r[5] * value; 
+            r[5] = (uint8_t)(result & 0x00FF); 
+            break;
+        case IR6: 
+            result = (uint16_t)r[6] * value; 
+            r[6] = (uint8_t)(result & 0x00FF); 
+            break;
+        case IR7: 
+            result = (uint16_t)r[7] * value; 
+            r[7] = (uint8_t)(result & 0x00FF); 
+            break;
+    }
+    
+    c = (result > 0xFF) ? 1 : 0;
+    
+    switch (destRegisterH)
+    {
+        case IR0: r[0] = (uint8_t)((result & 0xFF00) >> 8); break;
+        case IR1: r[1] = (uint8_t)((result & 0xFF00) >> 8); break;
+        case IR2: r[2] = (uint8_t)((result & 0xFF00) >> 8); break;
+        case IR3: r[3] = (uint8_t)((result & 0xFF00) >> 8); break;
+        case IR4: r[4] = (uint8_t)((result & 0xFF00) >> 8); break;
+        case IR5: r[5] = (uint8_t)((result & 0xFF00) >> 8); break;
+        case IR6: r[6] = (uint8_t)((result & 0xFF00) >> 8); break;
+        case IR7: r[7] = (uint8_t)((result & 0xFF00) >> 8); break;
+    }
+    
+    ip += 4;
+}
+
+/**
+ *
+ * Mulr instruction. Multiplies register value by a register value. Saves 
+ * result into two registers.
+ *
+ */
+void mulrInstruction()
+{
+    static uint8_t srcRegister;
+    static uint8_t destRegisterL;
+    static uint8_t destRegisterH;
+    static uint16_t value;
+    static uint16_t result;
+    
+    srcRegister = mem[ip + 1];
+    destRegisterH = mem[ip + 2];
+    destRegisterL = mem[ip + 3];
+    
+    switch (srcRegister)
+    {
+        case IR0: value = (uint16_t)r[0]; break;
+        case IR1: value = (uint16_t)r[1]; break;
+        case IR2: value = (uint16_t)r[2]; break;
+        case IR3: value = (uint16_t)r[3]; break;
+        case IR4: value = (uint16_t)r[4]; break;
+        case IR5: value = (uint16_t)r[5]; break;
+        case IR6: value = (uint16_t)r[6]; break;
+        case IR7: value = (uint16_t)r[7]; break;
+    }
+    
+    switch (destRegisterL)
+    {
+        case IR0: 
+            result = (uint16_t)r[0] * value;
+            r[0] = (uint8_t)(result & 0x00FF); 
+            break;
+        case IR1: 
+            result = (uint16_t)r[1] * value; 
+            r[1] = (uint8_t)(result & 0x00FF); 
+            break;
+        case IR2: 
+            result = (uint16_t)r[2] * value; 
+            r[2] = (uint8_t)(result & 0x00FF); 
+            break;
+        case IR3: 
+            result = (uint16_t)r[3] * value; 
+            r[3] = (uint8_t)(result & 0x00FF); 
+            break;
+        case IR4: 
+            result = (uint16_t)r[4] * value; 
+            r[4] = (uint8_t)(result & 0x00FF); 
+            break;
+        case IR5: 
+            result = (uint16_t)r[5] * value; 
+            r[5] = (uint8_t)(result & 0x00FF); 
+            break;
+        case IR6: 
+            result = (uint16_t)r[6] * value; 
+            r[6] = (uint8_t)(result & 0x00FF); 
+            break;
+        case IR7: 
+            result = (uint16_t)r[7] * value; 
+            r[7] = (uint8_t)(result & 0x00FF); 
+            break;
+    }
+    
+    c = (result > 0xFF) ? 1 : 0;
+    
+    switch (destRegisterH)
+    {
+        case IR0: r[0] = (uint8_t)((result & 0xFF00) >> 8); break;
+        case IR1: r[1] = (uint8_t)((result & 0xFF00) >> 8); break;
+        case IR2: r[2] = (uint8_t)((result & 0xFF00) >> 8); break;
+        case IR3: r[3] = (uint8_t)((result & 0xFF00) >> 8); break;
+        case IR4: r[4] = (uint8_t)((result & 0xFF00) >> 8); break;
+        case IR5: r[5] = (uint8_t)((result & 0xFF00) >> 8); break;
+        case IR6: r[6] = (uint8_t)((result & 0xFF00) >> 8); break;
+        case IR7: r[7] = (uint8_t)((result & 0xFF00) >> 8); break;
+    }
+    
+    ip += 4;
+}
+
+/**
+ *
  * Processes instruction. If unknown instruction or halt, then the VM stops.
  *
  */
@@ -877,6 +1030,8 @@ void processInstruction()
         case RET: retInstruction(); break;
         case SUB: subInstruction(); break;
         case SUBR: subrInstruction(); break;
+        case MUL: mulInstruction(); break;
+        case MULR: mulrInstruction(); break;
         case NOP: ip++; break;
         default: STOP = 1; break;
     }
@@ -936,7 +1091,7 @@ void run()
 
 void loadTestCode()
 {
-    uint8_t testCode[150] = {
+    uint8_t testCode[167] = {
         SET,   0x0A,       IR0,        // 3
         STORE, IR0,        0xFF, 0xC0, // 7
         LOAD,  0xFF, 0xC0, IR1,        // 11
@@ -985,18 +1140,23 @@ void loadTestCode()
         ADD,   0xFF,       IR0,        // 122
         SET,   0x00,       IR1,        // 125
         ADDR,  IR0,        IR1,        // 128
-        CALL,  0x00, 0x95,             // 131
+        CALL,  0x00, 0xA6,             // 131
         SET,   0x09,       IR0,        // 134
         SUB,   0x0A,       IR0,        // 137
         SET,   0x09,       IR1,        // 140
         SET,   0x0A,       IR2,        // 143
         SUBR,  IR1,        IR2,        // 146
-        JMP,   0xAB, 0xCD,             // 149
-        RET};                          // 150
+        SET,   0xEE,       IR1,        // 149
+        MUL,   0xEE,       IR0, IR1,   // 153
+        SET,   0xEE,       IR0,        // 156
+        SET,   0xEE,       IR2,        // 159
+        MULR,  IR0,        IR1, IR2,   // 163
+        JMP,   0xAB, 0xCD,             // 166
+        RET};                          // 167
 
     uint16_t i;
 
-    for (i=0; i < 150; i++)
+    for (i=0; i < 167; i++)
     {
         mem[i] = testCode[i];
     }
