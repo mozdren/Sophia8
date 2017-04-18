@@ -61,8 +61,8 @@ static uint8_t  c;              /* carry flag                                */
 #define SUBR    0x15            /* subtracts register from register     A    */
 #define MUL     0x16            /* multiplies register by value         A    */
 #define MULR    0x17            /* multiplies register by register      A    */
-#define DIV     0x18            /* divides register by value            N    */
-#define DIVR    0x19            /* divides register by register         N    */
+#define DIV     0x18            /* divides register by value            A    */
+#define DIVR    0x19            /* divides register by register         A    */
 #define SHL     0x1A            /* shifts register to the left          N    */
 #define SHR     0x1B            /* shifts register to the right         N    */
 
@@ -70,6 +70,41 @@ static uint8_t  c;              /* carry flag                                */
 
 #define HALT    0x00            /* no operation                         A    */
 #define NOP     0xFF            /* stops/exits the virtual machine      A    */
+
+/* INSTRUCTIONS LENGTHS ******************************************************/
+
+#define LOAD_LEN    4 
+#define STORE_LEN   4
+#define STORER_LEN  4
+#define SET_LEN     3
+#define INC_LEN     2
+#define DEC_LEN     2
+#define JMP_LEN     3
+#define CMP_LEN     3
+#define CMPR_LEN    3
+#define JZ_LEN      4
+#define JNZ_LEN     4
+#define JC_LEN      3
+#define JNC_LEN     3
+#define ADD_LEN     3
+#define ADDR_LEN    3
+#define PUSH_LEN    2
+#define POP_LEN     2
+#define CALL_LEN    3
+#define RET_LEN     1
+#define SUB_LEN     3
+#define SUBR_LEN    3
+#define MUL_LEN     4
+#define MULR_LEN    4
+#define DIV_LEN     4
+#define DIVR_LEN    4
+#define SHL_LEN     3
+#define SHR_LEN     3
+
+/* special instructions */
+
+#define HALT_LEN    1
+#define NOP_LEN     1
 
 /* REGISTERS CODES ***********************************************************/
 
@@ -703,7 +738,7 @@ void addInstruction()
 
 /**
  *
- * Addr instruction. Adds a value of a specific register to a vale in destination register.
+ * Addr instruction. Adds a value of a specific register to a value in destination register.
  *
  */
 void addrInstruction()
@@ -1002,6 +1037,112 @@ void mulrInstruction()
 
 /**
  *
+ * Div instruction. divides a register by value. Saves results into two
+ * registers. First register holds rusult of the dision, and the second
+ * the rest of the division.
+ *
+ */
+void divInstruction()
+{
+    static uint8_t destRegisterResult;
+    static uint8_t destRegisterRest;
+    static uint8_t value;
+    static uint8_t result;
+    static uint8_t rest;
+    
+    value = mem[ip + 1];
+    destRegisterResult = mem[ip + 2];
+    destRegisterRest = mem[ip + 3];
+    
+    switch (destRegisterResult)
+    {
+        case IR0: result = r[0] / value; rest = r[0] % value; r[0] = result; break;
+        case IR1: result = r[1] / value; rest = r[1] % value; r[1] = result; break;
+        case IR2: result = r[2] / value; rest = r[2] % value; r[2] = result; break;
+        case IR3: result = r[3] / value; rest = r[3] % value; r[3] = result; break;
+        case IR4: result = r[4] / value; rest = r[4] % value; r[4] = result; break;
+        case IR5: result = r[5] / value; rest = r[5] % value; r[5] = result; break;
+        case IR6: result = r[6] / value; rest = r[6] % value; r[6] = result; break;
+        case IR7: result = r[7] / value; rest = r[7] % value; r[7] = result; break;
+    }
+    
+    switch (destRegisterRest)
+    {
+        case IR0: r[0] = rest; break;
+        case IR1: r[1] = rest; break;
+        case IR2: r[2] = rest; break;
+        case IR3: r[3] = rest; break;
+        case IR4: r[4] = rest; break;
+        case IR5: r[5] = rest; break;
+        case IR6: r[6] = rest; break;
+        case IR7: r[7] = rest; break;
+    }
+    
+    ip += 4;
+}
+
+/**
+ *
+ * Divr instruction. divides a register by another register. Saves results into
+ * two registers. First register holds rusult of the dision, and the second
+ * the rest of the division.
+ *
+ */
+void divrInstruction()
+{
+    static uint8_t srcRegister;
+    static uint8_t destRegisterResult;
+    static uint8_t destRegisterRest;
+    static uint8_t value;
+    static uint8_t result;
+    static uint8_t rest;
+    
+    srcRegister = mem[ip + 1];
+    
+    switch (srcRegister)
+    {
+        case IR0: value = r[0]; break;
+        case IR1: value = r[1]; break;
+        case IR2: value = r[2]; break;
+        case IR3: value = r[3]; break;
+        case IR4: value = r[4]; break;
+        case IR5: value = r[5]; break;
+        case IR6: value = r[6]; break;
+        case IR7: value = r[7]; break;
+    }
+    
+    destRegisterResult = mem[ip + 2];
+    destRegisterRest = mem[ip + 3];
+    
+    switch (destRegisterResult)
+    {
+        case IR0: result = r[0] / value; rest = r[0] % value; r[0] = result; break;
+        case IR1: result = r[1] / value; rest = r[1] % value; r[1] = result; break;
+        case IR2: result = r[2] / value; rest = r[2] % value; r[2] = result; break;
+        case IR3: result = r[3] / value; rest = r[3] % value; r[3] = result; break;
+        case IR4: result = r[4] / value; rest = r[4] % value; r[4] = result; break;
+        case IR5: result = r[5] / value; rest = r[5] % value; r[5] = result; break;
+        case IR6: result = r[6] / value; rest = r[6] % value; r[6] = result; break;
+        case IR7: result = r[7] / value; rest = r[7] % value; r[7] = result; break;
+    }
+    
+    switch (destRegisterRest)
+    {
+        case IR0: r[0] = rest; break;
+        case IR1: r[1] = rest; break;
+        case IR2: r[2] = rest; break;
+        case IR3: r[3] = rest; break;
+        case IR4: r[4] = rest; break;
+        case IR5: r[5] = rest; break;
+        case IR6: r[6] = rest; break;
+        case IR7: r[7] = rest; break;
+    }
+    
+    ip += 4;
+}
+
+/**
+ *
  * Processes instruction. If unknown instruction or halt, then the VM stops.
  *
  */
@@ -1032,6 +1173,8 @@ void processInstruction()
         case SUBR: subrInstruction(); break;
         case MUL: mulInstruction(); break;
         case MULR: mulrInstruction(); break;
+        case DIV: divInstruction(); break;
+        case DIVR: divrInstruction(); break;
         case NOP: ip++; break;
         default: STOP = 1; break;
     }
@@ -1046,7 +1189,7 @@ void printMemory()
 {
     uint16_t i;
 
-    for (i = 0; i<MEM_SIZE; i++)
+    for (i = 0; i < MEM_SIZE; i++)
     {
         if (i % 64 == 0)
         {
@@ -1067,7 +1210,7 @@ void printMemory()
 void printRegisters()
 {
     uint8_t i;
-    for (i=0;i<8;i++)
+    for (i = 0; i < 8; i++)
     {
         printf("R%d = 0x%02x ", i, r[i]);
     }
@@ -1091,7 +1234,7 @@ void run()
 
 void loadTestCode()
 {
-    uint8_t testCode[167] = {
+    uint8_t testCode[184] = {
         SET,   0x0A,       IR0,        // 3
         STORE, IR0,        0xFF, 0xC0, // 7
         LOAD,  0xFF, 0xC0, IR1,        // 11
@@ -1140,7 +1283,7 @@ void loadTestCode()
         ADD,   0xFF,       IR0,        // 122
         SET,   0x00,       IR1,        // 125
         ADDR,  IR0,        IR1,        // 128
-        CALL,  0x00, 0xA6,             // 131
+        CALL,  0x00, 0xB7,             // 131
         SET,   0x09,       IR0,        // 134
         SUB,   0x0A,       IR0,        // 137
         SET,   0x09,       IR1,        // 140
@@ -1151,12 +1294,17 @@ void loadTestCode()
         SET,   0xEE,       IR0,        // 156
         SET,   0xEE,       IR2,        // 159
         MULR,  IR0,        IR1, IR2,   // 163
-        JMP,   0xAB, 0xCD,             // 166
-        RET};                          // 167
+        SET,   0x0A,       IR0,        // 166
+        DIV,   0x06,       IR0, IR1,   // 170
+        SET,   0x06,       IR0,        // 173
+        SET,   0x0A,       IR1,        // 176
+        DIVR,  IR0,        IR1, IR2,   // 180
+        JMP,   0xAB, 0xCD,             // 183
+        RET};                          // 184
 
     uint16_t i;
 
-    for (i=0; i < 167; i++)
+    for (i=0; i < 184; i++)
     {
         mem[i] = testCode[i];
     }
