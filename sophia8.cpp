@@ -2,7 +2,7 @@
 /*                                                                           */
 /* Project: Sophia8 - an 8 bit virtual machine                               */
 /* Author:  Karel Mozdren                                                    */
-/* File:    sophia8.c                                                        */
+/* File:    sophia8.cpp                                                      */
 /* Date:    06.04.2017                                                       */
 /*                                                                           */
 /* Description:                                                              */
@@ -16,8 +16,8 @@
 
 /* INCLUDES ******************************************************************/
 
-#include <stdio.h>
-#include <stdint.h>
+#include <cstdio>
+#include <cstdint>
 
 #include "definitions.h"
 
@@ -52,9 +52,10 @@ static uint8_t  STOP = 0x00;    /* should stop the machine?                  */
  * pointer to top of the memory.
  *
  */
-void initMachine()
+void init_machine()
 {
     uint16_t i;
+    STOP = 0;
 
     /* clean all memory */
     for (i = 0; i < MEM_SIZE; i++)
@@ -80,17 +81,17 @@ void initMachine()
  * 
  * LOAD 0x1A2B, R0 -> 00 1A 2B 00
  */
-void loadInstruction()
+void load_instruction()
 {
-    static uint16_t memorySource;
+    static uint16_t memory_source;
     static uint8_t destination;
     static uint8_t value;
 
-    memorySource = (uint16_t)mem[ip + 1];
-    memorySource <<= 8;
-    memorySource += (uint16_t)mem[ip + 2];
+    memory_source = static_cast<uint16_t>(mem[ip + 1]);
+    memory_source <<= 8;
+    memory_source += static_cast<uint16_t>(mem[ip + 2]);
 
-    value = mem[memorySource];
+    value = mem[memory_source];
 
     destination = mem[ip + 3];
 
@@ -118,15 +119,15 @@ void loadInstruction()
  */
 void storeInstruction()
 {
-    static uint16_t memoryDestination;
+    static uint16_t memory_destination;
     static uint8_t source;
     static uint8_t value;
 
     source = mem[ip + 1]; 
 
-    memoryDestination = (uint16_t)mem[ip + 2];
-    memoryDestination <<= 8;
-    memoryDestination += (uint16_t)mem[ip + 3];
+    memory_destination = static_cast<uint16_t>(mem[ip + 2]);
+    memory_destination <<= 8;
+    memory_destination += static_cast<uint16_t>(mem[ip + 3]);
 
     switch (source) 
     {
@@ -141,7 +142,7 @@ void storeInstruction()
         default: STOP = 1; break;
     }
     
-    mem[memoryDestination] = value;
+    mem[memory_destination] = value;
 
     ip += 4;
 }
@@ -152,20 +153,20 @@ void storeInstruction()
  * 
  * STORER R0, R1, R2 -> 02 00 01 02
  */
-void storerInstruction()
+void storer_instruction()
 {
-    static uint8_t sourceRegister;
-    static uint8_t destinationRegisterH;
-    static uint8_t destinationRegisterL;
+    static uint8_t source_register;
+    static uint8_t destination_register_h;
+    static uint8_t destination_register_l;
     
     static uint8_t value;
     static uint16_t destinationAddress;
 
-    sourceRegister = mem[ip + 1];
-    destinationRegisterH = mem[ip + 2];
-    destinationRegisterL = mem[ip + 3];
+    source_register = mem[ip + 1];
+    destination_register_h = mem[ip + 2];
+    destination_register_l = mem[ip + 3];
     
-    switch (sourceRegister) 
+    switch (source_register) 
     {
         case IR0: value = r[0]; break;
         case IR1: value = r[1]; break;
@@ -178,29 +179,29 @@ void storerInstruction()
         default: STOP = 1; break;
     }
 
-    switch (destinationRegisterH) 
+    switch (destination_register_h) 
     {
-        case IR0: destinationAddress = ((uint16_t)r[0]) << 8; break;
-        case IR1: destinationAddress = ((uint16_t)r[1]) << 8; break;
-        case IR2: destinationAddress = ((uint16_t)r[2]) << 8; break;
-        case IR3: destinationAddress = ((uint16_t)r[3]) << 8; break;
-        case IR4: destinationAddress = ((uint16_t)r[4]) << 8; break;
-        case IR5: destinationAddress = ((uint16_t)r[5]) << 8; break;
-        case IR6: destinationAddress = ((uint16_t)r[6]) << 8; break;
-        case IR7: destinationAddress = ((uint16_t)r[7]) << 8; break;
+        case IR0: destinationAddress = static_cast<uint16_t>(r[0]) << 8; break;
+        case IR1: destinationAddress = static_cast<uint16_t>(r[1]) << 8; break;
+        case IR2: destinationAddress = static_cast<uint16_t>(r[2]) << 8; break;
+        case IR3: destinationAddress = static_cast<uint16_t>(r[3]) << 8; break;
+        case IR4: destinationAddress = static_cast<uint16_t>(r[4]) << 8; break;
+        case IR5: destinationAddress = static_cast<uint16_t>(r[5]) << 8; break;
+        case IR6: destinationAddress = static_cast<uint16_t>(r[6]) << 8; break;
+        case IR7: destinationAddress = static_cast<uint16_t>(r[7]) << 8; break;
         default: STOP = 1; break;
     }
     
-    switch (destinationRegisterL) 
+    switch (destination_register_l) 
     {
-        case IR0: destinationAddress += ((uint16_t)r[0]); break;
-        case IR1: destinationAddress += ((uint16_t)r[1]); break;
-        case IR2: destinationAddress += ((uint16_t)r[2]); break;
-        case IR3: destinationAddress += ((uint16_t)r[3]); break;
-        case IR4: destinationAddress += ((uint16_t)r[4]); break;
-        case IR5: destinationAddress += ((uint16_t)r[5]); break;
-        case IR6: destinationAddress += ((uint16_t)r[6]); break;
-        case IR7: destinationAddress += ((uint16_t)r[7]); break;
+        case IR0: destinationAddress += static_cast<uint16_t>(r[0]); break;
+        case IR1: destinationAddress += static_cast<uint16_t>(r[1]); break;
+        case IR2: destinationAddress += static_cast<uint16_t>(r[2]); break;
+        case IR3: destinationAddress += static_cast<uint16_t>(r[3]); break;
+        case IR4: destinationAddress += static_cast<uint16_t>(r[4]); break;
+        case IR5: destinationAddress += static_cast<uint16_t>(r[5]); break;
+        case IR6: destinationAddress += static_cast<uint16_t>(r[6]); break;
+        case IR7: destinationAddress += static_cast<uint16_t>(r[7]); break;
         default: STOP = 1; break;
     }
     
@@ -215,7 +216,7 @@ void storerInstruction()
  * 
  * SET 0x1A, R0 -> 03 1A 00
  */
-void setInstruction()
+void set_instruction()
 {
     static uint8_t destination;
     static uint8_t value;
@@ -245,7 +246,7 @@ void setInstruction()
  *
  * PUSH R0 -> 10 00
  */
-void pushInstruction()
+void push_instruction()
 {
     static uint8_t source;
     static uint8_t value;
@@ -257,48 +258,48 @@ void pushInstruction()
 
     if (source == IIP)
     {
-        value = (uint8_t)(ip & 0x00FF);
+        value = static_cast<uint8_t>(ip & 0x00FF);
         mem[sp] = value;
-        value = (uint8_t)((ip & 0xFF00) >> 8);
+        value = static_cast<uint8_t>((ip & 0xFF00) >> 8);
         mem[sp-1] = value;
         sp--;
         ip += 2;
         return;
     }
-    else if (source == ISP)
+    
+    if (source == ISP)
     {
-        value = (uint8_t)(sp & 0x00FF);
+        value = static_cast<uint8_t>(sp & 0x00FF);
         mem[sp] = value;
-        value = (uint8_t)((sp & 0xFF00) >> 8);
+        value = static_cast<uint8_t>((sp & 0xFF00) >> 8);
         mem[sp-1] = value;
         sp--;
         ip += 2;
         return;
     }
-    else if (source == IBP)
+
+    if (source == IBP)
     {
-        value = (uint8_t)(bp & 0x00FF);
+        value = static_cast<uint8_t>(bp & 0x00FF);
         mem[sp] = value;
-        value = (uint8_t)((bp & 0xFF00) >> 8);
+        value = static_cast<uint8_t>((bp & 0xFF00) >> 8);
         mem[sp-1] = value;
         sp--;
         ip += 2;
         return;
     }
-    else
+
+    switch (source) 
     {
-        switch (source) 
-        {
-            case IR0: value = r[0]; break;
-            case IR1: value = r[1]; break;
-            case IR2: value = r[2]; break;
-            case IR3: value = r[3]; break;
-            case IR4: value = r[4]; break;
-            case IR5: value = r[5]; break;
-            case IR6: value = r[6]; break;
-            case IR7: value = r[7]; break;
-            default: STOP = 1; break;
-        }
+    case IR0: value = r[0]; break;
+    case IR1: value = r[1]; break;
+    case IR2: value = r[2]; break;
+    case IR3: value = r[3]; break;
+    case IR4: value = r[4]; break;
+    case IR5: value = r[5]; break;
+    case IR6: value = r[6]; break;
+    case IR7: value = r[7]; break;
+    default: STOP = 1; break;
     }
 
     mem[sp] = value;
@@ -312,7 +313,7 @@ void pushInstruction()
  *
  * POP R0 -> 11 00
  */
-void popInstruction()
+void pop_instruction()
 {
     static uint8_t source;
     static uint16_t value;
@@ -323,7 +324,7 @@ void popInstruction()
 
     if (source == IIP)
     {
-        value = ((uint16_t)(mem[sp]) << 8) + (uint16_t)(mem[sp + 1]);
+        value = (static_cast<uint16_t>(mem[sp]) << 8) + static_cast<uint16_t>(mem[sp + 1]);
         ip = value;
         sp += 2;
         ip += 2;
@@ -331,7 +332,7 @@ void popInstruction()
     }
     else if (source == ISP)
     {
-        value = ((uint16_t)(mem[sp]) << 8) + (uint16_t)(mem[sp + 1]);
+        value = (static_cast<uint16_t>(mem[sp]) << 8) + static_cast<uint16_t>(mem[sp + 1]);
         sp = value;
         sp += 2;
         ip += 2;
@@ -339,7 +340,7 @@ void popInstruction()
     }
     else if (source == IBP)
     {
-        value = ((uint16_t)(mem[sp]) << 8) + (uint16_t)(mem[sp + 1]);
+        value = (static_cast<uint16_t>(mem[sp]) << 8) + static_cast<uint16_t>(mem[sp + 1]);
         bp = value;
         sp += 2;
         ip += 2;
@@ -347,18 +348,18 @@ void popInstruction()
     }
     else
     {
-        value = (uint16_t)mem[sp];
+        value = static_cast<uint16_t>(mem[sp]);
 
         switch (source) 
         {
-            case IR0: r[0] = (uint8_t)value; break;
-            case IR1: r[1] = (uint8_t)value; break;
-            case IR2: r[2] = (uint8_t)value; break;
-            case IR3: r[3] = (uint8_t)value; break;
-            case IR4: r[4] = (uint8_t)value; break;
-            case IR5: r[5] = (uint8_t)value; break;
-            case IR6: r[6] = (uint8_t)value; break;
-            case IR7: r[7] = (uint8_t)value; break;
+            case IR0: r[0] = static_cast<uint8_t>(value); break;
+            case IR1: r[1] = static_cast<uint8_t>(value); break;
+            case IR2: r[2] = static_cast<uint8_t>(value); break;
+            case IR3: r[3] = static_cast<uint8_t>(value); break;
+            case IR4: r[4] = static_cast<uint8_t>(value); break;
+            case IR5: r[5] = static_cast<uint8_t>(value); break;
+            case IR6: r[6] = static_cast<uint8_t>(value); break;
+            case IR7: r[7] = static_cast<uint8_t>(value); break;
             default: STOP = 1; break;
         }
     }
@@ -372,7 +373,7 @@ void popInstruction()
  * Increase Instruction. Increases register value by 1.
  *
  */
-void incInstruction()
+void inc_instruction()
 {
     static uint8_t what;
     
@@ -399,7 +400,7 @@ void incInstruction()
  * Decrease Instruction. Decreases register value by 1.
  *
  */
-void decInstruction()
+void dec_instruction()
 {
     static uint8_t what;
     
@@ -426,41 +427,41 @@ void decInstruction()
  * JMP instruction. Jumps to a specific 16 bit address.
  *
  */
-void jmpInstruction()
+void jmp_instruction()
 {
-    static uint16_t jumpAddress;
+    static uint16_t jump_address;
 
-    jumpAddress = ((uint16_t)mem[ip + 1]) << 8;
-    jumpAddress += (uint16_t)mem[ip + 2];
+    jump_address = static_cast<uint16_t>(mem[ip + 1]) << 8;
+    jump_address += static_cast<uint16_t>(mem[ip + 2]);
 
-    ip = jumpAddress;
+    ip = jump_address;
 }
 
 /**
  *
  * compares register to a value. If register value is less than imediate value
- * it sets the carry bit to true. Does subscration on the backend. Substracted
+ * it sets the carry bit to true. Does subtraction on the backend. Subtracted
  * value is set in the register that has been used for comparison.
  *
  */
-void cmpInstruction()
+void cmp_instruction()
 {
-    static uint8_t sourceRegister;
+    static uint8_t source_register;
     static uint8_t value;
     
-    sourceRegister = mem[ip + 1];
+    source_register = mem[ip + 1];
     value = mem[ip + 2];
     
-    switch (sourceRegister) 
+    switch (source_register) 
     {
-        case IR0: c = (r[0] >= value) ? 0 : 1; r[0] -= value; break;
-        case IR1: c = (r[1] >= value) ? 0 : 1; r[1] -= value; break;
-        case IR2: c = (r[2] >= value) ? 0 : 1; r[2] -= value; break;
-        case IR3: c = (r[3] >= value) ? 0 : 1; r[3] -= value; break;
-        case IR4: c = (r[4] >= value) ? 0 : 1; r[4] -= value; break;
-        case IR5: c = (r[5] >= value) ? 0 : 1; r[5] -= value; break;
-        case IR6: c = (r[6] >= value) ? 0 : 1; r[6] -= value; break;
-        case IR7: c = (r[7] >= value) ? 0 : 1; r[7] -= value; break;
+        case IR0: c = r[0] >= value ? 0 : 1; r[0] -= value; break;
+        case IR1: c = r[1] >= value ? 0 : 1; r[1] -= value; break;
+        case IR2: c = r[2] >= value ? 0 : 1; r[2] -= value; break;
+        case IR3: c = r[3] >= value ? 0 : 1; r[3] -= value; break;
+        case IR4: c = r[4] >= value ? 0 : 1; r[4] -= value; break;
+        case IR5: c = r[5] >= value ? 0 : 1; r[5] -= value; break;
+        case IR6: c = r[6] >= value ? 0 : 1; r[6] -= value; break;
+        case IR7: c = r[7] >= value ? 0 : 1; r[7] -= value; break;
         default: STOP = 1; break;
     }
     
@@ -470,12 +471,12 @@ void cmpInstruction()
 /**
  *
  * compares register to another register. If register value is less than
- * imediate value it sets the carry bit to true. Does subscration on the
- * backend. Substracted value is set in the register that has been used 
+ * imediate value it sets the carry bit to true. Does subtraction on the
+ * backend. Subtracted value is set in the register that has been used 
  * for comparison.
  *
  */
-void cmprInstruction()
+void cmpr_instruction()
 {
     static uint8_t register0;
     static uint8_t register1;
@@ -499,14 +500,14 @@ void cmprInstruction()
     
     switch (register0) 
     {
-        case IR0: c = (r[0] >= value) ? 0 : 1;  r[0] -= value; break;
-        case IR1: c = (r[1] >= value) ? 0 : 1;  r[1] -= value; break;
-        case IR2: c = (r[2] >= value) ? 0 : 1;  r[2] -= value; break;
-        case IR3: c = (r[3] >= value) ? 0 : 1;  r[3] -= value; break;
-        case IR4: c = (r[4] >= value) ? 0 : 1;  r[4] -= value; break;
-        case IR5: c = (r[5] >= value) ? 0 : 1;  r[5] -= value; break;
-        case IR6: c = (r[6] >= value) ? 0 : 1;  r[6] -= value; break;
-        case IR7: c = (r[7] >= value) ? 0 : 1;  r[7] -= value; break;
+        case IR0: c = r[0] >= value ? 0 : 1;  r[0] -= value; break;
+        case IR1: c = r[1] >= value ? 0 : 1;  r[1] -= value; break;
+        case IR2: c = r[2] >= value ? 0 : 1;  r[2] -= value; break;
+        case IR3: c = r[3] >= value ? 0 : 1;  r[3] -= value; break;
+        case IR4: c = r[4] >= value ? 0 : 1;  r[4] -= value; break;
+        case IR5: c = r[5] >= value ? 0 : 1;  r[5] -= value; break;
+        case IR6: c = r[6] >= value ? 0 : 1;  r[6] -= value; break;
+        case IR7: c = r[7] >= value ? 0 : 1;  r[7] -= value; break;
         default: STOP = 1; break;
     }
     
@@ -519,15 +520,15 @@ void cmprInstruction()
  * register is set to zero.
  *
  */
-void jzInstruction()
+void jz_instruction()
 {
     static uint8_t sourceRegister;
     static uint16_t jumpAddress;
     
     sourceRegister = mem[ip + 1];
     
-    jumpAddress = ((uint16_t)mem[ip + 2]) << 8;
-    jumpAddress += (uint16_t)mem[ip + 3];
+    jumpAddress = static_cast<uint16_t>(mem[ip + 2]) << 8;
+    jumpAddress += static_cast<uint16_t>(mem[ip + 3]);
     
     switch (sourceRegister) 
     {
@@ -551,26 +552,26 @@ void jzInstruction()
  * selected register is not set to zero.
  *
  */
-void jnzInstruction()
+void jnz_instruction()
 {
-    static uint8_t sourceRegister;
-    static uint16_t jumpAddress;
+    static uint8_t source_register;
+    static uint16_t jump_address;
     
-    sourceRegister = mem[ip + 1];
+    source_register = mem[ip + 1];
     
-    jumpAddress = ((uint16_t)mem[ip + 2]) << 8;
-    jumpAddress += (uint16_t)mem[ip + 3];
+    jump_address = static_cast<uint16_t>(mem[ip + 2]) << 8;
+    jump_address += static_cast<uint16_t>(mem[ip + 3]);
     
-    switch (sourceRegister) 
+    switch (source_register) 
     {
-        case IR0: if (r[0] != 0) {ip = jumpAddress; return;} break;
-        case IR1: if (r[1] != 0) {ip = jumpAddress; return;} break;
-        case IR2: if (r[2] != 0) {ip = jumpAddress; return;} break;
-        case IR3: if (r[3] != 0) {ip = jumpAddress; return;} break;
-        case IR4: if (r[4] != 0) {ip = jumpAddress; return;} break;
-        case IR5: if (r[5] != 0) {ip = jumpAddress; return;} break;
-        case IR6: if (r[6] != 0) {ip = jumpAddress; return;} break;
-        case IR7: if (r[7] != 0) {ip = jumpAddress; return;} break;
+        case IR0: if (r[0] != 0) {ip = jump_address; return;} break;
+        case IR1: if (r[1] != 0) {ip = jump_address; return;} break;
+        case IR2: if (r[2] != 0) {ip = jump_address; return;} break;
+        case IR3: if (r[3] != 0) {ip = jump_address; return;} break;
+        case IR4: if (r[4] != 0) {ip = jump_address; return;} break;
+        case IR5: if (r[5] != 0) {ip = jump_address; return;} break;
+        case IR6: if (r[6] != 0) {ip = jump_address; return;} break;
+        case IR7: if (r[7] != 0) {ip = jump_address; return;} break;
         default: STOP = 1; break;
     }
     
@@ -583,12 +584,12 @@ void jnzInstruction()
  * carry is set.
  *
  */
-void jcInstruction()
+void jc_instruction()
 {
     static uint16_t jumpAddress;
     
-    jumpAddress = ((uint16_t)mem[ip + 1]) << 8;
-    jumpAddress += (uint16_t)mem[ip + 2];
+    jumpAddress = static_cast<uint16_t>(mem[ip + 1]) << 8;
+    jumpAddress += static_cast<uint16_t>(mem[ip + 2]);
     
     if (c != 0)
     {
@@ -605,12 +606,12 @@ void jcInstruction()
  * carry is not set.
  *
  */
-void jncInstruction()
+void jnc_instruction()
 {
     static uint16_t jumpAddress;
     
-    jumpAddress = ((uint16_t)mem[ip + 1]) << 8;
-    jumpAddress += (uint16_t)mem[ip + 2];
+    jumpAddress = static_cast<uint16_t>(mem[ip + 1]) << 8;
+    jumpAddress += static_cast<uint16_t>(mem[ip + 2]);
     
     if (c == 0)
     {
@@ -626,24 +627,24 @@ void jncInstruction()
  * Add instruction. Adds a value to a register.
  *
  */
-void addInstruction()
+void add_instruction()
 {
-    static uint8_t destRegister;
+    static uint8_t dest_register;
     static uint8_t value;
     
     value = mem[ip + 1];
-    destRegister = mem[ip + 2];
+    dest_register = mem[ip + 2];
     
-    switch (destRegister)
+    switch (dest_register)
     {
-        case IR0: c = ((uint16_t)r[0] + (uint16_t)value > 0xFF) ? 1 : 0; r[0] += value; break;
-        case IR1: c = ((uint16_t)r[1] + (uint16_t)value > 0xFF) ? 1 : 0; r[1] += value; break;
-        case IR2: c = ((uint16_t)r[2] + (uint16_t)value > 0xFF) ? 1 : 0; r[2] += value; break;
-        case IR3: c = ((uint16_t)r[3] + (uint16_t)value > 0xFF) ? 1 : 0; r[3] += value; break;
-        case IR4: c = ((uint16_t)r[4] + (uint16_t)value > 0xFF) ? 1 : 0; r[4] += value; break;
-        case IR5: c = ((uint16_t)r[5] + (uint16_t)value > 0xFF) ? 1 : 0; r[5] += value; break;
-        case IR6: c = ((uint16_t)r[6] + (uint16_t)value > 0xFF) ? 1 : 0; r[6] += value; break;
-        case IR7: c = ((uint16_t)r[7] + (uint16_t)value > 0xFF) ? 1 : 0; r[7] += value; break;
+        case IR0: c = (uint16_t)r[0] + (uint16_t)value > 0xFF ? 1 : 0; r[0] += value; break;
+        case IR1: c = (uint16_t)r[1] + (uint16_t)value > 0xFF ? 1 : 0; r[1] += value; break;
+        case IR2: c = (uint16_t)r[2] + (uint16_t)value > 0xFF ? 1 : 0; r[2] += value; break;
+        case IR3: c = (uint16_t)r[3] + (uint16_t)value > 0xFF ? 1 : 0; r[3] += value; break;
+        case IR4: c = (uint16_t)r[4] + (uint16_t)value > 0xFF ? 1 : 0; r[4] += value; break;
+        case IR5: c = (uint16_t)r[5] + (uint16_t)value > 0xFF ? 1 : 0; r[5] += value; break;
+        case IR6: c = (uint16_t)r[6] + (uint16_t)value > 0xFF ? 1 : 0; r[6] += value; break;
+        case IR7: c = (uint16_t)r[7] + (uint16_t)value > 0xFF ? 1 : 0; r[7] += value; break;
         default: STOP = 1; break;
     }
     
@@ -655,7 +656,7 @@ void addInstruction()
  * Addr instruction. Adds a value of a specific register to a value in destination register.
  *
  */
-void addrInstruction()
+void addr_instruction()
 {
     static uint8_t destRegister;
     static uint8_t sourceRegister;
@@ -679,14 +680,14 @@ void addrInstruction()
     
     switch (destRegister)
     {
-        case IR0: c = ((uint16_t)r[0] + (uint16_t)value > 0xFF) ? 1 : 0; r[0] += value; break;
-        case IR1: c = ((uint16_t)r[1] + (uint16_t)value > 0xFF) ? 1 : 0; r[1] += value; break;
-        case IR2: c = ((uint16_t)r[2] + (uint16_t)value > 0xFF) ? 1 : 0; r[2] += value; break;
-        case IR3: c = ((uint16_t)r[3] + (uint16_t)value > 0xFF) ? 1 : 0; r[3] += value; break;
-        case IR4: c = ((uint16_t)r[4] + (uint16_t)value > 0xFF) ? 1 : 0; r[4] += value; break;
-        case IR5: c = ((uint16_t)r[5] + (uint16_t)value > 0xFF) ? 1 : 0; r[5] += value; break;
-        case IR6: c = ((uint16_t)r[6] + (uint16_t)value > 0xFF) ? 1 : 0; r[6] += value; break;
-        case IR7: c = ((uint16_t)r[7] + (uint16_t)value > 0xFF) ? 1 : 0; r[7] += value; break;
+        case IR0: c = static_cast<uint16_t>(r[0]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[0] += value; break;
+        case IR1: c = static_cast<uint16_t>(r[1]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[1] += value; break;
+        case IR2: c = static_cast<uint16_t>(r[2]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[2] += value; break;
+        case IR3: c = static_cast<uint16_t>(r[3]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[3] += value; break;
+        case IR4: c = static_cast<uint16_t>(r[4]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[4] += value; break;
+        case IR5: c = static_cast<uint16_t>(r[5]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[5] += value; break;
+        case IR6: c = static_cast<uint16_t>(r[6]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[6] += value; break;
+        case IR7: c = static_cast<uint16_t>(r[7]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[7] += value; break;
         default: STOP = 1; break;
     }
     
@@ -699,18 +700,18 @@ void addrInstruction()
  * address onto a stack.
  *
  */
-void callInstruction()
+void call_instruction()
 {
     static uint16_t callAddress;
     static uint16_t returnAddress;
     
-    callAddress = ((uint16_t)mem[ip + 1]) << 8;
-    callAddress += (uint16_t)mem[ip + 2];
+    callAddress = static_cast<uint16_t>(mem[ip + 1]) << 8;
+    callAddress += static_cast<uint16_t>(mem[ip + 2]);
     
     returnAddress = ip + 3;
     
-    mem[sp - 2] = (uint8_t)((returnAddress & 0xFF00) >> 8);
-    mem[sp - 1] = (uint8_t)(returnAddress & 0x00FF);
+    mem[sp - 2] = static_cast<uint8_t>((returnAddress & 0xFF00) >> 8);
+    mem[sp - 1] = static_cast<uint8_t>(returnAddress & 0x00FF);
     sp -= 2;
     
     ip = callAddress;
@@ -722,10 +723,10 @@ void callInstruction()
  * return address.
  *
  */
-void retInstruction()
+void ret_instruction()
 {
-    ip = ((uint16_t)mem[sp]) << 8;
-    ip += (uint16_t)mem[sp + 1];
+    ip = static_cast<uint16_t>(mem[sp]) << 8;
+    ip += static_cast<uint16_t>(mem[sp + 1]);
     sp += 2;
 }
 
@@ -734,7 +735,7 @@ void retInstruction()
  * Sub instruction. Subtracts a value from a register.
  *
  */
-void subInstruction()
+void sub_instruction()
 {
     static uint8_t destRegister;
     static uint8_t value;
@@ -763,16 +764,16 @@ void subInstruction()
  * Subr instruction. Subtracts a value of a specific register from a value in destination register.
  *
  */
-void subrInstruction()
+void subr_instruction()
 {
-    static uint8_t destRegister;
-    static uint8_t sourceRegister;
+    static uint8_t dest_register;
+    static uint8_t source_register;
     static uint8_t value;
     
-    sourceRegister = mem[ip + 1];
-    destRegister = mem[ip + 2];
+    source_register = mem[ip + 1];
+    dest_register = mem[ip + 2];
     
-    switch (sourceRegister)
+    switch (source_register)
     {
         case IR0: value = r[0]; break;
         case IR1: value = r[1]; break;
@@ -785,7 +786,7 @@ void subrInstruction()
         default: STOP = 1; break;
     }
     
-    switch (destRegister)
+    switch (dest_register)
     {
         case IR0: c = r[0] < value ? 1 : 0; r[0] -= value; break;
         case IR1: c = r[1] < value ? 1 : 0; r[1] -= value; break;
@@ -807,66 +808,66 @@ void subrInstruction()
  * registers.
  *
  */
-void mulInstruction()
+void mul_instruction()
 {
-    static uint8_t destRegisterL;
-    static uint8_t destRegisterH;
+    static uint8_t dest_register_l;
+    static uint8_t dest_register_h;
     static uint16_t value;
     static uint16_t result;
     
     value = (uint16_t)mem[ip + 1];
-    destRegisterH = mem[ip + 2];
-    destRegisterL = mem[ip + 3];
+    dest_register_h = mem[ip + 2];
+    dest_register_l = mem[ip + 3];
     
-    switch (destRegisterL)
+    switch (dest_register_l)
     {
         case IR0: 
-            result = (uint16_t)r[0] * value;
-            r[0] = (uint8_t)(result & 0x00FF); 
+            result = static_cast<uint16_t>(r[0]) * value;
+            r[0] = static_cast<uint8_t>(result & 0x00FF); 
             break;
         case IR1: 
-            result = (uint16_t)r[1] * value; 
-            r[1] = (uint8_t)(result & 0x00FF); 
+            result = static_cast<uint16_t>(r[1]) * value; 
+            r[1] = static_cast<uint8_t>(result & 0x00FF); 
             break;
         case IR2: 
-            result = (uint16_t)r[2] * value; 
-            r[2] = (uint8_t)(result & 0x00FF); 
+            result = static_cast<uint16_t>(r[2]) * value; 
+            r[2] = static_cast<uint8_t>(result & 0x00FF); 
             break;
         case IR3: 
-            result = (uint16_t)r[3] * value; 
-            r[3] = (uint8_t)(result & 0x00FF); 
+            result = static_cast<uint16_t>(r[3]) * value; 
+            r[3] = static_cast<uint8_t>(result & 0x00FF); 
             break;
         case IR4: 
-            result = (uint16_t)r[4] * value; 
-            r[4] = (uint8_t)(result & 0x00FF); 
+            result = static_cast<uint16_t>(r[4]) * value; 
+            r[4] = static_cast<uint8_t>(result & 0x00FF); 
             break;
         case IR5: 
-            result = (uint16_t)r[5] * value; 
-            r[5] = (uint8_t)(result & 0x00FF); 
+            result = static_cast<uint16_t>(r[5]) * value; 
+            r[5] = static_cast<uint8_t>(result & 0x00FF); 
             break;
         case IR6: 
-            result = (uint16_t)r[6] * value; 
-            r[6] = (uint8_t)(result & 0x00FF); 
+            result = static_cast<uint16_t>(r[6]) * value; 
+            r[6] = static_cast<uint8_t>(result & 0x00FF); 
             break;
         case IR7: 
-            result = (uint16_t)r[7] * value; 
-            r[7] = (uint8_t)(result & 0x00FF); 
+            result = static_cast<uint16_t>(r[7]) * value; 
+            r[7] = static_cast<uint8_t>(result & 0x00FF); 
             break;
         default: STOP = 1; break;
     }
     
-    c = (result > 0xFF) ? 1 : 0;
+    c = result > 0xFF ? 1 : 0;
     
-    switch (destRegisterH)
+    switch (dest_register_h)
     {
-        case IR0: r[0] = (uint8_t)((result & 0xFF00) >> 8); break;
-        case IR1: r[1] = (uint8_t)((result & 0xFF00) >> 8); break;
-        case IR2: r[2] = (uint8_t)((result & 0xFF00) >> 8); break;
-        case IR3: r[3] = (uint8_t)((result & 0xFF00) >> 8); break;
-        case IR4: r[4] = (uint8_t)((result & 0xFF00) >> 8); break;
-        case IR5: r[5] = (uint8_t)((result & 0xFF00) >> 8); break;
-        case IR6: r[6] = (uint8_t)((result & 0xFF00) >> 8); break;
-        case IR7: r[7] = (uint8_t)((result & 0xFF00) >> 8); break;
+        case IR0: r[0] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR1: r[1] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR2: r[2] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR3: r[3] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR4: r[4] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR5: r[5] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR6: r[6] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR7: r[7] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
         default: STOP = 1; break;
     }
     
@@ -879,7 +880,7 @@ void mulInstruction()
  * result into two registers.
  *
  */
-void mulrInstruction()
+void mulr_instruction()
 {
     static uint8_t srcRegister;
     static uint8_t destRegisterL;
@@ -893,66 +894,66 @@ void mulrInstruction()
     
     switch (srcRegister)
     {
-        case IR0: value = (uint16_t)r[0]; break;
-        case IR1: value = (uint16_t)r[1]; break;
-        case IR2: value = (uint16_t)r[2]; break;
-        case IR3: value = (uint16_t)r[3]; break;
-        case IR4: value = (uint16_t)r[4]; break;
-        case IR5: value = (uint16_t)r[5]; break;
-        case IR6: value = (uint16_t)r[6]; break;
-        case IR7: value = (uint16_t)r[7]; break;
+        case IR0: value = static_cast<uint16_t>(r[0]); break;
+        case IR1: value = static_cast<uint16_t>(r[1]); break;
+        case IR2: value = static_cast<uint16_t>(r[2]); break;
+        case IR3: value = static_cast<uint16_t>(r[3]); break;
+        case IR4: value = static_cast<uint16_t>(r[4]); break;
+        case IR5: value = static_cast<uint16_t>(r[5]); break;
+        case IR6: value = static_cast<uint16_t>(r[6]); break;
+        case IR7: value = static_cast<uint16_t>(r[7]); break;
         default: STOP = 1; break;
     }
     
     switch (destRegisterL)
     {
         case IR0: 
-            result = (uint16_t)r[0] * value;
-            r[0] = (uint8_t)(result & 0x00FF); 
+            result = static_cast<uint16_t>(r[0]) * value;
+            r[0] = static_cast<uint8_t>(result & 0x00FF); 
             break;
         case IR1: 
-            result = (uint16_t)r[1] * value; 
-            r[1] = (uint8_t)(result & 0x00FF); 
+            result = static_cast<uint16_t>(r[1]) * value; 
+            r[1] = static_cast<uint8_t>(result & 0x00FF); 
             break;
         case IR2: 
-            result = (uint16_t)r[2] * value; 
-            r[2] = (uint8_t)(result & 0x00FF); 
+            result = static_cast<uint16_t>(r[2]) * value; 
+            r[2] = static_cast<uint8_t>(result & 0x00FF); 
             break;
         case IR3: 
-            result = (uint16_t)r[3] * value; 
-            r[3] = (uint8_t)(result & 0x00FF); 
+            result = static_cast<uint16_t>(r[3]) * value; 
+            r[3] = static_cast<uint8_t>(result & 0x00FF); 
             break;
         case IR4: 
-            result = (uint16_t)r[4] * value; 
-            r[4] = (uint8_t)(result & 0x00FF); 
+            result = static_cast<uint16_t>(r[4]) * value; 
+            r[4] = static_cast<uint8_t>(result & 0x00FF); 
             break;
         case IR5: 
-            result = (uint16_t)r[5] * value; 
-            r[5] = (uint8_t)(result & 0x00FF); 
+            result = static_cast<uint16_t>(r[5]) * value; 
+            r[5] = static_cast<uint8_t>(result & 0x00FF); 
             break;
         case IR6: 
-            result = (uint16_t)r[6] * value; 
-            r[6] = (uint8_t)(result & 0x00FF); 
+            result = static_cast<uint16_t>(r[6]) * value; 
+            r[6] = static_cast<uint8_t>(result & 0x00FF); 
             break;
         case IR7: 
-            result = (uint16_t)r[7] * value; 
-            r[7] = (uint8_t)(result & 0x00FF); 
+            result = static_cast<uint16_t>(r[7]) * value; 
+            r[7] = static_cast<uint8_t>(result & 0x00FF); 
             break;
         default: STOP = 1; break;
     }
     
-    c = (result > 0xFF) ? 1 : 0;
+    c = result > 0xFF ? 1 : 0;
     
     switch (destRegisterH)
     {
-        case IR0: r[0] = (uint8_t)((result & 0xFF00) >> 8); break;
-        case IR1: r[1] = (uint8_t)((result & 0xFF00) >> 8); break;
-        case IR2: r[2] = (uint8_t)((result & 0xFF00) >> 8); break;
-        case IR3: r[3] = (uint8_t)((result & 0xFF00) >> 8); break;
-        case IR4: r[4] = (uint8_t)((result & 0xFF00) >> 8); break;
-        case IR5: r[5] = (uint8_t)((result & 0xFF00) >> 8); break;
-        case IR6: r[6] = (uint8_t)((result & 0xFF00) >> 8); break;
-        case IR7: r[7] = (uint8_t)((result & 0xFF00) >> 8); break;
+        case IR0: r[0] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR1: r[1] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR2: r[2] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR3: r[3] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR4: r[4] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR5: r[5] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR6: r[6] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR7: r[7] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
         default: STOP = 1; break;
     }
     
@@ -1014,18 +1015,18 @@ void divInstruction()
  * the rest of the division.
  *
  */
-void divrInstruction()
+void divr_instruction()
 {
-    static uint8_t srcRegister;
-    static uint8_t destRegisterResult;
-    static uint8_t destRegisterRest;
+    static uint8_t src_register;
+    static uint8_t dest_register_result;
+    static uint8_t dest_register_rest;
     static uint8_t value;
     static uint8_t result;
     static uint8_t rest;
     
-    srcRegister = mem[ip + 1];
+    src_register = mem[ip + 1];
     
-    switch (srcRegister)
+    switch (src_register)
     {
         case IR0: value = r[0]; break;
         case IR1: value = r[1]; break;
@@ -1038,10 +1039,10 @@ void divrInstruction()
         default: STOP = 1; break;
     }
     
-    destRegisterResult = mem[ip + 2];
-    destRegisterRest = mem[ip + 3];
+    dest_register_result = mem[ip + 2];
+    dest_register_rest = mem[ip + 3];
     
-    switch (destRegisterResult)
+    switch (dest_register_result)
     {
         case IR0: result = r[0] / value; rest = r[0] % value; r[0] = result; break;
         case IR1: result = r[1] / value; rest = r[1] % value; r[1] = result; break;
@@ -1054,7 +1055,7 @@ void divrInstruction()
         default: STOP = 1; break;
     }
     
-    switch (destRegisterRest)
+    switch (dest_register_rest)
     {
         case IR0: r[0] = rest; break;
         case IR1: r[1] = rest; break;
@@ -1085,14 +1086,14 @@ void shrInstruction()
 
     switch (what) 
     {
-        case IR0: c = (r[0] >> (val - 1)) % 2; r[0] >>= val; break;
-        case IR1: c = (r[1] >> (val - 1)) % 2; r[1] >>= val; break;
-        case IR2: c = (r[2] >> (val - 1)) % 2; r[2] >>= val; break;
-        case IR3: c = (r[3] >> (val - 1)) % 2; r[3] >>= val; break;
-        case IR4: c = (r[4] >> (val - 1)) % 2; r[4] >>= val; break;
-        case IR5: c = (r[5] >> (val - 1)) % 2; r[5] >>= val; break;
-        case IR6: c = (r[6] >> (val - 1)) % 2; r[6] >>= val; break;
-        case IR7: c = (r[7] >> (val - 1)) % 2; r[7] >>= val; break;
+        case IR0: c = (r[0] >> val - 1) % 2; r[0] >>= val; break;
+        case IR1: c = (r[1] >> val - 1) % 2; r[1] >>= val; break;
+        case IR2: c = (r[2] >> val - 1) % 2; r[2] >>= val; break;
+        case IR3: c = (r[3] >> val - 1) % 2; r[3] >>= val; break;
+        case IR4: c = (r[4] >> val - 1) % 2; r[4] >>= val; break;
+        case IR5: c = (r[5] >> val - 1) % 2; r[5] >>= val; break;
+        case IR6: c = (r[6] >> val - 1) % 2; r[6] >>= val; break;
+        case IR7: c = (r[7] >> val - 1) % 2; r[7] >>= val; break;
         default: STOP = 1; break;
     }
 
@@ -1104,7 +1105,7 @@ void shrInstruction()
  * Shifts value to the left. If last shifted bit was 1, then sets carry to 1.
  *
  */
-void shlInstruction()
+void shl_instruction()
 {
     static uint8_t what;
     static uint8_t val;
@@ -1114,14 +1115,14 @@ void shlInstruction()
 
     switch (what) 
     {
-        case IR0: c = r[0] << (val - 1) > 127 ? 1 : 0; r[0] <<= val; break;
-        case IR1: c = r[1] << (val - 1) > 127 ? 1 : 0; r[1] <<= val; break;
-        case IR2: c = r[2] << (val - 1) > 127 ? 1 : 0; r[2] <<= val; break;
-        case IR3: c = r[3] << (val - 1) > 127 ? 1 : 0; r[3] <<= val; break;
-        case IR4: c = r[4] << (val - 1) > 127 ? 1 : 0; r[4] <<= val; break;
-        case IR5: c = r[5] << (val - 1) > 127 ? 1 : 0; r[5] <<= val; break;
-        case IR6: c = r[6] << (val - 1) > 127 ? 1 : 0; r[6] <<= val; break;
-        case IR7: c = r[7] << (val - 1) > 127 ? 1 : 0; r[7] <<= val; break;
+        case IR0: c = r[0] << val - 1 > 127 ? 1 : 0; r[0] <<= val; break;
+        case IR1: c = r[1] << val - 1 > 127 ? 1 : 0; r[1] <<= val; break;
+        case IR2: c = r[2] << val - 1 > 127 ? 1 : 0; r[2] <<= val; break;
+        case IR3: c = r[3] << val - 1 > 127 ? 1 : 0; r[3] <<= val; break;
+        case IR4: c = r[4] << val - 1 > 127 ? 1 : 0; r[4] <<= val; break;
+        case IR5: c = r[5] << val - 1 > 127 ? 1 : 0; r[5] <<= val; break;
+        case IR6: c = r[6] << val - 1 > 127 ? 1 : 0; r[6] <<= val; break;
+        case IR7: c = r[7] << val - 1 > 127 ? 1 : 0; r[7] <<= val; break;
         default: STOP = 1; break;
     }
 
@@ -1133,36 +1134,36 @@ void shlInstruction()
  * Processes instruction. If unknown instruction or halt, then the VM stops.
  *
  */
-void processInstruction()
+void process_instruction()
 {
     switch (mem[ip])
     {
-        case LOAD: loadInstruction(); break;
+        case LOAD: load_instruction(); break;
         case STORE: storeInstruction(); break;
-        case STORER: storerInstruction(); break;
-        case SET: setInstruction(); break;
-        case PUSH: pushInstruction(); break;
-        case POP: popInstruction(); break;
-        case INC: incInstruction(); break;
-        case DEC: decInstruction(); break;
-        case JMP: jmpInstruction(); break;
-        case CMP: cmpInstruction(); break;
-        case CMPR: cmprInstruction(); break;
-        case JZ: jzInstruction(); break;
-        case JNZ: jnzInstruction(); break;
-        case JC: jcInstruction(); break;
-        case JNC: jncInstruction(); break;
-        case ADD: addInstruction(); break;
-        case ADDR: addrInstruction(); break;
-        case CALL: callInstruction(); break;
-        case RET: retInstruction(); break;
-        case SUB: subInstruction(); break;
-        case SUBR: subrInstruction(); break;
-        case MUL: mulInstruction(); break;
-        case MULR: mulrInstruction(); break;
+        case STORER: storer_instruction(); break;
+        case SET: set_instruction(); break;
+        case PUSH: push_instruction(); break;
+        case POP: pop_instruction(); break;
+        case INC: inc_instruction(); break;
+        case DEC: dec_instruction(); break;
+        case JMP: jmp_instruction(); break;
+        case CMP: cmp_instruction(); break;
+        case CMPR: cmpr_instruction(); break;
+        case JZ: jz_instruction(); break;
+        case JNZ: jnz_instruction(); break;
+        case JC: jc_instruction(); break;
+        case JNC: jnc_instruction(); break;
+        case ADD: add_instruction(); break;
+        case ADDR: addr_instruction(); break;
+        case CALL: call_instruction(); break;
+        case RET: ret_instruction(); break;
+        case SUB: sub_instruction(); break;
+        case SUBR: subr_instruction(); break;
+        case MUL: mul_instruction(); break;
+        case MULR: mulr_instruction(); break;
         case DIV: divInstruction(); break;
-        case DIVR: divrInstruction(); break;
-        case SHL: shlInstruction(); break;
+        case DIVR: divr_instruction(); break;
+        case SHL: shl_instruction(); break;
         case SHR: shrInstruction(); break;
         case NOP: ip++; break;
         default: STOP = 1; break;
@@ -1174,11 +1175,9 @@ void processInstruction()
  * Prints Memory
  *
  */
-void printMemory()
+void print_memory()
 {
-    uint16_t i;
-
-    for (i = 0; i < MEM_SIZE; i++)
+    for (uint16_t i = 0; i < MEM_SIZE; i++)
     {
         if (i % 64 == 0)
         {
@@ -1196,10 +1195,9 @@ void printMemory()
  * Print registers
  *
  */
-void printRegisters()
+void print_registers()
 {
-    uint8_t i;
-    for (i = 0; i < 8; i++)
+    for (uint8_t i = 0; i < 8; i++)
     {
         printf("R%d = 0x%02x ", i, r[i]);
     }
@@ -1214,16 +1212,16 @@ void run()
 {
     while (!STOP)
     {
-        processInstruction();
+        process_instruction();
     }
 
-    printMemory();
-    printRegisters();
+    print_memory();
+    print_registers();
 }
 
-void loadTestCode()
+void load_test_code()
 {
-    uint8_t testCode[202] = {
+    uint8_t test_code[202] = {
         SET,   0x0A,       IR0,        // 3
         STORE, IR0,        0xFF, 0xC0, // 7
         LOAD,  0xFF, 0xC0, IR1,        // 11
@@ -1297,11 +1295,9 @@ void loadTestCode()
         JMP,   0xAB, 0xCD,             // 201
         RET};                          // 202
 
-    uint16_t i;
-
-    for (i=0; i < 202; i++)
+    for (uint16_t i = 0; i < 202; i++)
     {
-        mem[i] = testCode[i];
+        mem[i] = test_code[i];
     }
 }
 
@@ -1310,10 +1306,10 @@ void loadTestCode()
  * Starts the code until it reaches halt instruction or end of code memory.
  *
  */
-int main(int argc, char **argv)
+int main()
 {
-    initMachine();
-    loadTestCode();
+    init_machine();
+    load_test_code();
     run();
     return 0;
 }
