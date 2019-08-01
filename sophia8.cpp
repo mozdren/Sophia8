@@ -117,7 +117,7 @@ void load_instruction()
  * 
  * STORE 0x1A2B, R0 -> 01 1A 2B 00
  */
-void storeInstruction()
+void store_instruction()
 {
     static uint16_t memory_destination;
     static uint8_t source;
@@ -330,7 +330,7 @@ void pop_instruction()
         ip += 2;
         return;
     }
-    else if (source == ISP)
+    if (source == ISP)
     {
         value = (static_cast<uint16_t>(mem[sp]) << 8) + static_cast<uint16_t>(mem[sp + 1]);
         sp = value;
@@ -338,7 +338,7 @@ void pop_instruction()
         ip += 2;
         return;
     }
-    else if (source == IBP)
+    if (source == IBP)
     {
         value = (static_cast<uint16_t>(mem[sp]) << 8) + static_cast<uint16_t>(mem[sp + 1]);
         bp = value;
@@ -346,22 +346,20 @@ void pop_instruction()
         ip += 2;
         return;
     }
-    else
-    {
-        value = static_cast<uint16_t>(mem[sp]);
+    
+    value = static_cast<uint16_t>(mem[sp]);
 
-        switch (source) 
-        {
-            case IR0: r[0] = static_cast<uint8_t>(value); break;
-            case IR1: r[1] = static_cast<uint8_t>(value); break;
-            case IR2: r[2] = static_cast<uint8_t>(value); break;
-            case IR3: r[3] = static_cast<uint8_t>(value); break;
-            case IR4: r[4] = static_cast<uint8_t>(value); break;
-            case IR5: r[5] = static_cast<uint8_t>(value); break;
-            case IR6: r[6] = static_cast<uint8_t>(value); break;
-            case IR7: r[7] = static_cast<uint8_t>(value); break;
-            default: STOP = 1; break;
-        }
+    switch (source) 
+    {
+    case IR0: r[0] = static_cast<uint8_t>(value); break;
+    case IR1: r[1] = static_cast<uint8_t>(value); break;
+    case IR2: r[2] = static_cast<uint8_t>(value); break;
+    case IR3: r[3] = static_cast<uint8_t>(value); break;
+    case IR4: r[4] = static_cast<uint8_t>(value); break;
+    case IR5: r[5] = static_cast<uint8_t>(value); break;
+    case IR6: r[6] = static_cast<uint8_t>(value); break;
+    case IR7: r[7] = static_cast<uint8_t>(value); break;
+    default: STOP = 1; break;
     }
 
     sp++;
@@ -1139,7 +1137,7 @@ void process_instruction()
     switch (mem[ip])
     {
         case LOAD: load_instruction(); break;
-        case STORE: storeInstruction(); break;
+        case STORE: store_instruction(); break;
         case STORER: storer_instruction(); break;
         case SET: set_instruction(); break;
         case PUSH: push_instruction(); break;

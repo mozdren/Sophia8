@@ -1,3 +1,20 @@
+; ---------------------------------------------------------------------------------------------------
+;
+;  This is a test assembly code for sophia8 8-bit virtual computer with 16-bit addressing
+;
+; ---------------------------------------------------------------------------------------------------
+
+some_data:  DB 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08  ; data bytes hexa numbers
+hello_s:    DB "Hello, World!"                                       ; data bytes as string
+hello_s2:   DB "Hello, World!","Hello, Karel!"                       ; data bytes as string
+hello_ch:   DB 'H','E','L','L','O',',',' ','W','O','R','L','D','!',0 ; data bytes characters
+numbers:    DB 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15     ; data bytes numbers
+mixed:      DB 1, 'A', "test", 0xFA, ','                             ; data bytes mixed
+string_spc: DB "               HELLO                 "               ; data bytes string with spaces
+binary:     DB 0b11110000, 0b00001111                                ; data bytes binary data
+
+start2:                                                              ; labels on multiple lines have the same address
+                                                                     ; if there are no commands in between ...
 start:      SET 0x0A, R0 ; this is a comment
             STORE R0, 0xFFC0
             LOAD 0xFFC0, R1
