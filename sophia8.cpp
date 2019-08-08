@@ -635,14 +635,14 @@ void add_instruction()
     
     switch (dest_register)
     {
-        case IR0: c = (uint16_t)r[0] + (uint16_t)value > 0xFF ? 1 : 0; r[0] += value; break;
-        case IR1: c = (uint16_t)r[1] + (uint16_t)value > 0xFF ? 1 : 0; r[1] += value; break;
-        case IR2: c = (uint16_t)r[2] + (uint16_t)value > 0xFF ? 1 : 0; r[2] += value; break;
-        case IR3: c = (uint16_t)r[3] + (uint16_t)value > 0xFF ? 1 : 0; r[3] += value; break;
-        case IR4: c = (uint16_t)r[4] + (uint16_t)value > 0xFF ? 1 : 0; r[4] += value; break;
-        case IR5: c = (uint16_t)r[5] + (uint16_t)value > 0xFF ? 1 : 0; r[5] += value; break;
-        case IR6: c = (uint16_t)r[6] + (uint16_t)value > 0xFF ? 1 : 0; r[6] += value; break;
-        case IR7: c = (uint16_t)r[7] + (uint16_t)value > 0xFF ? 1 : 0; r[7] += value; break;
+        case IR0: c = static_cast<uint16_t>(r[0]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[0] += value; break;
+        case IR1: c = static_cast<uint16_t>(r[1]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[1] += value; break;
+        case IR2: c = static_cast<uint16_t>(r[2]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[2] += value; break;
+        case IR3: c = static_cast<uint16_t>(r[3]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[3] += value; break;
+        case IR4: c = static_cast<uint16_t>(r[4]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[4] += value; break;
+        case IR5: c = static_cast<uint16_t>(r[5]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[5] += value; break;
+        case IR6: c = static_cast<uint16_t>(r[6]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[6] += value; break;
+        case IR7: c = static_cast<uint16_t>(r[7]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[7] += value; break;
         default: STOP = 1; break;
     }
     
@@ -1084,14 +1084,14 @@ void shrInstruction()
 
     switch (what) 
     {
-        case IR0: c = (r[0] >> val - 1) % 2; r[0] >>= val; break;
-        case IR1: c = (r[1] >> val - 1) % 2; r[1] >>= val; break;
-        case IR2: c = (r[2] >> val - 1) % 2; r[2] >>= val; break;
-        case IR3: c = (r[3] >> val - 1) % 2; r[3] >>= val; break;
-        case IR4: c = (r[4] >> val - 1) % 2; r[4] >>= val; break;
-        case IR5: c = (r[5] >> val - 1) % 2; r[5] >>= val; break;
-        case IR6: c = (r[6] >> val - 1) % 2; r[6] >>= val; break;
-        case IR7: c = (r[7] >> val - 1) % 2; r[7] >>= val; break;
+        case IR0: c = (r[0] >> (val - 1)) % 2; r[0] >>= val; break;
+        case IR1: c = (r[1] >> (val - 1)) % 2; r[1] >>= val; break;
+        case IR2: c = (r[2] >> (val - 1)) % 2; r[2] >>= val; break;
+        case IR3: c = (r[3] >> (val - 1)) % 2; r[3] >>= val; break;
+        case IR4: c = (r[4] >> (val - 1)) % 2; r[4] >>= val; break;
+        case IR5: c = (r[5] >> (val - 1)) % 2; r[5] >>= val; break;
+        case IR6: c = (r[6] >> (val - 1)) % 2; r[6] >>= val; break;
+        case IR7: c = (r[7] >> (val - 1)) % 2; r[7] >>= val; break;
         default: STOP = 1; break;
     }
 
@@ -1113,14 +1113,14 @@ void shl_instruction()
 
     switch (what) 
     {
-        case IR0: c = r[0] << val - 1 > 127 ? 1 : 0; r[0] <<= val; break;
-        case IR1: c = r[1] << val - 1 > 127 ? 1 : 0; r[1] <<= val; break;
-        case IR2: c = r[2] << val - 1 > 127 ? 1 : 0; r[2] <<= val; break;
-        case IR3: c = r[3] << val - 1 > 127 ? 1 : 0; r[3] <<= val; break;
-        case IR4: c = r[4] << val - 1 > 127 ? 1 : 0; r[4] <<= val; break;
-        case IR5: c = r[5] << val - 1 > 127 ? 1 : 0; r[5] <<= val; break;
-        case IR6: c = r[6] << val - 1 > 127 ? 1 : 0; r[6] <<= val; break;
-        case IR7: c = r[7] << val - 1 > 127 ? 1 : 0; r[7] <<= val; break;
+        case IR0: c = r[0] << (val - 1) > 127 ? 1 : 0; r[0] <<= val; break;
+        case IR1: c = r[1] << (val - 1) > 127 ? 1 : 0; r[1] <<= val; break;
+        case IR2: c = r[2] << (val - 1) > 127 ? 1 : 0; r[2] <<= val; break;
+        case IR3: c = r[3] << (val - 1) > 127 ? 1 : 0; r[3] <<= val; break;
+        case IR4: c = r[4] << (val - 1) > 127 ? 1 : 0; r[4] <<= val; break;
+        case IR5: c = r[5] << (val - 1) > 127 ? 1 : 0; r[5] <<= val; break;
+        case IR6: c = r[6] << (val - 1) > 127 ? 1 : 0; r[6] <<= val; break;
+        case IR7: c = r[7] << (val - 1) > 127 ? 1 : 0; r[7] <<= val; break;
         default: STOP = 1; break;
     }
 
@@ -1179,6 +1179,7 @@ void print_memory()
     {
         if (i % 64 == 0)
         {
+            // ReSharper disable once CppPrintfRiskyFormat
             printf("\n%#06x:", i);
         }
 

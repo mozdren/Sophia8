@@ -4,6 +4,10 @@
 ;
 ; ---------------------------------------------------------------------------------------------------
 
+#include "kernel.asm"
+
+            DEF MY_DEF, 0x0000
+
 some_data:  DB 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08  ; data bytes hexa numbers
 hello_s:    DB "Hello, World!"                                       ; data bytes as string
 hello_s2:   DB "Hello, World!","Hello, Karel!"                       ; data bytes as string
@@ -12,6 +16,13 @@ numbers:    DB 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15     ; data byte
 mixed:      DB 1, 'A', "test", 0xFA, ','                             ; data bytes mixed
 string_spc: DB "               HELLO                 "               ; data bytes string with spaces
 binary:     DB 0b11110000, 0b00001111                                ; data bytes binary data
+0x000A:     DB 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21 ; data at exact address in memory
+                                                                     ; does not change the order of unfixed
+                                                                     ; data labels
+array:      DB 255[100]                                              ; reserving 100 bytes filled with
+                                                                     ; value 255 at best fit location
+0x000A:     DB 0[100]                                                ; reserving 100 bytes filled with
+                                                                     ; value 0 at fixed location 0x000A
 
 start2:                                                              ; labels on multiple lines have the same address
                                                                      ; if there are no commands in between ...
