@@ -4,6 +4,11 @@ project( "Sophia8" )
 
 # dependencies
 
+set(SDL2_DIR ../SDL2/SDL2-devel-2.0.10-VC/SDL2-2.0.10)
+
+find_package(SDL2 REQUIRED)
+include_directories(${SDL2_INCLUDE_DIRS})
+
 # executables and linked libraries
 
 set(SOPHIA8_CPP_FILES
@@ -26,8 +31,22 @@ set(SOPHIA8ASM_H_FILES
     my_string.h
 )
 
+set(SOPHIA8CHARSET_CPP_FILES
+    sophia8charset.cpp
+)
+
+set(SOPHIA8CHARSET_H_FILES
+    definitions.h
+)
+
 add_executable( sophia8 ${SOPHIA8_CPP_FILES} ${SOPHIA8_H_FILES})
 add_executable( sophia8asm ${SOPHIA8ASM_CPP_FILES} ${SOPHIA8ASM_H_FILES})
+add_executable( sophia8charset ${SOPHIA8CHARSET_CPP_FILES} ${SOPHIA8CHARSET_H_FILES})
+
+# libraries
+
+target_link_libraries(sophia8 ${SDL2_LIBRARIES})
+target_link_libraries(sophia8charset ${SDL2_LIBRARIES})
 
 # Required Resources
 
@@ -35,5 +54,5 @@ file( COPY "test.asm" DESTINATION "Release/" )
 file( COPY "test.asm" DESTINATION "Debug/" )
 file( COPY "kernel.asm" DESTINATION "Release/" )
 file( COPY "kernel.asm" DESTINATION "Debug/" )
-
-set_property( TARGET sophia8 PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "$(Configuration)" )
+file( COPY "${SDL2_DIR}/lib/x86/SDL2.dll" DESTINATION "Debug/" )
+file( COPY "${SDL2_DIR}/lib/x86/SDL2.dll" DESTINATION "Release/" )

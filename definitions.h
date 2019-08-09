@@ -101,4 +101,16 @@
 #define LEX_COMMENT         0xFFFF0007
 #define LEX_COMMA           0xFFFF0008
 
+/* MEMORY MAPPINGS ***********************************************************/
+
+#define VIDEO_MEM_ADDRESS 0xC000
+#define COLOR_MEM_ADDRESS 0xDF40
+#define CONSOLE_X_ADDRESS 0xE000
+#define CONSOLE_Y_ADDRESS 0xE001
+#define CURSOR_ON_ADDRESS 0xE002
+#define VIDEO_MODE_ADDRESS 0xE003
+#define KEY_BUF_SIZE_ADDRESS 0xE004
+#define KEY_BUFFER_ADDRESS 0xE005
+#define CHAR_MEM_ADDRESS 0xE069
+
 #endif
