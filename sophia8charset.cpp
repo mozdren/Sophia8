@@ -5,14 +5,15 @@
 
 #include "SDL.h"
 #include "definitions.h"
+#include <cstdlib>
 
 class char_information
 {
 public:
-    bool character[8][8] = {false};
+    bool character[8][8] = {{false}};
     int addresses[8] = {0};
 
-    void draw_char_small(SDL_Renderer *renderer, const int xs, const int ys)
+    void draw_char_small(SDL_Renderer *renderer, const int xs, const int ys, const bool selected = false)
     {
         for (auto y = 0; y < 8; y++)
         {
@@ -26,9 +27,15 @@ public:
                 {
                     SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
                 }
+
                 SDL_RenderDrawPoint(renderer, xs + x, ys + y);
             }
         }
+
+        SDL_Rect rect = { xs - 1,ys - 1, 10, 10 };
+        if (selected) SDL_SetRenderDrawColor(renderer, 255, 0, 0, SDL_ALPHA_OPAQUE);
+        else SDL_SetRenderDrawColor(renderer, 64, 64, 64, SDL_ALPHA_OPAQUE);
+        SDL_RenderDrawRect(renderer, &rect);
     }
 
     void draw_char_big(SDL_Renderer *renderer, const int xs, const int ys)
@@ -72,23 +79,31 @@ public:
             {
                 for (auto &char_bit: char_line)
                 {
-                    char_bit = false;
+                    //char_bit = false;
+                    char_bit = rand() % 100 < 50;
                 }
             }
         }
     }
-};
 
-void draw_field(SDL_Renderer *renderer)
-{
-    SDL_Rect rect;
-    rect.x = 10;
-    rect.y = 10;
-    rect.w = 10;
-    rect.h = 10;
-    SDL_SetRenderDrawColor(renderer, 127, 127, 127, 255);
-    SDL_RenderDrawRect(renderer, &rect);
-}
+    void draw_characters(SDL_Renderer *renderer, const int sx, const int sy, const int selected = -1)
+    {
+        auto sxc = sx;
+        auto syc = sy;
+        auto index = 0;
+
+        for (auto &ch : characters)
+        {
+            ch.draw_char_small(renderer, sxc, syc, index == selected);
+            sxc += 11;
+            if (sxc - sx > 250) {
+                syc += 11;
+                sxc = sx;
+            }
+            index++;
+        }
+    }
+};
 
 int main(int argc, char* argv[]) {
     SDL_Init(SDL_INIT_VIDEO);              // Initialize SDL2
@@ -112,26 +127,8 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // test A
-    char_information ch_info;
-    ch_info.character[0][3] = true;
-    ch_info.character[1][2] = true;
-    ch_info.character[1][4] = true;
-    ch_info.character[2][1] = true;
-    ch_info.character[2][5] = true;
-    ch_info.character[3][0] = true;
-    ch_info.character[3][6] = true;
-    ch_info.character[4][0] = true;
-    ch_info.character[4][1] = true;
-    ch_info.character[4][2] = true;
-    ch_info.character[4][3] = true;
-    ch_info.character[4][4] = true;
-    ch_info.character[4][5] = true;
-    ch_info.character[4][6] = true;
-    ch_info.character[5][0] = true;
-    ch_info.character[5][6] = true;
-    ch_info.character[6][0] = true;
-    ch_info.character[6][6] = true;
+    characters_information characters_information_table;
+    int current_character = 0;
 
     while (true) {
         SDL_Event e;
@@ -139,14 +136,31 @@ int main(int argc, char* argv[]) {
             if (e.type == SDL_QUIT) {
                 break;
             }
+            if (e.type == SDL_KEYDOWN)
+            {
+                if (e.key.keysym.sym == SDLK_ESCAPE)
+                {
+                    break;
+                }
+                if (e.key.keysym.sym == SDLK_RIGHT)
+                {
+                    current_character++;
+                    if (current_character > 255) current_character = 0;
+                }
+                if (e.key.keysym.sym == SDLK_LEFT)
+                {
+                    current_character--;
+                    if (current_character < 0) current_character = 255;
+                }
+            }
         }
 
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderClear(renderer);
-        //draw_field(renderer);
         
-        ch_info.draw_char_small(renderer, 300, 10);
-        ch_info.draw_char_big(renderer, 10, 10);
+        characters_information_table.characters[current_character].draw_char_small(renderer, 300, 10);
+        characters_information_table.characters[current_character].draw_char_big(renderer, 10, 10);
+        characters_information_table.draw_characters(renderer, 10, 300, current_character);
         
         SDL_RenderPresent(renderer);
     }

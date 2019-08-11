@@ -813,7 +813,7 @@ void mul_instruction()
     static uint16_t value;
     static uint16_t result;
     
-    value = (uint16_t)mem[ip + 1];
+    value = static_cast<uint16_t>(mem[ip + 1]);
     dest_register_h = mem[ip + 2];
     dest_register_l = mem[ip + 3];
     
@@ -967,17 +967,17 @@ void mulr_instruction()
  */
 void divInstruction()
 {
-    static uint8_t destRegisterResult;
-    static uint8_t destRegisterRest;
+    static uint8_t dest_register_result;
+    static uint8_t dest_register_rest;
     static uint8_t value;
     static uint8_t result;
     static uint8_t rest;
     
     value = mem[ip + 1];
-    destRegisterResult = mem[ip + 2];
-    destRegisterRest = mem[ip + 3];
+    dest_register_result = mem[ip + 2];
+    dest_register_rest = mem[ip + 3];
     
-    switch (destRegisterResult)
+    switch (dest_register_result)
     {
         case IR0: result = r[0] / value; rest = r[0] % value; r[0] = result; break;
         case IR1: result = r[1] / value; rest = r[1] % value; r[1] = result; break;
@@ -990,7 +990,7 @@ void divInstruction()
         default: STOP = 1; break;
     }
     
-    switch (destRegisterRest)
+    switch (dest_register_rest)
     {
         case IR0: r[0] = rest; break;
         case IR1: r[1] = rest; break;
