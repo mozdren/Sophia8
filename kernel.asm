@@ -62,6 +62,10 @@ __KEY_BUF_SIZE: DB      0                           ; keyboard buffer size
 __KEY_BUFFER:   DB      0[100]                      ; keyboard buffer
 __CHAR_MEM:     DB      0[2048]                     ; characters memory 8*8*256
 
+; character set include
+
+#include "charset.asm"
+
 ; console input/output methods
 
 __kbhit:        RET                                 ; determines if key was pressed

@@ -6,6 +6,8 @@
 #include "SDL.h"
 #include "definitions.h"
 #include <cstdlib>
+#include <string>
+#include <fstream>
 
 class char_information
 {
@@ -66,7 +68,7 @@ public:
 
     characters_information()
     {
-        auto address = CHAR_MEM_ADDRESS;
+        uint16_t address = CHAR_MEM_ADDRESS;
         for (auto &ch: characters)
         {
             for (auto &cur_address: ch.addresses)
@@ -79,8 +81,7 @@ public:
             {
                 for (auto &char_bit: char_line)
                 {
-                    //char_bit = false;
-                    char_bit = rand() % 100 < 50;
+                    char_bit = false;
                 }
             }
         }
@@ -102,6 +103,77 @@ public:
             }
             index++;
         }
+    }
+
+    void save(const std::string& filename)
+    {
+        std::ofstream file;
+
+        file.open(filename);
+
+        for (auto &ch : characters)
+        {
+            for (auto &ch_line: ch.character)
+            {
+                for (auto &ch_bit: ch_line)
+                {
+                    file << (ch_bit ? 1 : 0) << " ";
+                }
+                file << std::endl;
+            }
+            file << std::endl;
+        }
+
+        file.close();
+    }
+
+    void save_asm(const std::string& filename)
+    {
+        std::ofstream file;
+
+        file.open(filename);
+
+        for (auto &ch : characters)
+        {
+            auto li = 0;
+            for (auto &ch_line : ch.character)
+            {
+                file << "0x" << std::hex << std::uppercase 
+                     << ch.addresses[li] << std::dec 
+                     << std::nouppercase << ": db 0b";
+                for (auto &ch_bit : ch_line)
+                {
+                    file << (ch_bit ? 1 : 0);
+                }
+                file << std::endl;
+                li++;
+            }
+            file << std::endl;
+        }
+
+        file.close();
+    }
+
+    void load(const std::string& filename)
+    {
+        std::ifstream file;
+
+        file.open(filename);
+
+        for (auto& character : characters)
+        {
+            for (auto& ch_line : character.character)
+            {
+                for (auto& ch_bit : ch_line)
+                {
+                    char read_char;
+                    file >> read_char;
+                    ch_bit = read_char == '1';
+                }
+            }
+        }
+
+        file.close();
     }
 };
 
@@ -128,7 +200,8 @@ int main(int argc, char* argv[]) {
     }
 
     characters_information characters_information_table;
-    int current_character = 0;
+    characters_information_table.load(R"(C:\developement\Sophia8\chars.dat)");
+    auto current_character = 0;
 
     while (true) {
         SDL_Event e;
@@ -152,6 +225,18 @@ int main(int argc, char* argv[]) {
                     current_character--;
                     if (current_character < 0) current_character = 255;
                 }
+                if (e.key.keysym.sym == SDLK_s)
+                {
+                    characters_information_table.save(R"(C:\developement\Sophia8\chars.dat)");
+                    characters_information_table.save_asm(R"(C:\developement\Sophia8\chars.asm)");
+                }
+            }
+            if (e.type == SDL_MOUSEBUTTONDOWN)
+            {
+                int x, y;
+                SDL_GetMouseState(&x, &y);
+                auto& cur_bit = characters_information_table.characters[current_character].character[(y - 10) / 32][(x - 10) / 32];
+                cur_bit = !cur_bit;
             }
         }
 
