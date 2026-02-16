@@ -15,7 +15,7 @@
 ;
 ; All routines preserve no registers unless noted.
 
-.org 0x0800
+;.org 0x0800
 
 ; ---------------------------------------------------------------------------
 ; PUTC (blocking on transmitter ready)
