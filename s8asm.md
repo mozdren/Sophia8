@@ -39,7 +39,7 @@ If `-o` is omitted, assembly fails.
 
 ### What the assembler does
 
-1. Parses all `.include` files (recursively)
+1. Parses all `.include` files (recursively) - direct text injection
 2. Resolves labels globally
 3. Applies `.org` directives
 4. Emits a **JMP instruction at address `0x0000`** to the entry point
@@ -146,7 +146,7 @@ SET #0x41, R0
 
 ### Registers
 
-- `R0`–`R9`
+- `R0`–`R7`
 - Case-sensitive
 
 ### Whitespace
@@ -182,7 +182,7 @@ Msg: .string "Hello\n"
 - Automatic `0x00` terminator
 - Escapes supported: `\n`, `\t`, `\"`, `\\`
 
-Non‑ASCII → error.
+Non-ASCII → error.
 
 ---
 
@@ -274,8 +274,8 @@ Stack notes:
 |-------|-------------|
 | PUTC | Output char in `R0` |
 | GETC | Blocking input |
-| GETC_NB | Non‑blocking input |
-| PUTS | Print NUL‑terminated string |
+| GETC_NB | Non-blocking input |
+| PUTS | Print NUL-terminated string |
 
 ### Calling convention
 
@@ -319,6 +319,7 @@ sophia8 hello.bin
 - No interrupts
 - No stack safety
 - No multitasking
+- No inline operators implemented
 - IDE consoles may buffer input
 - Behavior outside defined instructions is undefined but deterministic
 
