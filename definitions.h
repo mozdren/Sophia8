@@ -10,6 +10,7 @@
 #define LOAD    0x01            /* loads memory to register             A    */
 #define STORE   0x02            /* stores register to memory            A    */
 #define STORER  0x03            /* sto. reg. val. to mem. def in regs   A    */
+#define LOADR   0x1C            /* loads mem. def in regs to register   A    */
 #define SET     0x04            /* sets register to value               A    */
 #define INC     0x05            /* increases register by 1              A    */
 #define DEC     0x06            /* decreases register by 1              A    */
@@ -45,6 +46,7 @@
 #define LOAD_LEN    4 
 #define STORE_LEN   4
 #define STORER_LEN  4
+#define LOADR_LEN   4 
 #define SET_LEN     3
 #define INC_LEN     2
 #define DEC_LEN     2

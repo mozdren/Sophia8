@@ -16,10 +16,39 @@
 
 /* INCLUDES ******************************************************************/
 
+//#define DEBUG_COMMAND
+
 #include <cstdio>
 #include <cstdint>
 
 #include "definitions.h"
+
+#ifndef LOADR
+    #define LOADR 0x1C
+#endif
+
+/* Windows real-time console I/O */
+#ifdef _WIN32
+    #include <conio.h>
+#endif
+
+#ifdef DEBUG_COMMAND
+    #define DBG_CMD(...) do { printf(__VA_ARGS__); printf("\n"); } while (0)
+#else
+    #define DBG_CMD(...)
+#endif
+
+/* Memory-mapped I/O (0xFF00..0xFF03)
+ * 0xFF00 KBD_STATUS (R): bit0=1 if a byte is available
+ * 0xFF01 KBD_DATA   (R): pops a byte (7-bit ASCII), returns 0x00 if none
+ * 0xFF02 TTY_STATUS (R): bit0=1 always
+ * 0xFF03 TTY_DATA   (W): write byte to console
+ */
+static inline uint8_t mmio_read(uint16_t address);
+static inline void    mmio_write(uint16_t address, uint8_t value);
+static inline uint8_t mem_read(uint16_t address);
+static inline void    mem_write(uint16_t address, uint8_t value);
+
 
 /* REGISTERS *****************************************************************/
 
@@ -37,6 +66,45 @@ static uint8_t  c;              /* carry flag                                */
 /* MEMORY ********************************************************************/
 
 static uint8_t  mem[MEM_SIZE];  /* random access memory                      */
+
+/* Memory-mapped I/O implementation ******************************************/
+static inline uint8_t mmio_read(uint16_t address)
+{
+#ifdef _WIN32
+    if (address == 0xFF00) return _kbhit() ? 0x01 : 0x00;
+    if (address == 0xFF01) {
+        if (!_kbhit()) return 0x00;
+        int ch = _getch();
+        if (ch == 0 || ch == 0xE0) { (void)_getch(); return 0x00; } // swallow special key
+        return (uint8_t)(ch & 0x7F);
+    }
+    if (address == 0xFF02) return 0x01;
+#endif
+    return 0x00;
+}
+
+static inline void mmio_write(const uint16_t address, const uint8_t value)
+{
+    if (address == 0xFF03)
+    {
+        putchar(static_cast<int>(value));
+        fflush(stdout);
+    }
+}
+
+static inline uint8_t mem_read(const uint16_t address)
+{
+    if (address >= 0xFF00 && address <= 0xFF03) return mmio_read(address);
+    if (address >= MEM_SIZE) return 0x00;
+    return mem[address];
+}
+
+static inline void mem_write(const uint16_t address, const uint8_t value)
+{
+    if (address >= 0xFF00 && address <= 0xFF03) { mmio_write(address, value); return; }
+    if (address >= MEM_SIZE) return;
+    mem[address] = value;
+}
 
 /* SPECIAL TRIGGERS **********************************************************/
 
@@ -91,7 +159,7 @@ void load_instruction()
     memory_source <<= 8;
     memory_source += static_cast<uint16_t>(mem[ip + 2]);
 
-    value = mem[memory_source];
+    value = mem_read(memory_source);
 
     destination = mem[ip + 3];
 
@@ -105,7 +173,7 @@ void load_instruction()
         case IR5: r[5] = value; break;
         case IR6: r[6] = value; break;
         case IR7: r[7] = value; break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
 
     ip += 4;
@@ -139,10 +207,10 @@ void store_instruction()
         case IR5: value = r[5]; break;
         case IR6: value = r[6]; break;
         case IR7: value = r[7]; break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
     
-    mem[memory_destination] = value;
+    mem_write(memory_destination, value);
 
     ip += 4;
 }
@@ -176,7 +244,7 @@ void storer_instruction()
         case IR5: value = r[5]; break;
         case IR6: value = r[6]; break;
         case IR7: value = r[7]; break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
 
     switch (destination_register_h) 
@@ -189,7 +257,7 @@ void storer_instruction()
         case IR5: destinationAddress = static_cast<uint16_t>(r[5]) << 8; break;
         case IR6: destinationAddress = static_cast<uint16_t>(r[6]) << 8; break;
         case IR7: destinationAddress = static_cast<uint16_t>(r[7]) << 8; break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
     
     switch (destination_register_l) 
@@ -202,11 +270,76 @@ void storer_instruction()
         case IR5: destinationAddress += static_cast<uint16_t>(r[5]); break;
         case IR6: destinationAddress += static_cast<uint16_t>(r[6]); break;
         case IR7: destinationAddress += static_cast<uint16_t>(r[7]); break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
     
-    mem[destinationAddress] = value;
+    mem_write(destinationAddress, value);
     
+    ip += 4;
+}
+
+/**
+ * Processing a load instruction via register-defined address. This instruction loads
+ * data from a 16bit memory location defined by two registers into a destination register.
+ *
+ * LOADR R0, R1, R2 -> 1C 00 01 02
+ */
+void loadr_instruction()
+{
+    static uint8_t destination_register;
+    static uint8_t source_register_h;
+    static uint8_t source_register_l;
+
+    static uint16_t source_address;
+    static uint8_t value;
+
+    destination_register = mem[ip + 1];
+    source_register_h    = mem[ip + 2];
+    source_register_l    = mem[ip + 3];
+
+    /* compute address from registers */
+    source_address = 0;
+    switch (source_register_h)
+    {
+        case IR0: source_address = static_cast<uint16_t>(r[0]) << 8; break;
+        case IR1: source_address = static_cast<uint16_t>(r[1]) << 8; break;
+        case IR2: source_address = static_cast<uint16_t>(r[2]) << 8; break;
+        case IR3: source_address = static_cast<uint16_t>(r[3]) << 8; break;
+        case IR4: source_address = static_cast<uint16_t>(r[4]) << 8; break;
+        case IR5: source_address = static_cast<uint16_t>(r[5]) << 8; break;
+        case IR6: source_address = static_cast<uint16_t>(r[6]) << 8; break;
+        case IR7: source_address = static_cast<uint16_t>(r[7]) << 8; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+
+    switch (source_register_l)
+    {
+        case IR0: source_address += static_cast<uint16_t>(r[0]); break;
+        case IR1: source_address += static_cast<uint16_t>(r[1]); break;
+        case IR2: source_address += static_cast<uint16_t>(r[2]); break;
+        case IR3: source_address += static_cast<uint16_t>(r[3]); break;
+        case IR4: source_address += static_cast<uint16_t>(r[4]); break;
+        case IR5: source_address += static_cast<uint16_t>(r[5]); break;
+        case IR6: source_address += static_cast<uint16_t>(r[6]); break;
+        case IR7: source_address += static_cast<uint16_t>(r[7]); break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+
+    value = mem_read(source_address);
+
+    switch (destination_register)
+    {
+        case IR0: r[0] = value; break;
+        case IR1: r[1] = value; break;
+        case IR2: r[2] = value; break;
+        case IR3: r[3] = value; break;
+        case IR4: r[4] = value; break;
+        case IR5: r[5] = value; break;
+        case IR6: r[6] = value; break;
+        case IR7: r[7] = value; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+
     ip += 4;
 }
 
@@ -234,7 +367,7 @@ void set_instruction()
         case IR5: r[5] = value; break;
         case IR6: r[6] = value; break;
         case IR7: r[7] = value; break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
 
     ip += 3;
@@ -299,7 +432,7 @@ void push_instruction()
     case IR5: value = r[5]; break;
     case IR6: value = r[6]; break;
     case IR7: value = r[7]; break;
-    default: STOP = 1; break;
+    default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
 
     mem[sp] = value;
@@ -359,7 +492,7 @@ void pop_instruction()
     case IR5: r[5] = static_cast<uint8_t>(value); break;
     case IR6: r[6] = static_cast<uint8_t>(value); break;
     case IR7: r[7] = static_cast<uint8_t>(value); break;
-    default: STOP = 1; break;
+    default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
 
     sp++;
@@ -387,7 +520,7 @@ void inc_instruction()
         case IR5: r[5]++; c = r[5] == 0x00 ? 1 : 0; break;
         case IR6: r[6]++; c = r[6] == 0x00 ? 1 : 0; break;
         case IR7: r[7]++; c = r[7] == 0x00 ? 1 : 0; break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
 
     ip += 2;
@@ -414,7 +547,7 @@ void dec_instruction()
         case IR5: r[5]--; c = r[5] == 0xFF ? 1 : 0; break;
         case IR6: r[6]--; c = r[6] == 0xFF ? 1 : 0; break;
         case IR7: r[7]--; c = r[7] == 0xFF ? 1 : 0; break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
 
     ip += 2;
@@ -460,7 +593,7 @@ void cmp_instruction()
         case IR5: c = r[5] >= value ? 0 : 1; r[5] -= value; break;
         case IR6: c = r[6] >= value ? 0 : 1; r[6] -= value; break;
         case IR7: c = r[7] >= value ? 0 : 1; r[7] -= value; break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
     
     ip += 3;
@@ -493,7 +626,7 @@ void cmpr_instruction()
         case IR5: value = r[5]; break;
         case IR6: value = r[6]; break;
         case IR7: value = r[7]; break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
     
     switch (register0) 
@@ -506,7 +639,7 @@ void cmpr_instruction()
         case IR5: c = r[5] >= value ? 0 : 1;  r[5] -= value; break;
         case IR6: c = r[6] >= value ? 0 : 1;  r[6] -= value; break;
         case IR7: c = r[7] >= value ? 0 : 1;  r[7] -= value; break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
     
     ip += 3;
@@ -538,7 +671,7 @@ void jz_instruction()
         case IR5: if (r[5] == 0) {ip = jumpAddress; return;} break;
         case IR6: if (r[6] == 0) {ip = jumpAddress; return;} break;
         case IR7: if (r[7] == 0) {ip = jumpAddress; return;} break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
     
     ip += 4;
@@ -570,7 +703,7 @@ void jnz_instruction()
         case IR5: if (r[5] != 0) {ip = jump_address; return;} break;
         case IR6: if (r[6] != 0) {ip = jump_address; return;} break;
         case IR7: if (r[7] != 0) {ip = jump_address; return;} break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
     
     ip += 4;
@@ -643,7 +776,7 @@ void add_instruction()
         case IR5: c = static_cast<uint16_t>(r[5]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[5] += value; break;
         case IR6: c = static_cast<uint16_t>(r[6]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[6] += value; break;
         case IR7: c = static_cast<uint16_t>(r[7]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[7] += value; break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
     
     ip += 3;
@@ -673,7 +806,7 @@ void addr_instruction()
         case IR5: value = r[5]; break;
         case IR6: value = r[6]; break;
         case IR7: value = r[7]; break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
     
     switch (destRegister)
@@ -686,7 +819,7 @@ void addr_instruction()
         case IR5: c = static_cast<uint16_t>(r[5]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[5] += value; break;
         case IR6: c = static_cast<uint16_t>(r[6]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[6] += value; break;
         case IR7: c = static_cast<uint16_t>(r[7]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[7] += value; break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
     
     ip += 3;
@@ -751,7 +884,7 @@ void sub_instruction()
         case IR5: c = r[5] < value ? 1 : 0; r[5] -= value; break;
         case IR6: c = r[6] < value ? 1 : 0; r[6] -= value; break;
         case IR7: c = r[7] < value ? 1 : 0; r[7] -= value; break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
     
     ip += 3;
@@ -781,7 +914,7 @@ void subr_instruction()
         case IR5: value = r[5]; break;
         case IR6: value = r[6]; break;
         case IR7: value = r[7]; break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
     
     switch (dest_register)
@@ -794,7 +927,7 @@ void subr_instruction()
         case IR5: c = r[5] < value ? 1 : 0; r[5] -= value; break;
         case IR6: c = r[6] < value ? 1 : 0; r[6] -= value; break;
         case IR7: c = r[7] < value ? 1 : 0; r[7] -= value; break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
     
     ip += 3;
@@ -851,7 +984,7 @@ void mul_instruction()
             result = static_cast<uint16_t>(r[7]) * value; 
             r[7] = static_cast<uint8_t>(result & 0x00FF); 
             break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
     
     c = result > 0xFF ? 1 : 0;
@@ -866,7 +999,7 @@ void mul_instruction()
         case IR5: r[5] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
         case IR6: r[6] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
         case IR7: r[7] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
     
     ip += 4;
@@ -900,7 +1033,7 @@ void mulr_instruction()
         case IR5: value = static_cast<uint16_t>(r[5]); break;
         case IR6: value = static_cast<uint16_t>(r[6]); break;
         case IR7: value = static_cast<uint16_t>(r[7]); break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
     
     switch (destRegisterL)
@@ -937,7 +1070,7 @@ void mulr_instruction()
             result = static_cast<uint16_t>(r[7]) * value; 
             r[7] = static_cast<uint8_t>(result & 0x00FF); 
             break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
     
     c = result > 0xFF ? 1 : 0;
@@ -952,7 +1085,7 @@ void mulr_instruction()
         case IR5: r[5] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
         case IR6: r[6] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
         case IR7: r[7] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
     
     ip += 4;
@@ -987,7 +1120,7 @@ void divInstruction()
         case IR5: result = r[5] / value; rest = r[5] % value; r[5] = result; break;
         case IR6: result = r[6] / value; rest = r[6] % value; r[6] = result; break;
         case IR7: result = r[7] / value; rest = r[7] % value; r[7] = result; break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
     
     switch (dest_register_rest)
@@ -1000,7 +1133,7 @@ void divInstruction()
         case IR5: r[5] = rest; break;
         case IR6: r[6] = rest; break;
         case IR7: r[7] = rest; break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
     
     ip += 4;
@@ -1034,7 +1167,7 @@ void divr_instruction()
         case IR5: value = r[5]; break;
         case IR6: value = r[6]; break;
         case IR7: value = r[7]; break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
     
     dest_register_result = mem[ip + 2];
@@ -1050,7 +1183,7 @@ void divr_instruction()
         case IR5: result = r[5] / value; rest = r[5] % value; r[5] = result; break;
         case IR6: result = r[6] / value; rest = r[6] % value; r[6] = result; break;
         case IR7: result = r[7] / value; rest = r[7] % value; r[7] = result; break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
     
     switch (dest_register_rest)
@@ -1063,7 +1196,7 @@ void divr_instruction()
         case IR5: r[5] = rest; break;
         case IR6: r[6] = rest; break;
         case IR7: r[7] = rest; break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
     
     ip += 4;
@@ -1092,7 +1225,7 @@ void shrInstruction()
         case IR5: c = (r[5] >> (val - 1)) % 2; r[5] >>= val; break;
         case IR6: c = (r[6] >> (val - 1)) % 2; r[6] >>= val; break;
         case IR7: c = (r[7] >> (val - 1)) % 2; r[7] >>= val; break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
 
     ip += 3;
@@ -1121,7 +1254,7 @@ void shl_instruction()
         case IR5: c = r[5] << (val - 1) > 127 ? 1 : 0; r[5] <<= val; break;
         case IR6: c = r[6] << (val - 1) > 127 ? 1 : 0; r[6] <<= val; break;
         case IR7: c = r[7] << (val - 1) > 127 ? 1 : 0; r[7] <<= val; break;
-        default: STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
 
     ip += 3;
@@ -1136,35 +1269,37 @@ void process_instruction()
 {
     switch (mem[ip])
     {
-        case LOAD: load_instruction(); break;
-        case STORE: store_instruction(); break;
-        case STORER: storer_instruction(); break;
-        case SET: set_instruction(); break;
-        case PUSH: push_instruction(); break;
-        case POP: pop_instruction(); break;
-        case INC: inc_instruction(); break;
-        case DEC: dec_instruction(); break;
-        case JMP: jmp_instruction(); break;
-        case CMP: cmp_instruction(); break;
-        case CMPR: cmpr_instruction(); break;
-        case JZ: jz_instruction(); break;
-        case JNZ: jnz_instruction(); break;
-        case JC: jc_instruction(); break;
-        case JNC: jnc_instruction(); break;
-        case ADD: add_instruction(); break;
-        case ADDR: addr_instruction(); break;
-        case CALL: call_instruction(); break;
-        case RET: ret_instruction(); break;
-        case SUB: sub_instruction(); break;
-        case SUBR: subr_instruction(); break;
-        case MUL: mul_instruction(); break;
-        case MULR: mulr_instruction(); break;
-        case DIV: divInstruction(); break;
-        case DIVR: divr_instruction(); break;
-        case SHL: shl_instruction(); break;
-        case SHR: shrInstruction(); break;
-        case NOP: ip++; break;
-        default: STOP = 1; break;
+	        case LOADR: DBG_CMD("LOADR 0x%02X, 0x%02X, 0x%02X", mem[ip+1], mem[ip+2], mem[ip+3]); loadr_instruction(); break;
+        case LOAD: DBG_CMD("LOAD 0x%02X, 0x%04X", mem[ip+1], (uint16_t)(mem[ip+2]<<8)|mem[ip+3]); load_instruction(); break;
+        case STORE: DBG_CMD("STORE 0x%02X, 0x%04X", mem[ip+1], (uint16_t)(mem[ip+2]<<8)|mem[ip+3]); store_instruction(); break;
+        case STORER: DBG_CMD("STORER 0x%02X, 0x%02X, 0x%02X", mem[ip+1], mem[ip+2], mem[ip+3]); storer_instruction(); break;
+        case SET: DBG_CMD("SET 0x%02X, 0x%02X", mem[ip+1], mem[ip+2]); set_instruction(); break;
+        case PUSH: DBG_CMD("PUSH 0x%02X", mem[ip+1]); push_instruction(); break;
+        case POP: DBG_CMD("POP 0x%02X", mem[ip+1]); pop_instruction(); break;
+        case INC: DBG_CMD("INC 0x%02X", mem[ip+1]); inc_instruction(); break;
+        case DEC: DBG_CMD("DEC 0x%02X", mem[ip+1]); dec_instruction(); break;
+        case JMP: DBG_CMD("JMP 0x%04X", (uint16_t)(mem[ip+1]<<8)|mem[ip+2]); jmp_instruction(); break;
+        case CMP: DBG_CMD("CMP 0x%02X, 0x%02X", mem[ip+1], mem[ip+2]); cmp_instruction(); break;
+        case CMPR: DBG_CMD("CMPR 0x%02X, 0x%02X", mem[ip+1], mem[ip+2]); cmpr_instruction(); break;
+        case JZ: DBG_CMD("JZ 0x%02X, 0x%04X", mem[ip+1], (uint16_t)(mem[ip+2]<<8)|mem[ip+3]); jz_instruction(); break;
+        case JNZ: DBG_CMD("JNZ 0x%02X, 0x%04X", mem[ip+1], (uint16_t)(mem[ip+2]<<8)|mem[ip+3]); jnz_instruction(); break;
+        case JC: DBG_CMD("JC 0x%04X", (uint16_t)(mem[ip+1]<<8)|mem[ip+2]); jc_instruction(); break;
+        case JNC: DBG_CMD("JNC 0x%04X", (uint16_t)(mem[ip+1]<<8)|mem[ip+2]); jnc_instruction(); break;
+        case ADD: DBG_CMD("ADD 0x%02X, 0x%02X", mem[ip+1], mem[ip+2]); add_instruction(); break;
+        case ADDR: DBG_CMD("ADDR 0x%02X, 0x%02X", mem[ip+1], mem[ip+2]); addr_instruction(); break;
+        case CALL: DBG_CMD("CALL 0x%04X", (uint16_t)(mem[ip+1]<<8)|mem[ip+2]); call_instruction(); break;
+        case RET: DBG_CMD("RET"); ret_instruction(); break;
+        case SUB: DBG_CMD("SUB 0x%02X, 0x%02X", mem[ip+1], mem[ip+2]); sub_instruction(); break;
+        case SUBR: DBG_CMD("SUBR 0x%02X, 0x%02X", mem[ip+1], mem[ip+2]); subr_instruction(); break;
+        case MUL: DBG_CMD("MUL 0x%02X, 0x%02X, 0x%02X", mem[ip+1], mem[ip+2], mem[ip+3]); mul_instruction(); break;
+        case MULR: DBG_CMD("MULR 0x%02X, 0x%02X, 0x%02X", mem[ip+1], mem[ip+2], mem[ip+3]); mulr_instruction(); break;
+        case DIV: DBG_CMD("DIV 0x%02X, 0x%02X, 0x%02X", mem[ip+1], mem[ip+2], mem[ip+3]); divInstruction(); break;
+        case DIVR: DBG_CMD("DIVR 0x%02X, 0x%02X, 0x%02X", mem[ip+1], mem[ip+2], mem[ip+3]); divr_instruction(); break;
+        case SHL: DBG_CMD("SHL 0x%02X, 0x%02X", mem[ip+1], mem[ip+2]); shl_instruction(); break;
+        case SHR: DBG_CMD("SHR 0x%02X, 0x%02X", mem[ip+1], mem[ip+2]); shrInstruction(); break;
+        case NOP: DBG_CMD("NOP"); ip++; break;
+        case HALT: DBG_CMD("HALT"); STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
 }
 
@@ -1214,8 +1349,8 @@ void run()
         process_instruction();
     }
 
-    print_memory();
-    print_registers();
+    //print_memory();
+    //print_registers();
 }
 
 void load_test_code()
@@ -1305,11 +1440,46 @@ void load_test_code()
  * Starts the code until it reaches halt instruction or end of code memory.
  *
  */
-int main()
+/**
+ * Loads a full memory image from a raw binary file into mem[0..MEM_SIZE-1].
+ * Returns true on success, false otherwise.
+ */
+bool load_bin_file(const char* file_path)
+{
+    FILE* f = fopen(file_path, "rb");
+    if (!f)
+    {
+        printf("Failed to open bin file: %s\n", file_path);
+        return false;
+    }
+
+    (void)fread(mem, 1, MEM_SIZE, f);
+    fclose(f);
+    return true;
+}
+
+
+int main(int argc, char** argv)
 {
     init_machine();
-    load_test_code();
+
+    /*
+     * Usage:
+     *   sophia8                 -> runs built-in test program
+     *   sophia8 <image.bin>     -> loads and runs a raw memory image
+     */
+    if (argc >= 2)
+    {
+        if (!load_bin_file(argv[1]))
+        {
+            return 1;
+        }
+    }
+    else
+    {
+        load_test_code();
+    }
+
     run();
     return 0;
 }
-

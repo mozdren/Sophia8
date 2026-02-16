@@ -1,0 +1,77 @@
+; kernel.s8 — Sophia8 console kernel (memory-mapped I/O)
+; Requires ISA extension: LOADR (opcode 0x1C): LOADR Rdst, RaddrHi, RaddrLo
+;
+; I/O map (memory-mapped):
+;   0xFF00  KBD_STATUS (R) bit0=1 if key available else 0
+;   0xFF01  KBD_DATA   (R) pops next key; returns 0x00 if none
+;   0xFF02  TTY_STATUS (R) bit0=1 always (ready)
+;   0xFF03  TTY_DATA   (W) write byte to terminal output
+;
+; Calling convention:
+;   PUTC:  char in R0
+;   GETC:  returns char in R0 (blocking)
+;   GETC_NB: returns char in R0, sets R1=1 if char else R1=0
+;   PUTS:  pointer in R1:R2 (HI:LO), prints until NUL (0x00)
+;
+; All routines preserve no registers unless noted.
+
+.org 0x0800
+
+; ---------------------------------------------------------------------------
+; PUTC (blocking on transmitter ready)
+; ---------------------------------------------------------------------------
+PUTC:
+PUTC_WTX:
+    LOAD 0xFF02, R3
+    CMP R3, #0x01
+    JNZ R3, PUTC_WTX
+    STORE R0, 0xFF03
+    RET
+
+; ---------------------------------------------------------------------------
+; GETC (blocking)
+; ---------------------------------------------------------------------------
+GETC:
+GETC_WKEY:
+    LOAD 0xFF00, R3
+    CMP R3, #0x01
+    JNZ R3, GETC_WKEY
+    LOAD 0xFF01, R0
+    RET
+
+; ---------------------------------------------------------------------------
+; GETC_NB (non-blocking)
+;   R0 = char or 0x00
+;   R1 = 1 if valid char else 0
+; ---------------------------------------------------------------------------
+GETC_NB:
+    LOAD 0xFF00, R3
+    CMP R3, #0x01
+    JNZ R3, GETC_NB_NO
+    LOAD 0xFF01, R0
+    SET #0x01, R1
+    RET
+GETC_NB_NO:
+    SET #0x00, R0
+    SET #0x00, R1
+    RET
+
+; ---------------------------------------------------------------------------
+; PUTS (prints NUL-terminated string at address in R1:R2)
+;   Uses LOADR to read [R1:R2]
+;   Clobbers: R0, R3
+; ---------------------------------------------------------------------------
+PUTS:
+PUTS_LOOP:
+    LOADR R0, R1, R2
+    CMP R0, #0x00
+    JZ R0, PUTS_DONE
+    CALL PUTC
+    ; increment pointer R1:R2
+    INC R2
+    JNZ R2, PUTS_LOOP
+    INC R1
+    JMP PUTS_LOOP
+
+PUTS_DONE:
+    RET

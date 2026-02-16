@@ -1,0 +1,23 @@
+.include "kernel.s8"
+
+.org 0x0200
+Msg: .string "Type keys. Press 'q' to quit.\n"
+
+.org
+START:
+    ; pointer to Msg = 0x0200
+    SET #0x02, R1
+    SET #0x00, R2
+    CALL PUTS
+
+ECHO:
+    CALL GETC          ; NOTE: on Windows console this is line-buffered (press Enter)
+    CALL PUTC
+    CMP R0, #0x71      ; 'q'
+    JZ  R0, DONE
+    JMP ECHO
+
+DONE:
+    SET #0x0A, R0
+    CALL PUTC
+    HALT

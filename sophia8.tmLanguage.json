@@ -1,0 +1,104 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Sophia8 Assembly",
+  "scopeName": "source.sophia8",
+  "fileTypes": [
+    "s8"
+  ],
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#directives"
+    },
+    {
+      "include": "#labels"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#registers"
+    },
+    {
+      "include": "#instructions"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.semicolon.sophia8",
+          "match": ";.*$"
+        }
+      ]
+    },
+    "directives": {
+      "patterns": [
+        {
+          "name": "keyword.control.directive.sophia8",
+          "match": "\\.(org|include|byte|word|string)\\b"
+        }
+      ]
+    },
+    "labels": {
+      "patterns": [
+        {
+          "name": "entity.name.label.sophia8",
+          "match": "^[A-Za-z_][A-Za-z0-9_]*:"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.sophia8",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.sophia8",
+              "match": "\\\\(n|r|t|0|\\\"|\\\\|x[0-9A-Fa-f]{2})"
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.sophia8",
+          "match": "#?0x[0-9A-Fa-f]+"
+        },
+        {
+          "name": "constant.numeric.binary.sophia8",
+          "match": "#?0b[01]+"
+        },
+        {
+          "name": "constant.numeric.decimal.sophia8",
+          "match": "#?[0-9]+"
+        }
+      ]
+    },
+    "registers": {
+      "patterns": [
+        {
+          "name": "variable.register.sophia8",
+          "match": "\\bR[0-9]\\b"
+        }
+      ]
+    },
+    "instructions": {
+      "patterns": [
+        {
+          "name": "keyword.mnemonic.sophia8",
+          "match": "\\b(SET|LOAD|STORE|STORER|LOADR|PUSH|POP|CALL|RET|ADD|ADDR|SUB|SUBR|MUL|MULR|DIV|DIVR|INC|DEC|SHL|SHR|CMP|CMPR|JMP|JZ|JNZ|JC|JNC|NOP|HALT)\\b"
+        }
+      ]
+    }
+  }
+}
