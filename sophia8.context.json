@@ -1,0 +1,606 @@
+{
+  "context_pack_name": "Sophia8 Assembler + ISA + Standard Libraries Context Pack",
+  "version": "1.1",
+  "intent": [
+    "Authoritative, implementation-accurate reference for Sophia8 assembly as accepted by s8asm and executed by the sophia8 VM.",
+    "All tokens are case sensitive.",
+    "Do not assume anything that is not explicitly described here."
+  ],
+
+  "cpu": {
+    "name": "Sophia8",
+    "data_width_bits": 8,
+    "address_width_bits": 16,
+    "address_range_hex_inclusive": ["0x0000", "0xFFFF"],
+    "memory_model": "unified (code+data share address space)",
+    "execution_model": "single-threaded deterministic",
+    "endianness": {
+      "word_values": "big-endian (high byte then low byte)",
+      "addresses_in_instructions": "big-endian (high byte then low byte)"
+    },
+    "registers": {
+      "gpr": {
+        "count": 8,
+        "names": ["R0", "R1", "R2", "R3", "R4", "R5", "R6", "R7"],
+        "width_bits": 8
+      },
+      "special": {
+        "names": ["IP", "SP", "BP"],
+        "width_bits": 16,
+        "access": "Only usable as operands of PUSH/POP (s8asm restriction)."
+      }
+    },
+    "flags": {
+      "carry": {
+        "name": "C",
+        "values": [0, 1],
+        "used_by": ["JC", "JNC"],
+        "updated_by": [
+          "ADD/ADDR (overflow)",
+          "SUB/SUBR (borrow)",
+          "INC (wrap 0xFF->0x00)",
+          "DEC (wrap 0x00->0xFF)",
+          "CMP/CMPR (borrow)",
+          "SHL/SHR (last shifted-out bit)",
+          "MUL/MULR (high byte != 0)"
+        ]
+      },
+      "note": "There is no exposed flags register in assembly; only the JC/JNC branch on the internal carry flag."
+    },
+    "stack": {
+      "exists": true,
+      "growth": "downward",
+      "safety": "No overflow/underflow protection.",
+      "width": "Byte-addressed; PUSH/POP of IP/SP/BP move 2 bytes; CALL/RET move 2 bytes.",
+      "byte_order_for_16bit_push": "big-endian: high byte at [SP], low byte at [SP+1] after PUSH"
+    }
+  },
+
+  "binary_image": {
+    "type": "full memory image",
+    "size_bytes": "0xFFFF",
+    "entry_stub": {
+      "reserved_range": "0x0000..0x0002",
+      "emitted_by_assembler": true,
+      "format": "JMP <entry> (3 bytes)",
+      "consequence": "User code/data must start at >= 0x0003."
+    },
+    "overlap": "Forbidden. Writing two different bytes to the same address is an assembler error."
+  },
+
+  "assembler": {
+    "tool_name": "s8asm",
+    "cli_usage": {
+      "pattern": "s8asm input.s8 [-o output.bin]",
+      "output_default": "sophia8_image.bin",
+      "exit_behavior": "On error: non-zero exit; prints file:line, the failing line, and an include stack."
+    },
+    "source_format": {
+      "file_extension": ".s8",
+      "encoding": "UTF-8 source, but .string must decode to 7-bit ASCII bytes (0x00..0x7F)."
+    },
+    "case_sensitivity": "All identifiers, mnemonics, directives, and registers are case sensitive.",
+    "comments": {
+      "line_comment": ";",
+      "rule": "Everything after ';' on a line is a comment."
+    },
+
+    "include": {
+      "directive": ".include",
+      "syntax": ".include \"relative/or/absolute/path.s8\"",
+      "behavior": [
+        "Textual include (the line is replaced by the included file contents).",
+        "Paths are resolved relative to the including file.",
+        "Unlimited nesting depth.",
+        "Include cycle detection is enforced.",
+        "Include-once is enforced: including the exact same file more than once is an error."
+      ]
+    },
+
+    "labels": {
+      "definition_syntax": "label:",
+      "placement": "Can be on its own line or before an instruction/directive on the same line.",
+      "scope": "Single global namespace across all files after preprocessing.",
+      "rules": [
+        "Duplicate label => error",
+        "Undefined label reference => error"
+      ]
+    },
+
+    "numbers": {
+      "formats": [
+        { "type": "decimal", "examples": ["10", "255"] },
+        { "type": "hex", "examples": ["0x0A", "0xFF", "0x0200"] },
+        { "type": "binary", "examples": ["0b1010", "0b00001111"] }
+      ],
+      "immediates": {
+        "prefix": "#",
+        "rule": "Immediate operands must start with '#' and must fit in 8 bits (0..255)."
+      }
+    },
+
+    "directives": {
+      ".org": {
+        "syntax": [".org", ".org 0x1234"],
+        "behavior": [
+          "Location counter (LC) starts at 0x0003 (0x0000..0x0002 reserved for implicit entry JMP).",
+          ".org with no operand marks an entry point at current LC and does not change LC (allowed at most once).",
+          ".org <addr> sets LC to <addr> (numeric literal only; labels are not allowed)."
+        ],
+        "constraints": [
+          "At least one .org (either form) must appear in the program.",
+          ".org <addr> must be a numeric literal in [0x0003..0xFFFF].",
+          "Multiple .org <addr> are allowed.",
+          "Overlapping writes across segments are forbidden.",
+          "Only one entry marker (.org with no operand) may exist."
+        ],
+        "entry_selection": [
+          "If an entry marker exists, entry = its LC.",
+          "Otherwise, entry = address from the first .org <addr> encountered."
+        ]
+      },
+
+      ".byte": {
+        "syntax": ".byte <v0>, <v1>, ...",
+        "allowed_values": "Numeric literals only (decimal/hex/binary). Labels are not allowed.",
+        "range": "0..255",
+        "behavior": "Emits each value as one byte."
+      },
+
+      ".word": {
+        "syntax": ".word <v0>, <v1>, ...",
+        "allowed_values": "Numeric literals or labels.",
+        "range": "0..65535",
+        "endianness": "big-endian",
+        "behavior": "Emits each value as two bytes: high then low."
+      },
+
+      ".string": {
+        "syntax": ".string \"text\"",
+        "behavior": [
+          "Decodes a C-like string literal into bytes and emits them.",
+          "Appends an implicit NUL terminator 0x00."
+        ],
+        "charset": "After escape decoding, all bytes must be <= 0x7F (7-bit ASCII).",
+        "escapes": [
+          "\\\\",
+          "\\\"",
+          "\\n",
+          "\\r",
+          "\\t",
+          "\\0",
+          "\\xNN (exactly two hex digits)"
+        ]
+      }
+    }
+  },
+
+  "isa": {
+    "mnemonics_case_sensitive": true,
+    "instruction_encoding": "First byte is opcode; remaining bytes are operands as described.",
+    "register_tokens": {
+      "gpr": ["R0", "R1", "R2", "R3", "R4", "R5", "R6", "R7"],
+      "push_pop_only": ["IP", "SP", "BP"]
+    },
+
+    "instructions": [
+      {
+        "m": "HALT",
+        "opcode_hex": "0x00",
+        "len": 1,
+        "operands": [],
+        "effects": "Stops the VM."
+      },
+      {
+        "m": "NOP",
+        "opcode_hex": "0xFF",
+        "len": 1,
+        "operands": [],
+        "effects": "No operation (IP += 1)."
+      },
+
+      {
+        "m": "SET",
+        "opcode_hex": "0x04",
+        "len": 3,
+        "operands": ["#imm8", "Rn"],
+        "encoding": "04 imm reg",
+        "effects": "Rn = imm8"
+      },
+
+      {
+        "m": "LOAD",
+        "opcode_hex": "0x01",
+        "len": 4,
+        "operands": ["addr16", "Rn"],
+        "encoding": "01 hi lo reg",
+        "effects": "Rn = mem[addr16]"
+      },
+      {
+        "m": "STORE",
+        "opcode_hex": "0x02",
+        "len": 4,
+        "operands": ["Rn", "addr16"],
+        "encoding": "02 reg hi lo",
+        "effects": "mem[addr16] = Rn"
+      },
+      {
+        "m": "LOADR",
+        "opcode_hex": "0x1C",
+        "len": 4,
+        "operands": ["Rdst", "Rhi", "Rlo"],
+        "encoding": "1C dst hi lo",
+        "effects": "Rdst = mem[(Rhi<<8)|Rlo]"
+      },
+      {
+        "m": "STORER",
+        "opcode_hex": "0x03",
+        "len": 4,
+        "operands": ["Rsrc", "Rhi", "Rlo"],
+        "encoding": "03 src hi lo",
+        "effects": "mem[(Rhi<<8)|Rlo] = Rsrc"
+      },
+
+      {
+        "m": "INC",
+        "opcode_hex": "0x05",
+        "len": 2,
+        "operands": ["Rn"],
+        "effects": "Rn++ (8-bit wrap). Carry set to 1 if value wrapped from 0xFF to 0x00."
+      },
+      {
+        "m": "DEC",
+        "opcode_hex": "0x06",
+        "len": 2,
+        "operands": ["Rn"],
+        "effects": "Rn-- (8-bit wrap). Carry set to 1 if value wrapped from 0x00 to 0xFF."
+      },
+
+      {
+        "m": "ADD",
+        "opcode_hex": "0x0E",
+        "len": 3,
+        "operands": ["#imm8", "Rn"],
+        "effects": "Rn = Rn + imm8 (8-bit wrap). Carry=1 on overflow."
+      },
+      {
+        "m": "ADDR",
+        "opcode_hex": "0x0F",
+        "len": 3,
+        "operands": ["Rsrc", "Rdst"],
+        "effects": "Rdst = Rdst + Rsrc (8-bit wrap). Carry=1 on overflow."
+      },
+      {
+        "m": "SUB",
+        "opcode_hex": "0x14",
+        "len": 3,
+        "operands": ["#imm8", "Rn"],
+        "effects": "Rn = Rn - imm8 (8-bit wrap). Carry=1 on borrow (Rn < imm8)."
+      },
+      {
+        "m": "SUBR",
+        "opcode_hex": "0x15",
+        "len": 3,
+        "operands": ["Rsrc", "Rdst"],
+        "effects": "Rdst = Rdst - Rsrc (8-bit wrap). Carry=1 on borrow (Rdst < Rsrc)."
+      },
+
+      {
+        "m": "MUL",
+        "opcode_hex": "0x16",
+        "len": 4,
+        "operands": ["#imm8", "Rlo", "Rhi"],
+        "effects": [
+          "Compute 16-bit product P = Rlo * imm8.",
+          "Rlo = low(P), Rhi = high(P).",
+          "Carry=1 if P > 0xFF else 0."
+        ]
+      },
+      {
+        "m": "MULR",
+        "opcode_hex": "0x17",
+        "len": 4,
+        "operands": ["Rsrc", "Rlo", "Rhi"],
+        "effects": [
+          "Compute 16-bit product P = Rlo * Rsrc.",
+          "Rlo = low(P), Rhi = high(P).",
+          "Carry=1 if P > 0xFF else 0."
+        ]
+      },
+
+      {
+        "m": "DIV",
+        "opcode_hex": "0x18",
+        "len": 4,
+        "operands": ["#imm8", "Rq", "Rr"],
+        "effects": [
+          "Let X = original value of Rq.",
+          "Rq = X / imm8 (integer division).",
+          "Rr = X % imm8 (remainder).",
+          "Division by 0 is undefined.",
+          "If Rq==Rr, remainder overwrites quotient."
+        ]
+      },
+      {
+        "m": "DIVR",
+        "opcode_hex": "0x19",
+        "len": 4,
+        "operands": ["Rsrc", "Rq", "Rr"],
+        "effects": [
+          "Let D = value of Rsrc, X = original value of Rq.",
+          "Rq = X / D; Rr = X % D.",
+          "Division by 0 is undefined.",
+          "If Rq==Rr, remainder overwrites quotient."
+        ]
+      },
+
+      {
+        "m": "SHL",
+        "opcode_hex": "0x1A",
+        "len": 3,
+        "operands": ["#imm8", "Rn"],
+        "effects": [
+          "Rn <<= imm8 (8-bit wrap).",
+          "Carry is set to the last bit shifted out (per VM implementation; imm8 must be >=1 for meaningful carry)."
+        ]
+      },
+      {
+        "m": "SHR",
+        "opcode_hex": "0x1B",
+        "len": 3,
+        "operands": ["#imm8", "Rn"],
+        "effects": [
+          "Rn >>= imm8.",
+          "Carry is set to the last bit shifted out (per VM implementation; imm8 must be >=1 for meaningful carry)."
+        ]
+      },
+
+      {
+        "m": "CMP",
+        "opcode_hex": "0x08",
+        "len": 3,
+        "operands": ["Rn", "#imm8"],
+        "effects": [
+          "DESTRUCTIVE compare implemented as subtraction.",
+          "Rn = Rn - imm8 (8-bit wrap).",
+          "Carry=1 on borrow (original Rn < imm8)."
+        ]
+      },
+      {
+        "m": "CMPR",
+        "opcode_hex": "0x09",
+        "len": 3,
+        "operands": ["Rn", "Rm"],
+        "effects": [
+          "DESTRUCTIVE compare implemented as subtraction.",
+          "Rn = Rn - Rm (8-bit wrap).",
+          "Carry=1 on borrow (original Rn < Rm)."
+        ]
+      },
+
+      {
+        "m": "JMP",
+        "opcode_hex": "0x07",
+        "len": 3,
+        "operands": ["addr16"],
+        "effects": "IP = addr16"
+      },
+      {
+        "m": "JZ",
+        "opcode_hex": "0x0A",
+        "len": 4,
+        "operands": ["Rn", "addr16"],
+        "effects": "If Rn == 0 then IP = addr16 else IP += 4"
+      },
+      {
+        "m": "JNZ",
+        "opcode_hex": "0x0B",
+        "len": 4,
+        "operands": ["Rn", "addr16"],
+        "effects": "If Rn != 0 then IP = addr16 else IP += 4"
+      },
+      {
+        "m": "JC",
+        "opcode_hex": "0x0C",
+        "len": 3,
+        "operands": ["addr16"],
+        "effects": "If carry==1 then IP = addr16 else IP += 3"
+      },
+      {
+        "m": "JNC",
+        "opcode_hex": "0x0D",
+        "len": 3,
+        "operands": ["addr16"],
+        "effects": "If carry==0 then IP = addr16 else IP += 3"
+      },
+
+      {
+        "m": "PUSH",
+        "opcode_hex": "0x10",
+        "len": 2,
+        "operands": ["Rn|IP|SP|BP"],
+        "effects": [
+          "If operand is R0..R7: pushes 1 byte.",
+          "If operand is IP/SP/BP: pushes 2 bytes (big-endian)."
+        ]
+      },
+      {
+        "m": "POP",
+        "opcode_hex": "0x11",
+        "len": 2,
+        "operands": ["Rn|IP|SP|BP"],
+        "effects": [
+          "If operand is R0..R7: pops 1 byte.",
+          "If operand is IP/SP/BP: pops 2 bytes (big-endian)."
+        ]
+      },
+
+      {
+        "m": "CALL",
+        "opcode_hex": "0x12",
+        "len": 3,
+        "operands": ["addr16"],
+        "effects": "Pushes 16-bit return address (IP+3), then IP=addr16"
+      },
+      {
+        "m": "RET",
+        "opcode_hex": "0x13",
+        "len": 1,
+        "operands": [],
+        "effects": "Pops 16-bit return address into IP"
+      }
+    ]
+  },
+
+  "mmio": {
+    "range": "0xFF00..0xFF03",
+    "map": [
+      { "addr": "0xFF00", "name": "KBD_STATUS", "dir": "R", "meaning": "bit0=1 if a byte is available" },
+      { "addr": "0xFF01", "name": "KBD_DATA", "dir": "R", "meaning": "reads and consumes a byte, or returns 0x00 if none" },
+      { "addr": "0xFF02", "name": "TTY_STATUS", "dir": "R", "meaning": "bit0=1 (ready)" },
+      { "addr": "0xFF03", "name": "TTY_DATA", "dir": "W", "meaning": "write a byte to console output" }
+    ]
+  },
+
+  "standard_libraries": {
+    "kernel.s8": {
+      "purpose": "Console I/O via MMIO",
+      "routines": [
+        {
+          "name": "PUTC",
+          "args": { "R0": "character byte to output" },
+          "returns": {},
+          "clobbers": ["R3"],
+          "behavior": "Waits for TTY ready then writes R0 to TTY_DATA (0xFF03)."
+        },
+        {
+          "name": "GETC",
+          "args": {},
+          "returns": { "R0": "character byte (blocking)" },
+          "clobbers": ["R3"],
+          "behavior": "Blocks until KBD_STATUS indicates available, then reads KBD_DATA into R0."
+        },
+        {
+          "name": "GETC_NB",
+          "args": {},
+          "returns": { "R0": "character or 0x00", "R1": "1 if valid char else 0" },
+          "clobbers": ["R3"],
+          "behavior": "Non-blocking keyboard read."
+        },
+        {
+          "name": "PUTS",
+          "args": { "R1": "pointer high byte", "R2": "pointer low byte" },
+          "returns": {},
+          "clobbers": ["R0", "R3"],
+          "behavior": "Prints NUL-terminated string at [R1:R2] using LOADR and PUTC, increments pointer."
+        }
+      ]
+    },
+
+    "mem.s8": {
+      "purpose": "Small memory helpers",
+      "routines": [
+        {
+          "name": "MEMSET",
+          "args": { "R1": "dst hi", "R2": "dst lo", "R0": "fill byte", "R3": "length (bytes)" },
+          "returns": {},
+          "clobbers": ["R3", "R4"],
+          "behavior": "Fills length bytes at dst with the byte value."
+        },
+        {
+          "name": "MEMCPY",
+          "args": { "R1": "dst hi", "R2": "dst lo", "R3": "src hi", "R4": "src lo", "R5": "length (bytes)" },
+          "returns": {},
+          "clobbers": ["R0", "R5"],
+          "behavior": "Copies length bytes from src to dst, forward direction."
+        }
+      ]
+    },
+
+    "fmt.s8": {
+      "purpose": "Formatting helpers (requires kernel.s8)",
+      "depends_on": ["kernel.s8"],
+      "routines": [
+        {
+          "name": "PUTHEX8",
+          "args": { "R0": "byte value" },
+          "returns": {},
+          "clobbers": ["R0", "R1", "R2", "R4", "R5"],
+          "notes": "PUTC clobbers R3.",
+          "behavior": "Prints R0 as two uppercase hex digits."
+        },
+        {
+          "name": "PUTHEX16",
+          "args": { "R1": "high byte", "R2": "low byte" },
+          "returns": {},
+          "clobbers": ["R0", "R1", "R2", "R4", "R5"],
+          "notes": "Delegates to PUTHEX8 twice; PUTC clobbers R3.",
+          "behavior": "Prints R1:R2 as four uppercase hex digits."
+        },
+        {
+          "name": "PUTDEC8",
+          "args": { "R0": "unsigned value 0..255" },
+          "returns": {},
+          "clobbers": ["R0", "R1", "R2", "R4"],
+          "notes": "Uses DIV; PUTC clobbers R3.",
+          "behavior": "Prints R0 as unsigned decimal without leading zeros."
+        }
+      ]
+    },
+
+    "str.s8": {
+      "purpose": "Minimal string helpers",
+      "routines": [
+        {
+          "name": "STRLEN",
+          "args": { "R1": "ptr hi", "R2": "ptr lo" },
+          "returns": { "R0": "length (0..255, wraps)" },
+          "clobbers": ["R0", "R3"],
+          "behavior": "Counts bytes until NUL. Advances R1:R2 while scanning."
+        },
+        {
+          "name": "STREQ",
+          "args": { "R1": "s1 hi", "R2": "s1 lo", "R3": "s2 hi", "R4": "s2 lo" },
+          "returns": { "R0": "1 if equal else 0" },
+          "clobbers": ["R0", "R5", "R6", "R7"],
+          "behavior": "Compares strings for equality. Advances both pointers."
+        }
+      ]
+    },
+
+    "cli.s8": {
+      "purpose": "Console helpers (requires kernel.s8)",
+      "depends_on": ["kernel.s8"],
+      "routines": [
+        {
+          "name": "READLINE_ECHO",
+          "args": { "R1": "buf hi", "R2": "buf lo", "R3": "max length including NUL" },
+          "returns": { "R4": "length (excluding terminator)" },
+          "clobbers": ["R0", "R3", "R5", "R6", "R7"],
+          "behavior": "Reads a line (blocking), echoes input, supports backspace/DEL, stops on CR/LF, always NUL-terminates."
+        }
+      ]
+    }
+  },
+
+  "codegen_rules": {
+    "strict": [
+      "Never invent new instructions, directives, or registers.",
+      "Do not assume macros like .equ exist (they do not).",
+      "Immediates must use '#'.",
+      "One instruction per line."
+    ],
+    "layout": [
+      "Keep all user code/data at addresses >= 0x0003.",
+      "If you include kernel.s8 or other libs, place them explicitly with .org <addr> before including.",
+      "Avoid overlap: never emit code/data into the same address twice."
+    ],
+    "gotchas": [
+      "CMP/CMPR are destructive (they subtract into the compared register).",
+      "DIV/DIVR overwrite the quotient register before writing remainder; do not use the same register for both outputs.",
+      "Include-once is enforced (including the same file twice is an assembler error).",
+      ".org operands must be numeric literals (no labels).",
+      ".byte does not allow labels."
+    ]
+  }
+}
