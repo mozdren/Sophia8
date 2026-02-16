@@ -1,0 +1,64 @@
+; mem.s8 — small memory helpers (library, not kernel)
+;
+; Calling convention (all routines):
+;   Arguments in registers as documented per routine.
+;   No registers preserved unless noted.
+
+; ---------------------------------------------------------------------------
+; MEMSET
+;   Fill memory with a byte value.
+;   Args:
+;     R1:R2 = dst pointer
+;     R0    = value
+;     R3    = length (bytes)
+;   Returns: none
+;   Clobbers: R3, R4
+; ---------------------------------------------------------------------------
+MEMSET:
+MEMSET_LOOP:
+    JZ R3, MEMSET_DONE
+    STORER R0, R1, R2
+
+    ; ++dst
+    INC R2
+    JNZ R2, MEMSET_PTR_OK
+    INC R1
+MEMSET_PTR_OK:
+
+    DEC R3
+    JMP MEMSET_LOOP
+MEMSET_DONE:
+    RET
+
+; ---------------------------------------------------------------------------
+; MEMCPY
+;   Copy memory (forward) byte-by-byte.
+;   Args:
+;     R1:R2 = dst pointer
+;     R3:R4 = src pointer
+;     R5    = length (bytes)
+;   Returns: none
+;   Clobbers: R0, R5
+; ---------------------------------------------------------------------------
+MEMCPY:
+MEMCPY_LOOP:
+    JZ R5, MEMCPY_DONE
+    LOADR R0, R3, R4
+    STORER R0, R1, R2
+
+    ; ++src
+    INC R4
+    JNZ R4, MEMCPY_SRC_OK
+    INC R3
+MEMCPY_SRC_OK:
+
+    ; ++dst
+    INC R2
+    JNZ R2, MEMCPY_DST_OK
+    INC R1
+MEMCPY_DST_OK:
+
+    DEC R5
+    JMP MEMCPY_LOOP
+MEMCPY_DONE:
+    RET

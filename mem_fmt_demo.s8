@@ -1,0 +1,65 @@
+; mem_fmt_demo.s8 — demonstrates libs/mem.s8 and libs/fmt.s8
+
+.org 0x0800
+.include "kernel.s8"
+.include "mem.s8"
+.include "fmt.s8"
+
+.org 0x0200
+Hdr: .string "Buffer: "
+
+.org 0x0210
+NL:  .string "\n"
+
+.org 0x0300
+Buf: .byte 0x00
+
+.org
+START:
+    ; Fill Buf[16] with 0xAA
+    SET #0x03, R1
+    SET #0x00, R2
+    SET #0xAA, R0
+    SET #16,   R3
+    CALL MEMSET
+
+    ; Print header
+    SET #0x02, R1
+    SET #0x00, R2
+    CALL PUTS
+
+    ; Print 16 bytes as hex
+    SET #0x03, R6
+    SET #0x00, R7      ; ptr in R6:R7
+    SET #16,   R5      ; remaining
+
+LOOP:
+    JZ R5, DONE
+
+    LOADR R0, R6, R7
+
+    ; PUTHEX8 clobbers R5, so save loop counter
+    PUSH R5
+    CALL PUTHEX8
+    POP R5
+
+    ; print space
+    SET #0x20, R0
+    CALL PUTC
+
+    ; ++ptr
+    INC R7
+    JNZ R7, PTR_OK
+    INC R6
+PTR_OK:
+
+    DEC R5
+    JMP LOOP
+
+DONE:
+    ; newline
+    SET #0x02, R1
+    SET #0x10, R2
+    CALL PUTS
+
+    HALT

@@ -1,0 +1,138 @@
+; fmt.s8 — small formatting helpers (library, not kernel)
+;
+; Depends on kernel.s8 for PUTC.
+; No registers preserved unless noted.
+
+; ---------------------------------------------------------------------------
+; PUTHEX8
+;   Print byte in R0 as two uppercase hex digits.
+;   Args:
+;     R0 = value
+;   Returns: none
+;   Clobbers: R0, R1, R2, R4, R5
+;   Notes:
+;     Uses R3 indirectly via PUTC (kernel clobbers R3).
+; ---------------------------------------------------------------------------
+PUTHEX8:
+    ; Save original in R2
+    SET #0x00, R2
+    ADDR R0, R2
+
+    ; Compute high nibble into R5 (NOT R3, since PUTC clobbers R3)
+    SET #0x00, R5
+    ADDR R0, R5
+    SHR #4, R5
+
+    ; Print high nibble (pass nibble in R1)
+    SET #0x00, R1
+    ADDR R5, R1
+    CALL HEX_NIBBLE_TO_ASCII_PUTC
+
+    ; Low nibble = original - (high<<4)
+    SET #0x00, R4
+    ADDR R5, R4
+    SHL #4, R4
+
+    SET #0x00, R1
+    ADDR R2, R1
+    SUBR R4, R1
+
+    ; Print low nibble
+    CALL HEX_NIBBLE_TO_ASCII_PUTC
+    RET
+
+; ---------------------------------------------------------------------------
+; PUTHEX16
+;   Print 16-bit value (R1:R2) as four uppercase hex digits.
+;   Args:
+;     R1 = high byte
+;     R2 = low byte
+;   Returns: none
+;   Clobbers: R0 plus PUTHEX8 clobbers
+; ---------------------------------------------------------------------------
+PUTHEX16:
+    SET #0x00, R0
+    ADDR R1, R0
+    CALL PUTHEX8
+
+    SET #0x00, R0
+    ADDR R2, R0
+    CALL PUTHEX8
+    RET
+
+; ---------------------------------------------------------------------------
+; PUTDEC8
+;   Print unsigned byte (0..255) in decimal.
+;   Args:
+;     R0 = value
+;   Returns: none
+;   Clobbers: R0, R1, R2, R4
+; ---------------------------------------------------------------------------
+PUTDEC8:
+    ; R1 = value
+    SET #0x00, R1
+    ADDR R0, R1
+
+    ; hundreds: R1 /= 100, remainder in R2
+    DIV #100, R1, R2
+
+    ; printed flag in R4 (0/1)
+    SET #0x00, R4
+
+    ; if hundreds != 0, print it
+    JZ R1, PUTDEC8_TENS
+    SET #0x30, R0
+    ADDR R1, R0
+    CALL PUTC
+    SET #0x01, R4
+
+PUTDEC8_TENS:
+    ; tens: R1 = R2 / 10, ones in R2
+    SET #0x00, R1
+    ADDR R2, R1
+    DIV #10, R1, R2
+
+    ; print tens if already printed OR tens != 0
+    JNZ R4, PUTDEC8_PRINT_TENS
+    JZ R1, PUTDEC8_ONES
+PUTDEC8_PRINT_TENS:
+    SET #0x30, R0
+    ADDR R1, R0
+    CALL PUTC
+    SET #0x01, R4
+
+PUTDEC8_ONES:
+    SET #0x30, R0
+    ADDR R2, R0
+    CALL PUTC
+    RET
+
+; ---------------------------------------------------------------------------
+; Internal: HEX_NIBBLE_TO_ASCII_PUTC
+;   Input:
+;     R1 = nibble value 0..15
+;   Output:
+;     prints corresponding ASCII hex digit
+;   Clobbers: R0, R1, R4
+; ---------------------------------------------------------------------------
+HEX_NIBBLE_TO_ASCII_PUTC:
+    ; R4 = original nibble
+    SET #0x00, R4
+    ADDR R1, R4
+
+    ; CMP is destructive: R1 -= 10, carry=1 if nibble < 10
+    CMP R1, #10
+    JC HEX_DIGIT
+
+    ; nibble >= 10: R1 is (nibble-10), so 'A'+R1
+    SET #0x41, R0
+    ADDR R1, R0
+    CALL PUTC
+    RET
+
+HEX_DIGIT:
+    ; nibble < 10: use original in R4
+    SET #0x30, R0
+    ADDR R4, R0
+    CALL PUTC
+    RET

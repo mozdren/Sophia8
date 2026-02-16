@@ -1,0 +1,103 @@
+; cli.s8 — small console helpers (library, not kernel)
+;
+; Depends on kernel.s8 for GETC and PUTC and PUTS.
+; No registers preserved unless noted.
+
+; ---------------------------------------------------------------------------
+; READLINE_ECHO
+;   Read a line from console into a buffer (blocking), echoing input.
+;
+;   - Stops on '\n' (0x0A) or '\r' (0x0D)
+;   - Supports backspace (0x08) and DEL (0x7F)
+;   - Always NUL-terminates
+;
+;   Args:
+;     R1:R2 = destination buffer
+;     R3    = max length INCLUDING terminator (>=1 recommended)
+;   Returns:
+;     R4 = length (not including terminator)
+;   Clobbers: R0, R3, R5, R6, R7
+; ---------------------------------------------------------------------------
+READLINE_ECHO:
+    SET #0x00, R4          ; length
+
+    ; remaining = max-1 (space for terminator)
+    SET #0x00, R5
+    ADDR R3, R5
+    JZ R5, RL_DONE_TERM    ; if max==0, just terminate (best-effort)
+    DEC R5                 ; remaining data bytes
+
+RL_LOOP:
+    ; if no remaining space, stop
+    JZ R5, RL_DONE_TERM
+
+    CALL GETC              ; R0 = char
+
+    ; check '\n'
+    SET #0x00, R6
+    ADDR R0, R6
+    CMP R6, #0x0A
+    JZ R6, RL_DONE_TERM
+
+    ; check '\r'
+    SET #0x00, R6
+    ADDR R0, R6
+    CMP R6, #0x0D
+    JZ R6, RL_DONE_TERM
+
+    ; check backspace (0x08)
+    SET #0x00, R6
+    ADDR R0, R6
+    CMP R6, #0x08
+    JZ R6, RL_BACKSPACE
+
+    ; check DEL (0x7F)
+    SET #0x00, R6
+    ADDR R0, R6
+    CMP R6, #0x7F
+    JZ R6, RL_BACKSPACE
+
+    ; store char
+    STORER R0, R1, R2
+    CALL PUTC              ; echo
+
+    ; ++ptr
+    INC R2
+    JNZ R2, RL_PTR_OK
+    INC R1
+RL_PTR_OK:
+
+    INC R4                 ; len++
+    DEC R5                 ; remaining--
+    JMP RL_LOOP
+
+RL_BACKSPACE:
+    ; if len == 0, nothing to do
+    JZ R4, RL_LOOP
+
+    ; move pointer back by 1
+    DEC R2
+    ; if R2 didn't underflow, ok
+    JNC RL_PTR_BACK_OK
+    ; underflow: borrow happened, so high--
+    DEC R1
+RL_PTR_BACK_OK:
+
+    DEC R4
+    INC R5                 ; give space back
+
+    ; erase on screen: "\b \b"
+    SET #0x08, R0
+    CALL PUTC
+    SET #0x20, R0
+    CALL PUTC
+    SET #0x08, R0
+    CALL PUTC
+
+    JMP RL_LOOP
+
+RL_DONE_TERM:
+    ; write NUL terminator
+    SET #0x00, R0
+    STORER R0, R1, R2
+    RET

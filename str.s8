@@ -1,0 +1,76 @@
+; str.s8 — minimal string helpers (library, not kernel)
+;
+; All strings are ASCII, NUL-terminated (0x00), matching kernel PUTS.
+; No registers preserved unless noted.
+
+; ---------------------------------------------------------------------------
+; STRLEN
+;   Compute string length.
+;   Args:
+;     R1:R2 = pointer to NUL-terminated string
+;   Returns:
+;     R0 = length (0..255), wraps if longer
+;   Clobbers: R0, R3
+;   Notes:
+;     This advances R1:R2 while scanning.
+; ---------------------------------------------------------------------------
+STRLEN:
+    SET #0x00, R0
+STRLEN_LOOP:
+    LOADR R3, R1, R2
+    JZ R3, STRLEN_DONE
+
+    INC R0
+
+    ; ++ptr
+    INC R2
+    JNZ R2, STRLEN_LOOP
+    INC R1
+    JMP STRLEN_LOOP
+STRLEN_DONE:
+    RET
+
+; ---------------------------------------------------------------------------
+; STREQ
+;   Compare two strings for equality.
+;   Args:
+;     R1:R2 = s1
+;     R3:R4 = s2
+;   Returns:
+;     R0 = 1 if equal, 0 otherwise
+;   Clobbers: R0, R5, R6, R7
+;   Notes:
+;     Advances both pointers.
+; ---------------------------------------------------------------------------
+STREQ:
+STREQ_LOOP:
+    LOADR R5, R1, R2      ; ch1
+    LOADR R6, R3, R4      ; ch2
+
+    ; if ch1 != ch2 => not equal
+    SET #0x00, R7
+    ADDR R5, R7           ; R7 = ch1
+    CMPR R7, R6           ; R7 = ch1 - ch2
+    JNZ R7, STREQ_NO
+
+    ; if ch1 == 0 => both are NUL => equal
+    JZ R5, STREQ_YES
+
+    ; ++s1
+    INC R2
+    JNZ R2, STREQ_S1_OK
+    INC R1
+STREQ_S1_OK:
+
+    ; ++s2
+    INC R4
+    JNZ R4, STREQ_LOOP
+    INC R3
+    JMP STREQ_LOOP
+
+STREQ_NO:
+    SET #0x00, R0
+    RET
+STREQ_YES:
+    SET #0x01, R0
+    RET

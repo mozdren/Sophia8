@@ -1,0 +1,48 @@
+; hello_name.s8 — asks for your name and prints "Hello, {name}"
+
+.org 0x0800
+.include "kernel.s8"
+.include "cli.s8"
+
+; Place strings at fixed addresses (avoids relying on string length)
+.org 0x0200
+Prompt:   .string "What is your name? "
+
+.org 0x0220
+HelloPfx: .string "Hello, "
+
+.org 0x0230
+NL:       .string "\n"
+
+.org 0x0300
+NameBuf:  .byte 0x00
+
+.org
+START:
+    ; prompt
+    SET #0x02, R1
+    SET #0x00, R2
+    CALL PUTS
+
+    ; read line into NameBuf (max 32 incl terminator)
+    SET #0x03, R1
+    SET #0x00, R2
+    SET #32,  R3
+    CALL READLINE_ECHO
+
+    ; print "Hello, "
+    SET #0x02, R1
+    SET #0x20, R2
+    CALL PUTS
+
+    ; print name
+    SET #0x03, R1
+    SET #0x00, R2
+    CALL PUTS
+
+    ; newline
+    SET #0x02, R1
+    SET #0x30, R2
+    CALL PUTS
+
+    HALT
