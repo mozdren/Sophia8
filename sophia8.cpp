@@ -30,6 +30,14 @@
 /* Windows real-time console I/O */
 #ifdef _WIN32
     #include <conio.h>
+#else
+    /* POSIX real-time console I/O (Linux/macOS) */
+    #include <unistd.h>
+    #include <termios.h>
+    #include <fcntl.h>
+    #include <sys/select.h>
+    #include <sys/time.h>
+    #include <cstdlib>
 #endif
 
 #ifdef DEBUG_COMMAND
@@ -68,19 +76,141 @@ static uint8_t  c;              /* carry flag                                */
 static uint8_t  mem[MEM_SIZE];  /* random access memory                      */
 
 /* Memory-mapped I/O implementation ******************************************/
+#ifndef _WIN32
+/* POSIX (Linux/macOS) console input
+ *
+ * We emulate the same MMIO semantics as the Windows implementation:
+ *  - KBD_STATUS returns 1 if a byte is available
+ *  - KBD_DATA   returns a 7-bit ASCII byte and consumes it, or 0 if none
+ *
+ * The terminal is put into a non-canonical, no-echo mode and stdin is set
+ * to non-blocking. We also keep a 1-byte queue so that KBD_STATUS does not
+ * consume input.
+ */
+static termios g_old_term;
+static bool    g_term_configured = false;
+static int     g_old_flags = -1;
+static int     g_kbd_queued = -1;
+
+static void restore_console()
+{
+    if (!g_term_configured) return;
+
+    tcsetattr(STDIN_FILENO, TCSANOW, &g_old_term);
+    if (g_old_flags != -1)
+    {
+        fcntl(STDIN_FILENO, F_SETFL, g_old_flags);
+    }
+
+    g_term_configured = false;
+    g_kbd_queued = -1;
+}
+
+static void setup_console()
+{
+    if (g_term_configured) return;
+
+    /* save and configure terminal (raw-ish: no canonical mode, no echo) */
+    if (tcgetattr(STDIN_FILENO, &g_old_term) == 0)
+    {
+        termios raw = g_old_term;
+        raw.c_lflag &= static_cast<unsigned long>(~(ICANON | ECHO));
+        raw.c_cc[VMIN]  = 0;
+        raw.c_cc[VTIME] = 0;
+        tcsetattr(STDIN_FILENO, TCSANOW, &raw);
+    }
+
+    /* set stdin non-blocking */
+    g_old_flags = fcntl(STDIN_FILENO, F_GETFL, 0);
+    if (g_old_flags != -1)
+    {
+        fcntl(STDIN_FILENO, F_SETFL, g_old_flags | O_NONBLOCK);
+    }
+
+    atexit(restore_console);
+    g_term_configured = true;
+}
+
+static bool stdin_readable_now()
+{
+    setup_console();
+
+    fd_set rfds;
+    FD_ZERO(&rfds);
+    FD_SET(STDIN_FILENO, &rfds);
+
+    timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 0;
+
+    const int rc = select(STDIN_FILENO + 1, &rfds, NULL, NULL, &tv);
+    return (rc > 0) && FD_ISSET(STDIN_FILENO, &rfds);
+}
+
+static void fill_kbd_queue_if_needed()
+{
+    if (g_kbd_queued != -1) return;
+    if (!stdin_readable_now()) return;
+
+    unsigned char ch = 0;
+    const ssize_t n = read(STDIN_FILENO, &ch, 1);
+    if (n == 1)
+    {
+        g_kbd_queued = static_cast<int>(ch & 0x7F); /* 7-bit ASCII */
+    }
+}
+
+static uint8_t pop_kbd_byte()
+{
+    fill_kbd_queue_if_needed();
+    if (g_kbd_queued == -1) return 0x00;
+
+    const uint8_t out = static_cast<uint8_t>(g_kbd_queued);
+    g_kbd_queued = -1;
+    return out;
+}
+#endif
+
 static inline uint8_t mmio_read(uint16_t address)
 {
 #ifdef _WIN32
     if (address == 0xFF00) return _kbhit() ? 0x01 : 0x00;
-    if (address == 0xFF01) {
+    if (address == 0xFF01)
+    {
         if (!_kbhit()) return 0x00;
+
         int ch = _getch();
-        if (ch == 0 || ch == 0xE0) { (void)_getch(); return 0x00; } // swallow special key
-        return (uint8_t)(ch & 0x7F);
+        if (ch == 0 || ch == 0xE0)
+        {
+            /* swallow special key */
+            (void)_getch();
+            return 0x00;
+        }
+
+        return static_cast<uint8_t>(ch & 0x7F);
     }
     if (address == 0xFF02) return 0x01;
-#endif
     return 0x00;
+#else
+    if (address == 0xFF00)
+    {
+        fill_kbd_queue_if_needed();
+        return (g_kbd_queued != -1) ? 0x01 : 0x00;
+    }
+
+    if (address == 0xFF01)
+    {
+        return pop_kbd_byte();
+    }
+
+    if (address == 0xFF02)
+    {
+        /* bit0=1 always (as documented by kernel.s8) */
+        return 0x01;
+    }
+
+    return 0x00;
+#endif
 }
 
 static inline void mmio_write(const uint16_t address, const uint8_t value)
