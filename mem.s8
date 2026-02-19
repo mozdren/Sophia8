@@ -62,3 +62,225 @@ MEMCPY_DST_OK:
     JMP MEMCPY_LOOP
 MEMCPY_DONE:
     RET
+
+
+; ---------------------------------------------------------------------------
+; MEMMOVE
+;   Copy memory safely even when ranges overlap.
+;   Args:
+;     R1:R2 = dst pointer
+;     R3:R4 = src pointer
+;     R5    = length (bytes)
+;   Returns: none
+;   Clobbers: R0, R5, R6, R7
+;   Notes:
+;     - If dst < src: copies forward
+;     - Else: copies backward (always safe, even if non-overlapping)
+; ---------------------------------------------------------------------------
+MEMMOVE:
+    JZ R5, MEMMOVE_DONE
+
+    ; Decide direction: if dst < src => forward else backward
+    ; Compare high bytes (CMP/CMPR are destructive, use scratch)
+    SET #0x00, R6
+    ADDR R1, R6
+    CMPR R6, R3
+    JC MEMMOVE_FWD
+    JZ R6, MEMMOVE_CMP_LOW
+    JMP MEMMOVE_BWD
+
+MEMMOVE_CMP_LOW:
+    SET #0x00, R6
+    ADDR R2, R6
+    CMPR R6, R4
+    JC MEMMOVE_FWD
+    JMP MEMMOVE_BWD
+
+MEMMOVE_FWD:
+MEMMOVE_FWD_LOOP:
+    JZ R5, MEMMOVE_DONE
+    LOADR R0, R3, R4
+    STORER R0, R1, R2
+
+    ; ++src
+    INC R4
+    JNZ R4, MEMMOVE_FWD_SRC_OK
+    INC R3
+MEMMOVE_FWD_SRC_OK:
+
+    ; ++dst
+    INC R2
+    JNZ R2, MEMMOVE_FWD_DST_OK
+    INC R1
+MEMMOVE_FWD_DST_OK:
+
+    DEC R5
+    JMP MEMMOVE_FWD_LOOP
+
+MEMMOVE_BWD:
+    ; Convert pointers to point to the last byte:
+    ;   dst = dst + len - 1
+    ;   src = src + len - 1
+    ; We do dst += len, src += len using a loop (len is 8-bit),
+    ; then DEC once.
+
+    SET #0x00, R6
+    ADDR R5, R6           ; R6 = len (counter)
+
+MEMMOVE_BWD_ADVANCE:
+    JZ R6, MEMMOVE_BWD_ADV_DONE
+    ; ++dst
+    INC R2
+    JNZ R2, MEMMOVE_BWD_ADV_DST_OK
+    INC R1
+MEMMOVE_BWD_ADV_DST_OK:
+    ; ++src
+    INC R4
+    JNZ R4, MEMMOVE_BWD_ADV_SRC_OK
+    INC R3
+MEMMOVE_BWD_ADV_SRC_OK:
+    DEC R6
+    JMP MEMMOVE_BWD_ADVANCE
+
+MEMMOVE_BWD_ADV_DONE:
+    ; --dst
+    JZ R2, MEMMOVE_BWD_DEC_DST_HI
+    DEC R2
+    JMP MEMMOVE_BWD_DEC_DST_DONE
+MEMMOVE_BWD_DEC_DST_HI:
+    DEC R1
+    SET #0xFF, R2
+MEMMOVE_BWD_DEC_DST_DONE:
+
+    ; --src
+    JZ R4, MEMMOVE_BWD_DEC_SRC_HI
+    DEC R4
+    JMP MEMMOVE_BWD_DEC_SRC_DONE
+MEMMOVE_BWD_DEC_SRC_HI:
+    DEC R3
+    SET #0xFF, R4
+MEMMOVE_BWD_DEC_SRC_DONE:
+
+MEMMOVE_BWD_LOOP:
+    JZ R5, MEMMOVE_DONE
+    LOADR R0, R3, R4
+    STORER R0, R1, R2
+
+    ; --src
+    JZ R4, MEMMOVE_BWD_LOOP_DEC_SRC_HI
+    DEC R4
+    JMP MEMMOVE_BWD_LOOP_DEC_SRC_DONE
+MEMMOVE_BWD_LOOP_DEC_SRC_HI:
+    DEC R3
+    SET #0xFF, R4
+MEMMOVE_BWD_LOOP_DEC_SRC_DONE:
+
+    ; --dst
+    JZ R2, MEMMOVE_BWD_LOOP_DEC_DST_HI
+    DEC R2
+    JMP MEMMOVE_BWD_LOOP_DEC_DST_DONE
+MEMMOVE_BWD_LOOP_DEC_DST_HI:
+    DEC R1
+    SET #0xFF, R2
+MEMMOVE_BWD_LOOP_DEC_DST_DONE:
+
+    DEC R5
+    JMP MEMMOVE_BWD_LOOP
+
+MEMMOVE_DONE:
+    RET
+
+
+; ---------------------------------------------------------------------------
+; MEMCMP
+;   Compare two memory ranges.
+;   Args:
+;     R1:R2 = p1
+;     R3:R4 = p2
+;     R5    = length (bytes)
+;   Returns:
+;     R0 = 0 if equal
+;          1 if p1 < p2 (first differing byte smaller)
+;          2 if p1 > p2 (first differing byte larger)
+;   Clobbers: R0, R5, R6, R7
+; ---------------------------------------------------------------------------
+MEMCMP:
+    SET #0x00, R0
+MEMCMP_LOOP:
+    JZ R5, MEMCMP_EQ
+    LOADR R6, R1, R2
+    LOADR R7, R3, R4
+
+    ; If equal, continue
+    SET #0x00, R0
+    ADDR R6, R0
+    CMPR R0, R7
+    JZ R0, MEMCMP_NEXT
+
+    ; Different: compare to decide < or >
+    SET #0x00, R0
+    ADDR R6, R0
+    CMPR R0, R7
+    JC MEMCMP_LT
+    SET #0x02, R0
+    RET
+
+MEMCMP_LT:
+    SET #0x01, R0
+    RET
+
+MEMCMP_NEXT:
+    ; ++p1
+    INC R2
+    JNZ R2, MEMCMP_P1_OK
+    INC R1
+MEMCMP_P1_OK:
+    ; ++p2
+    INC R4
+    JNZ R4, MEMCMP_P2_OK
+    INC R3
+MEMCMP_P2_OK:
+    DEC R5
+    JMP MEMCMP_LOOP
+
+MEMCMP_EQ:
+    SET #0x00, R0
+    RET
+
+
+; ---------------------------------------------------------------------------
+; MEMCHR
+;   Find first occurrence of a byte in a memory range.
+;   Args:
+;     R1:R2 = start pointer
+;     R0    = value to find
+;     R3    = length (bytes)
+;   Returns:
+;     R1:R2 = pointer to first match, or 0x0000 if not found
+;   Clobbers: R3, R4
+; ---------------------------------------------------------------------------
+MEMCHR:
+MEMCHR_LOOP:
+    JZ R3, MEMCHR_NOTFOUND
+    LOADR R4, R1, R2
+
+    ; compare R4 with R0 (destructive compare)
+    CMPR R4, R0
+    JZ R4, MEMCHR_FOUND
+
+    ; ++ptr
+    INC R2
+    JNZ R2, MEMCHR_PTR_OK
+    INC R1
+MEMCHR_PTR_OK:
+
+    DEC R3
+    JMP MEMCHR_LOOP
+
+MEMCHR_NOTFOUND:
+    SET #0x00, R1
+    SET #0x00, R2
+    RET
+
+MEMCHR_FOUND:
+    RET

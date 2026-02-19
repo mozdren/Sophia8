@@ -74,3 +74,178 @@ STREQ_NO:
 STREQ_YES:
     SET #0x01, R0
     RET
+
+
+; ---------------------------------------------------------------------------
+; STRCPY
+;   Copy NUL-terminated string.
+;   Args:
+;     R1:R2 = dst
+;     R3:R4 = src
+;   Returns: none
+;   Clobbers: R0
+; ---------------------------------------------------------------------------
+STRCPY:
+STRCPY_LOOP:
+    LOADR R0, R3, R4
+    STORER R0, R1, R2
+    JZ R0, STRCPY_DONE
+
+    ; ++src
+    INC R4
+    JNZ R4, STRCPY_SRC_OK
+    INC R3
+STRCPY_SRC_OK:
+
+    ; ++dst
+    INC R2
+    JNZ R2, STRCPY_DST_OK
+    INC R1
+STRCPY_DST_OK:
+
+    JMP STRCPY_LOOP
+
+STRCPY_DONE:
+    RET
+
+
+; ---------------------------------------------------------------------------
+; STRNCPY
+;   Bounded copy: copies up to (max-1) bytes or until NUL, then NUL-terminates.
+;   Args:
+;     R1:R2 = dst
+;     R3:R4 = src
+;     R5    = max bytes in dst (including NUL)
+;   Returns: none
+;   Clobbers: R0, R5
+;   Notes:
+;     If R5==0, does nothing.
+; ---------------------------------------------------------------------------
+STRNCPY:
+    JZ R5, STRNCPY_DONE
+
+    ; Reserve one byte for terminator: R5 = max-1
+    DEC R5
+    JZ R5, STRNCPY_WRITE_NUL
+
+STRNCPY_LOOP:
+    JZ R5, STRNCPY_WRITE_NUL
+    LOADR R0, R3, R4
+    JZ R0, STRNCPY_WRITE_NUL
+    STORER R0, R1, R2
+
+    ; ++src
+    INC R4
+    JNZ R4, STRNCPY_SRC_OK
+    INC R3
+STRNCPY_SRC_OK:
+
+    ; ++dst
+    INC R2
+    JNZ R2, STRNCPY_DST_OK
+    INC R1
+STRNCPY_DST_OK:
+
+    DEC R5
+    JMP STRNCPY_LOOP
+
+STRNCPY_WRITE_NUL:
+    SET #0x00, R0
+    STORER R0, R1, R2
+STRNCPY_DONE:
+    RET
+
+
+; ---------------------------------------------------------------------------
+; STRCMP
+;   Lexicographic compare.
+;   Args:
+;     R1:R2 = s1
+;     R3:R4 = s2
+;   Returns:
+;     R0 = 0 if equal
+;          1 if s1 < s2
+;          2 if s1 > s2
+;   Clobbers: R0, R5, R6, R7
+; ---------------------------------------------------------------------------
+STRCMP:
+STRCMP_LOOP:
+    LOADR R5, R1, R2
+    LOADR R6, R3, R4
+
+    ; if bytes equal
+    SET #0x00, R7
+    ADDR R5, R7
+    CMPR R7, R6
+    JNZ R7, STRCMP_DIFF
+
+    ; equal byte: if NUL => equal strings
+    JZ R5, STRCMP_EQ
+
+    ; ++s1
+    INC R2
+    JNZ R2, STRCMP_S1_OK
+    INC R1
+STRCMP_S1_OK:
+    ; ++s2
+    INC R4
+    JNZ R4, STRCMP_S2_OK
+    INC R3
+STRCMP_S2_OK:
+    JMP STRCMP_LOOP
+
+STRCMP_DIFF:
+    ; Compare R5 vs R6
+    SET #0x00, R7
+    ADDR R5, R7
+    CMPR R7, R6
+    JC STRCMP_LT
+    SET #0x02, R0
+    RET
+
+STRCMP_LT:
+    SET #0x01, R0
+    RET
+
+STRCMP_EQ:
+    SET #0x00, R0
+    RET
+
+
+; ---------------------------------------------------------------------------
+; STRCHR
+;   Find first occurrence of a character in a NUL-terminated string.
+;   Args:
+;     R1:R2 = s
+;     R0    = char to find (0 allowed, returns pointer to terminator)
+;   Returns:
+;     R1:R2 = pointer to first occurrence, or 0x0000 if not found
+;   Clobbers: R3, R4
+; ---------------------------------------------------------------------------
+STRCHR:
+STRCHR_LOOP:
+    LOADR R3, R1, R2
+    JZ R3, STRCHR_AT_NUL
+
+    ; compare current char with target
+    SET #0x00, R4
+    ADDR R3, R4
+    CMPR R4, R0
+    JZ R4, STRCHR_FOUND
+
+    ; ++ptr
+    INC R2
+    JNZ R2, STRCHR_PTR_OK
+    INC R1
+STRCHR_PTR_OK:
+    JMP STRCHR_LOOP
+
+STRCHR_AT_NUL:
+    ; If searching for NUL, return pointer here.
+    JZ R0, STRCHR_FOUND
+    SET #0x00, R1
+    SET #0x00, R2
+    RET
+
+STRCHR_FOUND:
+    RET

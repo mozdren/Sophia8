@@ -51,12 +51,16 @@ PUTHEX8:
 ;   Clobbers: R0 plus PUTHEX8 clobbers
 ; ---------------------------------------------------------------------------
 PUTHEX16:
+    ; PUTHEX8 clobbers R1/R2, so preserve low byte.
+    SET #0x00, R7
+    ADDR R2, R7
+
     SET #0x00, R0
     ADDR R1, R0
     CALL PUTHEX8
 
     SET #0x00, R0
-    ADDR R2, R0
+    ADDR R7, R0
     CALL PUTHEX8
     RET
 

@@ -101,3 +101,178 @@ RL_DONE_TERM:
     SET #0x00, R0
     STORER R0, R1, R2
     RET
+
+
+; ---------------------------------------------------------------------------
+; SKIPSPACES
+;   Advance a pointer over ASCII spaces and tabs.
+;   Args:
+;     R1:R2 = pointer
+;   Returns:
+;     R1:R2 = first non-space/tab character (or NUL)
+;   Clobbers: R0, R6
+; ---------------------------------------------------------------------------
+SKIPSPACES:
+SKIPSPACES_LOOP:
+    LOADR R6, R1, R2
+    JZ R6, SKIPSPACES_DONE
+
+    ; if ' ' (0x20)
+    SET #0x00, R0
+    ADDR R6, R0
+    CMP R0, #0x20
+    JZ R0, SKIPSPACES_ADV
+
+    ; if '\t' (0x09)
+    SET #0x00, R0
+    ADDR R6, R0
+    CMP R0, #0x09
+    JZ R0, SKIPSPACES_ADV
+
+    RET
+
+SKIPSPACES_ADV:
+    INC R2
+    JNZ R2, SKIPSPACES_LOOP
+    INC R1
+    JMP SKIPSPACES_LOOP
+
+SKIPSPACES_DONE:
+    RET
+
+
+; ---------------------------------------------------------------------------
+; READTOKEN
+;   Read next token (space/tab delimited) from a string into a destination buffer.
+;   Args:
+;     R1:R2 = source pointer (NUL-terminated)
+;     R3:R4 = destination buffer
+;     R5    = max bytes in destination (including NUL)
+;   Returns:
+;     R0 = token length (0 if no token)
+;     R1:R2 = updated source pointer (at delimiter or NUL)
+;   Clobbers: R0, R5, R6, R7
+;   Notes:
+;     Always NUL-terminates dst if R5>0.
+; ---------------------------------------------------------------------------
+READTOKEN:
+    SET #0x00, R0          ; len
+    JZ R5, READTOKEN_DONE  ; cannot write anything
+
+    ; Skip leading spaces/tabs
+    CALL SKIPSPACES
+
+    ; Reserve 1 byte for terminator in dst
+    DEC R5
+    JZ R5, READTOKEN_TERM
+
+READTOKEN_LOOP:
+    JZ R5, READTOKEN_TERM
+    LOADR R6, R1, R2
+    JZ R6, READTOKEN_TERM
+
+    ; Stop on ' '
+    SET #0x00, R7
+    ADDR R6, R7
+    CMP R7, #0x20
+    JZ R7, READTOKEN_TERM
+
+    ; Stop on '\t'
+    SET #0x00, R7
+    ADDR R6, R7
+    CMP R7, #0x09
+    JZ R7, READTOKEN_TERM
+
+    ; Copy char
+    STORER R6, R3, R4
+    INC R0
+
+    ; ++src
+    INC R2
+    JNZ R2, READTOKEN_SRC_OK
+    INC R1
+READTOKEN_SRC_OK:
+
+    ; ++dst
+    INC R4
+    JNZ R4, READTOKEN_DST_OK
+    INC R3
+READTOKEN_DST_OK:
+
+    DEC R5
+    JMP READTOKEN_LOOP
+
+READTOKEN_TERM:
+    SET #0x00, R6
+    STORER R6, R3, R4
+READTOKEN_DONE:
+    RET
+
+
+; ---------------------------------------------------------------------------
+; PARSE_U8_DEC
+;   Parse an unsigned decimal integer (0..255) from a string.
+;   Args:
+;     R1:R2 = pointer to first character (digits expected)
+;   Returns:
+;     R0 = parsed value (0 if none)
+;     R3 = status:
+;            0 = no digits parsed
+;            1 = success
+;            2 = overflow (>255)
+;     R1:R2 = updated pointer (first non-digit)
+;   Clobbers: R4, R5, R6, R7
+; ---------------------------------------------------------------------------
+PARSE_U8_DEC:
+    SET #0x00, R0
+    SET #0x00, R3
+
+PARSE_U8_LOOP:
+    LOADR R4, R1, R2
+    JZ R4, PARSE_U8_DONE
+
+    ; if R4 < '0' => stop
+    SET #0x00, R5
+    ADDR R4, R5
+    CMP R5, #0x30
+    JC PARSE_U8_DONE
+
+    ; if R4 >= ':' => stop  (':' is '9'+1)
+    SET #0x00, R5
+    ADDR R4, R5
+    CMP R5, #0x3A
+    JNC PARSE_U8_DONE
+
+    ; digit = R4 - '0'
+    SET #0x00, R5
+    ADDR R4, R5
+    SUB #0x30, R5
+
+    ; mark that we parsed at least one digit
+    SET #0x01, R3
+
+    ; value = value*10 + digit, detect overflow
+    SET #0x00, R6
+    ADDR R0, R6
+    ; NOTE: VM encoding uses (imm, dst_high, dst_low).
+    ; We want low in R6 and high in R7.
+    MUL #10, R7, R6        ; R6=low, R7=high
+    JNZ R7, PARSE_U8_OVERFLOW
+    SET #0x00, R0
+    ADDR R6, R0
+
+    ADDR R5, R0
+    JC PARSE_U8_OVERFLOW
+
+    ; ++ptr
+    INC R2
+    JNZ R2, PARSE_U8_LOOP
+    INC R1
+    JMP PARSE_U8_LOOP
+
+PARSE_U8_OVERFLOW:
+    SET #0x02, R3
+    RET
+
+PARSE_U8_DONE:
+    RET
