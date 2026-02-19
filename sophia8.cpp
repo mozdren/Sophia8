@@ -414,6 +414,35 @@ static bool find_break_addr(const std::vector<DebLine>& lines,
     return true;
 }
 
+// Returns true if the .deb map contains *any* mapping (CODE or DATA) for the
+// requested source file:line.
+//
+// This is used to provide a clear error when users try to set a breakpoint
+// on a line that exists but does not emit executable code.
+static bool has_any_mapping_for_line(const std::vector<DebLine>& lines,
+                                    const std::string& break_file,
+                                    const int break_line)
+{
+    fs::path wantp(break_file);
+    const std::string want_base = wantp.filename().string();
+
+    for (const auto& l : lines)
+    {
+        if (l.line_no != break_line) continue;
+
+        bool match = false;
+        if (l.file == break_file) match = true;
+        else
+        {
+            fs::path p(l.file);
+            if (p.filename().string() == want_base) match = true;
+        }
+
+        if (match) return true;
+    }
+    return false;
+}
+
 static void write_u16_be(std::ofstream& f, const uint16_t v) {
     const uint8_t b[2] = { static_cast<uint8_t>((v >> 8) & 0xFF), static_cast<uint8_t>(v & 0xFF) };
     f.write(reinterpret_cast<const char*>(b), 2);
@@ -1980,7 +2009,17 @@ int main(int argc, char** argv)
 
         if (!find_break_addr(deb_lines, break_file, break_line, break_addr))
         {
-            printf("Breakpoint not found in .deb: %s:%d\n", break_file, break_line);
+            // Distinguish between:
+            //  - file:line exists in the debug map but only as DATA (or otherwise non-executable)
+            //  - file:line does not exist in the debug map at all
+            if (has_any_mapping_for_line(deb_lines, break_file, break_line))
+            {
+                printf("No executable code on this line.\n");
+            }
+            else
+            {
+                printf("Breakpoint not found in .deb: %s:%d\n", break_file, break_line);
+            }
             return 1;
         }
 
