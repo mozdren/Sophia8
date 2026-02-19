@@ -267,8 +267,8 @@ Stack notes:
 | DEC Rn | `06 reg` | `Rn--`, sets carry if it wrapped from `0x00` to `0xFF` |
 | SHL #n, Rn | `1A n reg` | `Rn <<= n`, carry = last bit shifted out (per VM implementation) |
 | SHR #n, Rn | `1B n reg` | `Rn >>= n`, carry = last bit shifted out (per VM implementation) |
-| MUL #imm8, Rlo, Rhi | `16 imm rlo rhi` | 16-bit product; `Rlo=low`, `Rhi=high`, carry=1 if high!=0 |
-| MULR Rsrc, Rlo, Rhi | `17 src rlo rhi` | 16-bit product; `Rlo=low`, `Rhi=high`, carry=1 if high!=0 |
+| MUL #imm8, Rhi, Rlo | `16 imm rhi rlo` | 16-bit product; `Rlo=low`, `Rhi=high`, carry=1 if high!=0 |
+| MULR Rsrc, Rhi, Rlo | `17 src rhi rlo` | 16-bit product; `Rlo=low`, `Rhi=high`, carry=1 if high!=0 |
 | DIV #imm8, Rq, Rr | `18 imm rq rr` | `Rq=Rq/imm`, `Rr=Rq%imm` (beware overwrite), carry unchanged |
 | DIVR Rsrc, Rq, Rr | `19 src rq rr` | `Rq=Rq/Rsrc`, `Rr=Rq%Rsrc` (beware overwrite), carry unchanged |
 
@@ -344,13 +344,16 @@ These libraries are optional and are meant to be included explicitly.
 |--------|------|---------|----------|-------------|
 | MEMSET | `R1:R2` dst, `R0` value, `R3` len | — | `R3`, `R4` | Fill memory with a byte |
 | MEMCPY | `R1:R2` dst, `R3:R4` src, `R5` len | — | `R0`, `R5` | Copy memory forward |
+| MEMMOVE | `R1:R2` dst, `R3:R4` src, `R5` len | — | `R0`, `R5`, `R6`, `R7` | Copy memory, safe for overlap |
+| MEMCMP | `R1:R2` a, `R3:R4` b, `R5` len | `R0` = `00`/`FF`/`01` | `R6`, `R7` | Compare ranges (lexicographic) |
+| MEMCHR | `R1:R2` start, `R0` byte, `R3` len | `R1:R2` ptr, `R4` found | `R3`, `R5` | Find byte in bounded range |
 
 ### `fmt.s8` (depends on `kernel.s8`)
 
 | Routine | Args | Returns | Clobbers | Description |
 |--------|------|---------|----------|-------------|
 | PUTHEX8 | `R0` value | — | `R0`,`R1`,`R2`,`R4`,`R5` (+kernel `R3`) | Print 2-digit uppercase hex |
-| PUTHEX16 | `R1:R2` value | — | `R0` + PUTHEX8 clobbers | Print 4-digit uppercase hex |
+| PUTHEX16 | `R1:R2` value | — | `R0`,`R1`,`R2`,`R4`,`R5`,`R7` (+kernel `R3`) | Print 4-digit uppercase hex |
 | PUTDEC8 | `R0` value | — | `R0`,`R1`,`R2`,`R4` (+kernel `R3`) | Print unsigned 0..255 decimal |
 
 ### `str.s8`
@@ -359,12 +362,19 @@ These libraries are optional and are meant to be included explicitly.
 |--------|------|---------|----------|-------------|
 | STRLEN | `R1:R2` s | `R0` len | `R0`,`R3` | Compute length (advances pointer) |
 | STREQ | `R1:R2` s1, `R3:R4` s2 | `R0` = 1/0 | `R0`,`R5`,`R6`,`R7` | String equality (advances pointers) |
+| STRCPY | `R1:R2` dst, `R3:R4` src | — | `R5` | Copy NUL-terminated string |
+| STRNCPY | `R1:R2` dst, `R3:R4` src, `R5` max (incl NUL) | — | `R5`,`R6` | Bounded copy (always NUL-terminate if `R5>0`) |
+| STRCMP | `R1:R2` s1, `R3:R4` s2 | `R0` = `00`/`FF`/`01` | `R5`,`R6` | Lexicographic compare |
+| STRCHR | `R1:R2` s, `R0` ch | `R1:R2` ptr, `R4` found | `R5` | Find character in string |
 
 ### `cli.s8` (depends on `kernel.s8`)
 
 | Routine | Args | Returns | Clobbers | Description |
 |--------|------|---------|----------|-------------|
 | READLINE_ECHO | `R1:R2` buf, `R3` max (incl NUL) | `R4` len | `R0`,`R3`,`R5`,`R6`,`R7` | Read line, echo, backspace, NUL-terminate |
+| SKIPSPACES | `R1:R2` ptr | `R1:R2` ptr | `R0`,`R6` | Skip spaces/tabs |
+| READTOKEN | `R1:R2` src, `R3:R4` dst, `R5` max (incl NUL) | `R6` len; `R1:R2` updated | `R0`,`R5`,`R6`,`R7` | Read space/tab-delimited token |
+| PARSE_U8_DEC | `R1:R2` ptr | `R0` value; `R4` ok; `R1:R2` updated | `R5`,`R6`,`R7` | Parse decimal 0..255 (skips spaces/tabs) |
 
 ## 12. Example: Hello, Sophia!
 
@@ -402,11 +412,13 @@ sophia8 hello.bin
 - No stack safety
 - No multitasking
 - `CMP/CMPR` are destructive (they subtract)
+- `MUL/MULR` encode destination registers as `(dst_high, dst_low)`
 - `.byte` cannot use labels
 - `.org` operands must be numeric literals (no labels)
 - Include-once is enforced (multiple inclusion errors)
 - IDE consoles may buffer input
 - Behavior outside defined instructions is undefined but deterministic
+- Many kernel / library routines clobber argument registers; save pointers/results you still need across calls (e.g. `PUTDEC8` clobbers `R1:R2`).
 
 These limitations are **intentional**.
 

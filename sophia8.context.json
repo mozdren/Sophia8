@@ -413,14 +413,15 @@
         "len": 4,
         "operands": [
           "#imm8",
-          "Rlo",
-          "Rhi"
+          "Rhi",
+          "Rlo"
         ],
         "effects": [
           "Compute 16-bit product P = Rlo * imm8.",
           "Rlo = low(P), Rhi = high(P).",
           "Carry=1 if P > 0xFF else 0."
-        ]
+        ],
+        "encoding": "16 imm rhi rlo"
       },
       {
         "m": "MULR",
@@ -428,14 +429,15 @@
         "len": 4,
         "operands": [
           "Rsrc",
-          "Rlo",
-          "Rhi"
+          "Rhi",
+          "Rlo"
         ],
         "effects": [
-          "Compute 16-bit product P = Rlo * Rsrc.",
+          "Compute 16-bit product P = Rsrc * Rlo.",
           "Rlo = low(P), Rhi = high(P).",
           "Carry=1 if P > 0xFF else 0."
-        ]
+        ],
+        "encoding": "17 src rhi rlo"
       },
       {
         "m": "DIV",
@@ -728,6 +730,61 @@
             "R5"
           ],
           "behavior": "Copies length bytes from src to dst, forward direction."
+        },
+        {
+          "name": "MEMMOVE",
+          "args": {
+            "R1": "dst hi",
+            "R2": "dst lo",
+            "R3": "src hi",
+            "R4": "src lo",
+            "R5": "length (bytes)"
+          },
+          "returns": {},
+          "clobbers": [
+            "R0",
+            "R5",
+            "R6",
+            "R7"
+          ],
+          "behavior": "Copies length bytes from src to dst, safe for overlapping ranges (chooses forward/backward copy)."
+        },
+        {
+          "name": "MEMCMP",
+          "args": {
+            "R1": "a hi",
+            "R2": "a lo",
+            "R3": "b hi",
+            "R4": "b lo",
+            "R5": "length (bytes)"
+          },
+          "returns": {
+            "R0": "0 if equal, 0xFF if a<b, 0x01 if a>b"
+          },
+          "clobbers": [
+            "R6",
+            "R7"
+          ],
+          "behavior": "Lexicographically compares two byte ranges."
+        },
+        {
+          "name": "MEMCHR",
+          "args": {
+            "R1": "start hi",
+            "R2": "start lo",
+            "R0": "byte value",
+            "R3": "length (bytes)"
+          },
+          "returns": {
+            "R1": "ptr hi (0 if not found)",
+            "R2": "ptr lo (0 if not found)",
+            "R4": "1 if found else 0"
+          },
+          "clobbers": [
+            "R3",
+            "R5"
+          ],
+          "behavior": "Finds the first occurrence of a byte in a bounded range."
         }
       ]
     },
@@ -765,9 +822,10 @@
             "R1",
             "R2",
             "R4",
-            "R5"
+            "R5",
+            "R7"
           ],
-          "notes": "Delegates to PUTHEX8 twice; PUTC clobbers R3.",
+          "notes": "Preserves original low byte in R7 because PUTHEX8 clobbers R2; PUTC clobbers R3.",
           "behavior": "Prints R1:R2 as four uppercase hex digits."
         },
         {
@@ -823,6 +881,70 @@
             "R7"
           ],
           "behavior": "Compares strings for equality. Advances both pointers."
+        },
+        {
+          "name": "STRCPY",
+          "args": {
+            "R1": "dst hi",
+            "R2": "dst lo",
+            "R3": "src hi",
+            "R4": "src lo"
+          },
+          "returns": {},
+          "clobbers": [
+            "R5"
+          ],
+          "behavior": "Copies NUL-terminated string from src to dst (including terminator)."
+        },
+        {
+          "name": "STRNCPY",
+          "args": {
+            "R1": "dst hi",
+            "R2": "dst lo",
+            "R3": "src hi",
+            "R4": "src lo",
+            "R5": "max bytes incl NUL"
+          },
+          "returns": {},
+          "clobbers": [
+            "R5",
+            "R6"
+          ],
+          "behavior": "Copies up to R5 bytes; always NUL-terminates if R5>0."
+        },
+        {
+          "name": "STRCMP",
+          "args": {
+            "R1": "s1 hi",
+            "R2": "s1 lo",
+            "R3": "s2 hi",
+            "R4": "s2 lo"
+          },
+          "returns": {
+            "R0": "0 if equal, 0xFF if s1<s2, 0x01 if s1>s2"
+          },
+          "clobbers": [
+            "R5",
+            "R6"
+          ],
+          "behavior": "Lexicographically compares two NUL-terminated strings. Advances pointers."
+        },
+        {
+          "name": "STRCHR",
+          "args": {
+            "R1": "s hi",
+            "R2": "s lo",
+            "R0": "character byte"
+          },
+          "returns": {
+            "R1": "ptr hi (0 if not found)",
+            "R2": "ptr lo (0 if not found)",
+            "R4": "1 if found else 0"
+          },
+          "clobbers": [
+            "R5"
+          ],
+          "behavior": "Finds first occurrence of a character in a string."
         }
       ]
     },
@@ -850,6 +972,63 @@
             "R7"
           ],
           "behavior": "Reads a line (blocking), echoes input, supports backspace/DEL, stops on CR/LF, always NUL-terminates."
+        },
+        {
+          "name": "SKIPSPACES",
+          "args": {
+            "R1": "ptr hi",
+            "R2": "ptr lo"
+          },
+          "returns": {
+            "R1": "advanced ptr hi",
+            "R2": "advanced ptr lo"
+          },
+          "clobbers": [
+            "R0",
+            "R6"
+          ],
+          "behavior": "Advances over spaces (0x20) and tabs (0x09)."
+        },
+        {
+          "name": "READTOKEN",
+          "args": {
+            "R1": "src hi",
+            "R2": "src lo",
+            "R3": "dst hi",
+            "R4": "dst lo",
+            "R5": "max bytes incl NUL"
+          },
+          "returns": {
+            "R6": "token length (excluding NUL)",
+            "R1": "updated src hi",
+            "R2": "updated src lo"
+          },
+          "clobbers": [
+            "R0",
+            "R5",
+            "R6",
+            "R7"
+          ],
+          "behavior": "Copies a space/tab-delimited token into dst, skipping leading whitespace; always NUL-terminates if R5>0."
+        },
+        {
+          "name": "PARSE_U8_DEC",
+          "args": {
+            "R1": "ptr hi",
+            "R2": "ptr lo"
+          },
+          "returns": {
+            "R0": "value 0..255 (valid if R4==1)",
+            "R4": "1 on success else 0",
+            "R1": "updated ptr hi",
+            "R2": "updated ptr lo"
+          },
+          "clobbers": [
+            "R5",
+            "R6",
+            "R7"
+          ],
+          "behavior": "Parses an unsigned decimal integer (0..255) with overflow checking; skips leading spaces/tabs."
         }
       ]
     }
@@ -871,7 +1050,8 @@
       "DIV/DIVR overwrite the quotient register before writing remainder; do not use the same register for both outputs.",
       "Include-once is enforced (including the same file twice is an assembler error).",
       ".org operands must be numeric literals (no labels).",
-      ".byte does not allow labels."
+      ".byte does not allow labels.",
+      "MUL/MULR destination register order: encoded as (dst_high, dst_low). If you want low in R6 and high in R7, write: MUL #imm, R7, R6."
     ]
   }
 }

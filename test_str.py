@@ -1,157 +1,129 @@
-import os
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-S8ASM = ROOT / "s8asm"
-VM = ROOT / "sophia8"
-
-
-def build_tools_if_needed() -> None:
-    if not S8ASM.exists():
-        subprocess.check_call(["g++", "-O2", "-std=c++17", "s8asm.cpp", "-o", "s8asm"], cwd=ROOT)
-    if not VM.exists():
-        subprocess.check_call(["g++", "-O2", "-std=c++17", "sophia8.cpp", "-o", "sophia8"], cwd=ROOT)
+S8ASM = str(ROOT / 's8asm')
+VM = str(ROOT / 'sophia8')
 
 
 def assemble_and_run(src: str) -> str:
-    build_tools_if_needed()
-    s8_fd = tempfile.NamedTemporaryFile("w", delete=False, dir=ROOT, suffix=".s8", encoding="utf-8")
-    try:
-        s8_fd.write(src)
-        s8_fd.close()
-        s8_path = Path(s8_fd.name)
-        bin_path = s8_path.with_suffix(".bin")
-        subprocess.check_call([str(S8ASM), str(s8_path), "-o", str(bin_path)], cwd=ROOT)
-        p = subprocess.run([str(VM), str(bin_path)], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if p.returncode != 0:
-            raise RuntimeError(p.stderr.decode("utf-8", "replace"))
-        return p.stdout.decode("utf-8", errors="replace")
-    finally:
-        try:
-            s8_path = Path(s8_fd.name)
-            os.unlink(s8_path)
-        except Exception:
-            pass
-        try:
-            os.unlink(str(Path(s8_fd.name).with_suffix('.bin')))
-        except Exception:
-            pass
+    with tempfile.TemporaryDirectory() as td:
+        td = Path(td)
+        s8 = td / 'prog.s8'
+        binp = td / 'prog.bin'
+        s8.write_text(src, encoding='utf-8')
+        subprocess.run([S8ASM, str(s8), '-o', str(binp)], check=True, cwd=str(ROOT), capture_output=True)
+        proc = subprocess.run([VM, str(binp)], check=True, cwd=str(ROOT), capture_output=True)
+        return proc.stdout.decode('utf-8', errors='replace')
 
 
-class TestStrLibrary(unittest.TestCase):
-    def test_str_routines(self):
+class TestStr(unittest.TestCase):
+    def test_string_routines(self):
         src = r'''
 .org 0x0800
-.include "kernel.s8"
-.include "fmt.s8"
-.include "str.s8"
+.include "/mnt/data/kernel.s8"
+.include "/mnt/data/fmt.s8"
+.include "/mnt/data/str.s8"
 
-.org 0x0300
-S1: .string "HELLO"
-S2: .string "HELLO"
-S3: .string "HELLP"
-S4: .string "HI"
-
-.org 0x0340
-Buf: .byte 0,0,0,0,0,0,0,0,0,0
+.org 0x0200
+S1: .string "cat"
+S2: .string "car"
+S3: .string "cat"
+Buf: .byte 0,0,0,0,0,0,0,0
 
 .org
 START:
-    ; STRLEN("HELLO") => 5
-    SET #0x03, R1
+    ; STRLEN("cat") => 3
+    SET #0x02, R1
     SET #0x00, R2
     CALL STRLEN
-    SET #0x30, R6
-    ADDR R0, R6
-    SET #0x00, R0
-    ADDR R6, R0
-    CALL PUTC
+    ; print decimal
+    CALL PUTDEC8
     SET #0x0A, R0
     CALL PUTC
 
-    ; STREQ(S1,S2) => 1
-    SET #0x03, R1
+    ; STREQ(cat, car) => 0
+    SET #0x02, R1
     SET #0x00, R2
-    SET #0x03, R3
-    SET #0x06, R4
+    SET #0x02, R3
+    SET #0x04, R4
     CALL STREQ
-    SET #0x30, R6
-    ADDR R0, R6
-    SET #0x00, R0
-    ADDR R6, R0
-    CALL PUTC
+    CALL PUTDEC8
     SET #0x0A, R0
     CALL PUTC
 
-    ; STRCPY(Buf, S4) then print Buf => "HI"
-    SET #0x03, R1
-    SET #0x40, R2
-    SET #0x03, R3
-    SET #0x12, R4
+    ; STREQ(cat, cat) => 1
+    SET #0x02, R1
+    SET #0x00, R2
+    SET #0x02, R3
+    SET #0x08, R4
+    CALL STREQ
+    CALL PUTDEC8
+    SET #0x0A, R0
+    CALL PUTC
+
+    ; STRCPY(Buf, S2) then print Buf => "car"
+    SET #0x02, R1
+    SET #0x0C, R2          ; Buf
+    SET #0x02, R3
+    SET #0x04, R4          ; S2
     CALL STRCPY
-
-    SET #0x03, R1
-    SET #0x40, R2
+    SET #0x02, R1
+    SET #0x0C, R2
     CALL PUTS
     SET #0x0A, R0
     CALL PUTC
 
-    ; STRNCPY(Buf, S1, 4) => "HEL" (max includes NUL)
-    SET #0x03, R1
-    SET #0x40, R2
-    SET #0x03, R3
+    ; STRNCPY(Buf, "cat", max=3) => writes "ca\0"
+    SET #0x02, R1
+    SET #0x0C, R2
+    SET #0x02, R3
     SET #0x00, R4
-    SET #4, R5
+    SET #3, R5
     CALL STRNCPY
-
-    SET #0x03, R1
-    SET #0x40, R2
+    SET #0x02, R1
+    SET #0x0C, R2
     CALL PUTS
     SET #0x0A, R0
     CALL PUTC
 
-    ; STRCMP(S1,S3) => 1 ("HELLO" < "HELLP")
-    SET #0x03, R1
+    ; STRCMP(cat, car) => 01 (since 't' > 'r') printed as hex
+    SET #0x02, R1
     SET #0x00, R2
-    SET #0x03, R3
-    SET #0x0C, R4
+    SET #0x02, R3
+    SET #0x04, R4
     CALL STRCMP
-    SET #0x30, R6
-    ADDR R0, R6
-    SET #0x00, R0
-    ADDR R6, R0
-    CALL PUTC
+    CALL PUTHEX8
     SET #0x0A, R0
     CALL PUTC
 
-    ; STRCHR(S1,'L') => offset 2
-    SET #0x03, R1
-    SET #0x00, R2
-    SET #0x4C, R0
+    ; STRCHR(car, 'r') => prints found char and flag
+    SET #0x02, R1
+    SET #0x04, R2
+    SET #0x72, R0          ; 'r'
     CALL STRCHR
-    JZ R1, CHR_NOTFOUND
-    SET #0x00, R0
-    ADDR R2, R0
-    SUB #0x00, R0
-    ; base low is 0x00 => offset in R0
-    CALL PUTDEC8
+    JZ R4, NOTFOUND
+    LOADR R0, R1, R2
+    CALL PUTC
+    SET #0x31, R0
+    CALL PUTC
+    JMP DONE
+NOTFOUND:
+    SET #0x2D, R0
+    CALL PUTC
+    SET #0x30, R0
+    CALL PUTC
+DONE:
     SET #0x0A, R0
     CALL PUTC
-    HALT
 
-CHR_NOTFOUND:
-    SET #255, R0
-    CALL PUTDEC8
-    SET #0x0A, R0
-    CALL PUTC
     HALT
 '''
         out = assemble_and_run(src)
-        self.assertEqual(out, "5\n1\nHI\nHEL\n1\n2\n")
+        self.assertEqual(out, "3\n0\n1\ncar\nca\n01\nr1\n")
 
 
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
+if __name__ == '__main__':
+    unittest.main()

@@ -102,34 +102,33 @@ RL_DONE_TERM:
     STORER R0, R1, R2
     RET
 
-
 ; ---------------------------------------------------------------------------
 ; SKIPSPACES
-;   Advance a pointer over ASCII spaces and tabs.
+;   Advance pointer over spaces and tabs.
 ;   Args:
 ;     R1:R2 = pointer
 ;   Returns:
-;     R1:R2 = first non-space/tab character (or NUL)
+;     R1:R2 = advanced pointer
 ;   Clobbers: R0, R6
 ; ---------------------------------------------------------------------------
 SKIPSPACES:
 SKIPSPACES_LOOP:
-    LOADR R6, R1, R2
-    JZ R6, SKIPSPACES_DONE
+    LOADR R0, R1, R2
+    ; stop on NUL
+    JZ R0, SKIPSPACES_DONE
 
-    ; if ' ' (0x20)
-    SET #0x00, R0
-    ADDR R6, R0
-    CMP R0, #0x20
-    JZ R0, SKIPSPACES_ADV
+    ; if char == ' ' (0x20) or '\t' (0x09) => skip
+    SET #0x00, R6
+    ADDR R0, R6
+    CMP R6, #0x20
+    JZ R6, SKIPSPACES_ADV
 
-    ; if '\t' (0x09)
-    SET #0x00, R0
-    ADDR R6, R0
-    CMP R0, #0x09
-    JZ R0, SKIPSPACES_ADV
+    SET #0x00, R6
+    ADDR R0, R6
+    CMP R6, #0x09
+    JZ R6, SKIPSPACES_ADV
 
-    RET
+    JMP SKIPSPACES_DONE
 
 SKIPSPACES_ADV:
     INC R2
@@ -140,52 +139,52 @@ SKIPSPACES_ADV:
 SKIPSPACES_DONE:
     RET
 
-
 ; ---------------------------------------------------------------------------
 ; READTOKEN
-;   Read next token (space/tab delimited) from a string into a destination buffer.
+;   Read a space-delimited token from a string.
 ;   Args:
-;     R1:R2 = source pointer (NUL-terminated)
-;     R3:R4 = destination buffer
-;     R5    = max bytes in destination (including NUL)
+;     R1:R2 = src pointer
+;     R3:R4 = dst buffer
+;     R5    = max bytes to write INCLUDING NUL (>=1 recommended)
 ;   Returns:
-;     R0 = token length (0 if no token)
-;     R1:R2 = updated source pointer (at delimiter or NUL)
+;     R6 = token length (excluding terminator)
+;     R1:R2 = updated src pointer (points at delimiter or NUL)
 ;   Clobbers: R0, R5, R6, R7
 ;   Notes:
-;     Always NUL-terminates dst if R5>0.
+;     - Leading spaces/tabs are skipped.
+;     - Token ends on space/tab or NUL.
+;     - Always NUL-terminates if R5>0.
 ; ---------------------------------------------------------------------------
 READTOKEN:
-    SET #0x00, R0          ; len
-    JZ R5, READTOKEN_DONE  ; cannot write anything
-
-    ; Skip leading spaces/tabs
+    SET #0x00, R6
     CALL SKIPSPACES
 
-    ; Reserve 1 byte for terminator in dst
-    DEC R5
-    JZ R5, READTOKEN_TERM
+    ; if no room, nothing
+    JZ R5, READTOKEN_DONE
 
 READTOKEN_LOOP:
-    JZ R5, READTOKEN_TERM
-    LOADR R6, R1, R2
-    JZ R6, READTOKEN_TERM
-
-    ; Stop on ' '
+    ; if last byte reserved for NUL, stop
     SET #0x00, R7
-    ADDR R6, R7
+    ADDR R5, R7
+    DEC R7
+    JZ R7, READTOKEN_TERM
+
+    LOADR R0, R1, R2
+    JZ R0, READTOKEN_TERM
+
+    ; delimiter? ' ' or '\t'
+    SET #0x00, R7
+    ADDR R0, R7
     CMP R7, #0x20
     JZ R7, READTOKEN_TERM
 
-    ; Stop on '\t'
     SET #0x00, R7
-    ADDR R6, R7
+    ADDR R0, R7
     CMP R7, #0x09
     JZ R7, READTOKEN_TERM
 
-    ; Copy char
-    STORER R6, R3, R4
-    INC R0
+    ; store char
+    STORER R0, R3, R4
 
     ; ++src
     INC R2
@@ -199,80 +198,88 @@ READTOKEN_SRC_OK:
     INC R3
 READTOKEN_DST_OK:
 
+    INC R6
     DEC R5
     JMP READTOKEN_LOOP
 
 READTOKEN_TERM:
-    SET #0x00, R6
-    STORER R6, R3, R4
+    SET #0x00, R0
+    STORER R0, R3, R4
 READTOKEN_DONE:
     RET
 
-
 ; ---------------------------------------------------------------------------
 ; PARSE_U8_DEC
-;   Parse an unsigned decimal integer (0..255) from a string.
+;   Parse an unsigned decimal integer (0..255).
 ;   Args:
-;     R1:R2 = pointer to first character (digits expected)
+;     R1:R2 = pointer to text (leading spaces/tabs allowed)
 ;   Returns:
-;     R0 = parsed value (0 if none)
-;     R3 = status:
-;            0 = no digits parsed
-;            1 = success
-;            2 = overflow (>255)
-;     R1:R2 = updated pointer (first non-digit)
-;   Clobbers: R4, R5, R6, R7
+;     R0 = parsed value (undefined if R4==0)
+;     R4 = 1 on success, 0 on failure (no digits or overflow)
+;     R1:R2 = advanced pointer (after last digit on success)
+;   Clobbers: R5, R6, R7
 ; ---------------------------------------------------------------------------
 PARSE_U8_DEC:
+    CALL SKIPSPACES
+    SET #0x00, R4          ; success flag
+    SET #0x00, R6          ; value low
+    SET #0x00, R7          ; value high (overflow detect)
+
+PARSE_U8_DEC_LOOP:
+    LOADR R5, R1, R2
+    JZ R5, PARSE_U8_DEC_DONE
+
+    ; check digit '0'..'9'
     SET #0x00, R0
-    SET #0x00, R3
-
-PARSE_U8_LOOP:
-    LOADR R4, R1, R2
-    JZ R4, PARSE_U8_DONE
-
-    ; if R4 < '0' => stop
-    SET #0x00, R5
-    ADDR R4, R5
-    CMP R5, #0x30
-    JC PARSE_U8_DONE
-
-    ; if R4 >= ':' => stop  (':' is '9'+1)
-    SET #0x00, R5
-    ADDR R4, R5
-    CMP R5, #0x3A
-    JNC PARSE_U8_DONE
-
-    ; digit = R4 - '0'
-    SET #0x00, R5
-    ADDR R4, R5
-    SUB #0x30, R5
-
-    ; mark that we parsed at least one digit
-    SET #0x01, R3
-
-    ; value = value*10 + digit, detect overflow
-    SET #0x00, R6
-    ADDR R0, R6
-    ; NOTE: VM encoding uses (imm, dst_high, dst_low).
-    ; We want low in R6 and high in R7.
-    MUL #10, R7, R6        ; R6=low, R7=high
-    JNZ R7, PARSE_U8_OVERFLOW
-    SET #0x00, R0
-    ADDR R6, R0
-
     ADDR R5, R0
-    JC PARSE_U8_OVERFLOW
+    CMP R0, #0x30
+    JC PARSE_U8_DEC_DONE           ; < '0'
+
+    SET #0x00, R0
+    ADDR R5, R0
+    CMP R0, #0x3A
+    JC PARSE_U8_DEC_IS_DIGIT       ; < ':' => digit
+    JMP PARSE_U8_DEC_DONE
+
+PARSE_U8_DEC_IS_DIGIT:
+    ; have at least one digit
+    SET #0x01, R4
+
+    ; digit = ch - '0' into R5
+    SET #0x00, R0
+    ADDR R5, R0
+    SUB #0x30, R0
+    SET #0x00, R5
+    ADDR R0, R5
+
+    ; value = value*10 + digit
+    ; VM encoding order is: MUL imm, dst_high, dst_low
+    ; We want low in R6, high in R7.
+    MUL #10, R7, R6
+    JNC PARSE_U8_DEC_MUL_OK
+    JMP PARSE_U8_DEC_OVERFLOW
+PARSE_U8_DEC_MUL_OK:
+
+    ADDR R5, R6
+    JNC PARSE_U8_DEC_ADD_OK
+    INC R7
+PARSE_U8_DEC_ADD_OK:
+    JNZ R7, PARSE_U8_DEC_OVERFLOW
 
     ; ++ptr
     INC R2
-    JNZ R2, PARSE_U8_LOOP
+    JNZ R2, PARSE_U8_DEC_LOOP
     INC R1
-    JMP PARSE_U8_LOOP
+    JMP PARSE_U8_DEC_LOOP
 
-PARSE_U8_OVERFLOW:
-    SET #0x02, R3
+PARSE_U8_DEC_OVERFLOW:
+    SET #0x00, R4
     RET
 
-PARSE_U8_DONE:
+PARSE_U8_DEC_DONE:
+    JZ R4, PARSE_U8_DEC_FAIL
+    SET #0x00, R0
+    ADDR R6, R0
+    RET
+PARSE_U8_DEC_FAIL:
     RET

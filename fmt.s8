@@ -51,7 +51,7 @@ PUTHEX8:
 ;   Clobbers: R0 plus PUTHEX8 clobbers
 ; ---------------------------------------------------------------------------
 PUTHEX16:
-    ; PUTHEX8 clobbers R1/R2, so preserve low byte.
+    ; PUTHEX8 clobbers R2, so preserve low byte.
     SET #0x00, R7
     ADDR R2, R7
 
