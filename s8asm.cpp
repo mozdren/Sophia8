@@ -763,6 +763,38 @@ static void write_bin(const fs::path& out, const std::vector<uint8_t>& img) {
     if (!f) throw std::runtime_error("Write failed: " + out.string());
 }
 
+// Write the fully-preprocessed source (all .include expanded) to a sidecar file.
+// This is intended for debugging: it preserves original lines and adds only
+// comment markers that record the originating file and line.
+static void write_preprocessed(const fs::path& pre_out, const std::vector<SrcLine>& expanded) {
+    std::ofstream f(pre_out, std::ios::binary);
+    if (!f) throw std::runtime_error("Cannot open preprocessed output: " + pre_out.string());
+
+    f << "; s8asm preprocessed output (all .include expanded)\n";
+    f << "; This file is generated to aid debugging.\n\n";
+
+    std::string last_file;
+    for (const auto& sl : expanded) {
+        if (sl.file != last_file) {
+            f << "\n; ===== BEGIN FILE: " << sl.file << " =====\n";
+            last_file = sl.file;
+        }
+        // Record origin for every line (as a comment) while keeping the
+        // original line intact so the file can be re-assembled if needed.
+        f << ";@ " << sl.file << ":" << sl.line_no << "\n";
+        f << sl.text << "\n";
+    }
+
+    if (!f) throw std::runtime_error("Write failed: " + pre_out.string());
+}
+
+static fs::path default_preprocessed_path(const fs::path& bin_out) {
+    fs::path p = bin_out;
+    // e.g. prog.bin -> prog.pre.s8
+    p.replace_extension(".pre.s8");
+    return p;
+}
+
 static void print_error(const AsmError& e) {
     std::cerr << "ERROR: " << e.what() << "\n";
     if (!e.file.empty()) {
@@ -801,6 +833,10 @@ int main(int argc, char** argv) {
         std::vector<fs::path> stack_paths;
         std::unordered_set<std::string> included_set;
         preprocess_file(entry, entry, expanded, stack_paths, included_set, {});
+
+        // Always dump the fully-preprocessed source next to the output binary.
+        // This helps debug issues that only show up after includes are expanded.
+        write_preprocessed(default_preprocessed_path(output), expanded);
 
         auto img = assemble(expanded);
         write_bin(output, img);
