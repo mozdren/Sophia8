@@ -84,6 +84,28 @@ static uint8_t  c;              /* carry flag                                */
 
 static uint8_t  mem[MEM_SIZE];  /* random access memory                      */
 
+static void print_help(const char* prog)
+{
+    printf("Sophia8 VM (sophia8)\n\n");
+    printf("Usage:\n");
+    printf("  %s\n", prog);
+    printf("      Run built-in test program.\n\n");
+    printf("  %s <image.bin>\n", prog);
+    printf("      Load and run a raw 0xFFFF-byte memory image.\n\n");
+    printf("  %s <program.deb>\n", prog);
+    printf("      Load a .deb debug map (emitted by s8asm), then load its referenced .bin, then run.\n\n");
+    printf("  %s <program.deb> <break_file> <break_line>\n", prog);
+    printf("      Run and stop when execution reaches the source location mapped from file:line.\n");
+    printf("      When hit: prints registers, writes debug.img snapshot, and stops.\n\n");
+    printf("  %s debug.img\n", prog);
+    printf("      Resume execution from a previously saved debug snapshot.\n\n");
+    printf("  %s debug.img <program.deb> <break_file> <break_line>\n", prog);
+    printf("      Resume from snapshot and use .deb mapping to set a new breakpoint.\n\n");
+    printf("Options:\n");
+    printf("  -h, --help\n");
+    printf("      Show this help.\n");
+}
+
 /* Memory-mapped I/O implementation ******************************************/
 #ifndef _WIN32
 /* POSIX (Linux/macOS) console input
@@ -1841,6 +1863,16 @@ bool load_bin_file(const char* file_path)
 
 int main(int argc, char** argv)
 {
+    if (argc >= 2)
+    {
+        const std::string a1 = argv[1];
+        if (a1 == "-h" || a1 == "--help")
+        {
+            print_help(argv[0]);
+            return 0;
+        }
+    }
+
     init_machine();
 
     /*
@@ -1873,6 +1905,17 @@ int main(int argc, char** argv)
         {
             have_state = true;
             argi++;
+        }
+    }
+
+    // Help may appear after a debug image too: `sophia8 debug.img --help`
+    if (argi < argc)
+    {
+        const std::string a = argv[argi];
+        if (a == "-h" || a == "--help")
+        {
+            print_help(argv[0]);
+            return 0;
         }
     }
 

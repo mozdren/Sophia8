@@ -45,6 +45,36 @@ namespace fs = std::filesystem;
 
 static constexpr uint32_t MEM_SIZE = 0xFFFF; // bytes, valid indices 0x0000..0xFFFE
 
+static void print_help(const char* prog)
+{
+    // Keep this text implementation-accurate. Anything not listed here should be considered undefined.
+    std::cout
+        << "Sophia8 Assembler (s8asm)\n"
+        << "\n"
+        << "Usage:\n"
+        << "  " << prog << " <input.s8> [-o <output.bin>]\n"
+        << "\n"
+        << "Options:\n"
+        << "  -o, --output <file>   Output image file (default: sophia8_image.bin)\n"
+        << "  -h, --help            Show this help\n"
+        << "\n"
+        << "What it produces:\n"
+        << "  <output.bin>          Full 0xFFFF-byte memory image (0x0000..0xFFFE), zero-filled\n"
+        << "  <output.pre.s8>       Fully preprocessed source (.include expanded) with ';@ file:line' markers\n"
+        << "  <output.deb>          Debug map used by sophia8 for file:line breakpoints\n"
+        << "\n"
+        << "Key rules (strict):\n"
+        << "  - Implicit entry stub at 0x0000..0x0002: JMP <entry>. User code/data must start >= 0x0003\n"
+        << "  - .org <addr> sets absolute location (numeric literal only); .org (no operand) marks entry (once)\n"
+        << "  - .include is textual, include-once is enforced, include cycles are errors\n"
+        << "  - Labels are global and case-sensitive; duplicates and undefined labels are errors\n"
+        << "  - .byte: numeric literals only; .word: literals or labels; .string: 7-bit ASCII with escapes\n"
+        << "  - Any overlapping emission is an error\n"
+        << "\n"
+        << "Examples:\n"
+        << "  " << prog << " main.s8 -o program.bin\n";
+}
+
 struct AsmError : public std::runtime_error {
     std::string file;
     int line_no;
@@ -990,14 +1020,25 @@ static void print_error(const AsmError& e) {
 
 int main(int argc, char** argv) {
     try {
+        if (argc >= 2) {
+            const std::string a1 = argv[1];
+            if (a1 == "-h" || a1 == "--help") {
+                print_help(argv[0]);
+                return 0;
+            }
+        }
         if (argc < 2) {
-            std::cerr << "Usage: " << argv[0] << " <input.s8> [-o output.bin]\n";
+            print_help(argv[0]);
             return 2;
         }
         fs::path input = argv[1];
         fs::path output = "sophia8_image.bin";
         for (int i=2;i<argc;i++) {
             std::string a = argv[i];
+            if (a=="-h" || a=="--help") {
+                print_help(argv[0]);
+                return 0;
+            }
             if ((a=="-o" || a=="--output") && i+1 < argc) {
                 output = argv[++i];
             } else {
