@@ -421,3 +421,35 @@ Sophia8 exists to be *fully understandable*.
 - No implicit state
 
 If something feels manual, that is the point.
+
+Assembler lessons learned (design + debugging)
+--------------------------------------------
+
+- **Immediate vs address syntax**: Use '#' only for immediates. Bare numbers/labels are addresses. Mixing them is a common source of wrong encoding.
+  - Example (good):
+
+    ```
+    LDI A, #0x2A   ; immediate
+JMP loop        ; address via label
+    ```
+  - Example (bad):
+
+    ```
+    JMP #0x1000     ; '#' not allowed for addresses
+    ```
+- **.org semantics and entry mark**: .org with an operand moves the location counter. '.org' with no operand is treated as an entry-point marker (and may appear only once). The operand must be a numeric literal (labels not allowed).
+  - Pitfall: Trying to write '.org start' or '.org #0x200' will fail by design.
+  - Reason: Keeps entry-point explicit and avoids forward-reference ambiguity for the image layout.
+- **Byte/word emission rules**: .byte accepts numeric literals only (no labels, no '#'). .word accepts numeric literals or labels (no '#'). Keep data widths explicit to avoid accidental truncation.
+  - Pitfall: Using labels in .byte or using immediates in .word/.byte.
+- **Comma splitting is simple**: Operands are split by commas without quote awareness. Keep string directives as a single quoted argument and avoid commas inside quoted strings unless the directive explicitly supports it.
+  - Prevention: If you need commas in emitted bytes, use multiple .byte items rather than a single .string with commas.
+- **Global labels and duplicate detection**: Labels are global and duplicates are a hard error. This prevents silent symbol capture across includes.
+  - Prevention: Use a consistent prefixing convention per module (e.g., 'mem_', 'fmt_', 'cli_').
+- **Include path resolution**: .include requires quotes and is resolved relative to the including file (with canonical/absolute handling). Keep includes acyclic; include stacks are reported on errors.
+  - Pitfall: Forgetting quotes or relying on working-directory relative paths.
+- **Overlap detection**: Any emitted byte overlap is a strict error. This catches accidental .org jumps into already-emitted regions early.
+  - Prevention: Treat .org as a segment boundary and keep a simple memory map comment at the top of your entry file.
+- **Two-pass assembly expectations**: Pass 1 builds layout and label addresses; pass 2 emits. Forward references are fine for instructions and .word, but not allowed where the assembler requires literal-only operands (e.g., .org operand, .byte).
+  - Prevention: When in doubt, choose .word for label-bearing data and keep control directives literal.
+- **Error reporting**: Preserve the original line (before comment stripping) for diagnostics, and report file/line plus include stack. Good errors reduce debugging time more than any other feature.
