@@ -47,6 +47,18 @@ If `-o` is omitted, the assembler writes `sophia8_image.bin` in the current dire
 5. Emits an implicit `JMP <entry>` at `0x0000`
 6. Outputs a full binary image of size `0xFFFF` bytes
 
+### Debugging outputs (generated automatically)
+
+When you assemble to `output.bin`, `s8asm` also writes two **sidecar** files next to it:
+
+- `output.pre.s8` — the **fully preprocessed** source with all `.include` expanded into one file.
+  - Each original source line is preceded by an origin marker comment: `;@ <file>:<line>`
+  - The original line text is preserved, so you can re-assemble the `.pre.s8` file if needed.
+
+- `output.deb` — a **debug map** that records how emitted bytes relate to source locations.
+  - Contains both CODE and DATA records, emitted address, length, bytes, and `file:line: original source line`.
+  - Used by the Sophia8 VM to map **breakpoints** (source file + line) to runtime addresses.
+
 ### Errors are strict
 
 The assembler **fails hard** on:
@@ -433,6 +445,82 @@ Sophia8 exists to be *fully understandable*.
 - No implicit state
 
 If something feels manual, that is the point.
+
+---
+
+## 14. Debugging
+
+Sophia8 debugging is intentionally simple and file-based.
+
+### 14.1 Preprocessed source: `.pre.s8`
+
+If you compile `prog.s8` to `prog.bin`, `s8asm` also writes `prog.pre.s8`.
+This is the exact source that the assembler *actually saw* after expanding all `.include`s.
+
+Practical uses:
+
+- Confirm that includes expanded the way you expect (especially when includes are nested).
+- Reproduce a build from a single file (share `*.pre.s8` when reporting an issue).
+- Track down label collisions and layout mistakes caused by include order.
+
+Each original line is preceded by an origin marker:
+
+```asm
+;@ path/to/file.s8:123
+    SET #0x41, R0
+```
+
+### 14.2 Debug map: `.deb`
+
+`prog.deb` is a text file emitted next to `prog.bin` that maps emitted bytes to source
+locations. Each line includes:
+
+- address (hex, 4 digits)
+- length (decimal)
+- kind (`CODE` or `DATA`)
+- the exact bytes emitted
+- `file:line: original source line`
+
+This is what enables source-level breakpoints in the VM.
+
+### 14.3 VM breakpoint workflow (file:line)
+
+The VM understands `.deb` files directly:
+
+```bash
+# Run using debug map (loads the referenced .bin)
+sophia8 prog.deb
+
+# Stop when execution reaches a specific source location
+sophia8 prog.deb path/to/file.s8 123
+```
+
+When a breakpoint is hit, the VM:
+
+1. Prints `BREAK at <file>:<line> (0xADDR)`
+2. Prints all registers (`R0..R7`, `IP`, `SP`, `BP`, `C`)
+3. Saves a snapshot `debug.img` in the current directory
+4. Stops execution
+
+### 14.4 Resuming from a snapshot: `debug.img`
+
+To resume after a breakpoint:
+
+```bash
+sophia8 debug.img
+```
+
+If you also provide `prog.deb` and a breakpoint, the VM can still resolve source locations:
+
+```bash
+sophia8 debug.img prog.deb path/to/file.s8 200
+```
+
+### 14.5 Practical tips
+
+- Put your application code in one `.org` region and your data in another, and keep a small memory map comment at the top of the entry file.
+- If something “mysteriously” changes after adding an `.include`, inspect the generated `*.pre.s8` first.
+- If you can’t find a breakpoint location, check the `.deb` lines for the **exact** file path or filename used by the assembler.
 
 Assembler lessons learned (design + debugging)
 --------------------------------------------

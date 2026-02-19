@@ -20,6 +20,15 @@
 
 #include <cstdio>
 #include <cstdint>
+#include <cstring>
+#include <cstdlib>
+
+#include <string>
+#include <vector>
+#include <fstream>
+#include <sstream>
+#include <filesystem>
+#include <algorithm>
 
 #include "definitions.h"
 
@@ -239,6 +248,232 @@ static inline void mem_write(const uint16_t address, const uint8_t value)
 /* SPECIAL TRIGGERS **********************************************************/
 
 static uint8_t  STOP = 0x00;    /* should stop the machine?                  */
+
+/* DEBUG / BREAKPOINT SUPPORT ************************************************/
+
+namespace fs = std::filesystem;
+
+struct DebLine {
+    uint16_t addr = 0;
+    bool is_code = false;
+    std::string file;
+    int line_no = 0;
+};
+
+static bool ends_with(const std::string& s, const std::string& suf) {
+    return s.size() >= suf.size() && s.compare(s.size() - suf.size(), suf.size(), suf) == 0;
+}
+
+static std::string trim(const std::string& s) {
+    const auto b = s.find_first_not_of(" \t\r\n");
+    if (b == std::string::npos) return "";
+    const auto e = s.find_last_not_of(" \t\r\n");
+    return s.substr(b, e - b + 1);
+}
+
+static bool load_deb_map(const char* deb_path,
+                         std::string& out_bin_path,
+                         std::vector<DebLine>& out_lines)
+{
+    out_bin_path.clear();
+    out_lines.clear();
+
+    std::ifstream f(deb_path, std::ios::binary);
+    if (!f) {
+        printf("Failed to open .deb file: %s\n", deb_path);
+        return false;
+    }
+
+    std::string line;
+    while (std::getline(f, line)) {
+        if (line.rfind("; Binary:", 0) == 0) {
+            out_bin_path = trim(line.substr(std::strlen("; Binary:")));
+            continue;
+        }
+        if (line.empty() || line[0] == ';') continue;
+
+        std::istringstream iss(line);
+        std::string addr_hex;
+        std::string len_str;
+        std::string kind_str;
+        if (!(iss >> addr_hex >> len_str >> kind_str)) continue;
+
+        uint32_t addr_val = 0;
+        try {
+            addr_val = static_cast<uint32_t>(std::stoul(addr_hex, nullptr, 16));
+        } catch (...) {
+            continue;
+        }
+
+        // Parse source location from the end of the *full* line:
+        //   ...  <file>:<line>: <original source line>
+        const auto c1 = line.rfind(':');
+        if (c1 == std::string::npos) continue;
+        const auto c0 = line.rfind(':', c1 - 1);
+        if (c0 == std::string::npos) continue;
+
+        const std::string line_part = trim(line.substr(c0 + 1, c1 - (c0 + 1)));
+        if (line_part.empty() || !std::all_of(line_part.begin(), line_part.end(), [](char ch){ return ch >= '0' && ch <= '9'; }))
+        {
+            continue;
+        }
+
+        const auto pos2 = line.rfind("  ", c0);
+        if (pos2 == std::string::npos) continue;
+        const std::string file_part = trim(line.substr(pos2, c0 - pos2));
+
+        int line_no = 0;
+        try {
+            line_no = std::stoi(line_part);
+        } catch (...) {
+            continue;
+        }
+
+        DebLine dl;
+        dl.addr = static_cast<uint16_t>(addr_val & 0xFFFF);
+        dl.is_code = (kind_str == "CODE");
+        dl.file = file_part;
+        dl.line_no = line_no;
+        out_lines.push_back(std::move(dl));
+    }
+
+    if (out_bin_path.empty()) {
+        printf("Invalid .deb file (missing '; Binary:' header): %s\n", deb_path);
+        return false;
+    }
+
+    // Resolve bin path relative to the .deb directory if needed.
+    try {
+        fs::path binp(out_bin_path);
+        if (binp.is_relative()) {
+            fs::path debp(deb_path);
+            binp = debp.parent_path() / binp;
+            out_bin_path = binp.lexically_normal().string();
+        }
+    } catch (...) {
+        // ignore
+    }
+
+    return true;
+}
+
+static bool find_break_addr(const std::vector<DebLine>& lines,
+                            const std::string& break_file,
+                            const int break_line,
+                            uint16_t& out_addr)
+{
+    out_addr = 0;
+    bool found = false;
+    uint16_t best = 0xFFFF;
+
+    fs::path wantp(break_file);
+    const std::string want_base = wantp.filename().string();
+
+    for (const auto& l : lines) {
+        if (!l.is_code) continue;
+        if (l.line_no != break_line) continue;
+
+        bool match = false;
+        if (l.file == break_file) match = true;
+        else {
+            fs::path p(l.file);
+            if (p.filename().string() == want_base) match = true;
+        }
+        if (!match) continue;
+
+        if (!found || l.addr < best) {
+            found = true;
+            best = l.addr;
+        }
+    }
+
+    if (!found) return false;
+    out_addr = best;
+    return true;
+}
+
+static void write_u16_be(std::ofstream& f, const uint16_t v) {
+    const uint8_t b[2] = { static_cast<uint8_t>((v >> 8) & 0xFF), static_cast<uint8_t>(v & 0xFF) };
+    f.write(reinterpret_cast<const char*>(b), 2);
+}
+
+static bool read_u16_be(std::ifstream& f, uint16_t& out) {
+    uint8_t b[2];
+    f.read(reinterpret_cast<char*>(b), 2);
+    if (!f) return false;
+    out = static_cast<uint16_t>((static_cast<uint16_t>(b[0]) << 8) | static_cast<uint16_t>(b[1]));
+    return true;
+}
+
+static bool save_debug_image(const char* path)
+{
+    std::ofstream f(path, std::ios::binary);
+    if (!f) {
+        printf("Failed to write debug image: %s\n", path);
+        return false;
+    }
+
+    // Layout:
+    //   magic[4] = "S8DI"
+    //   version  = 0x01
+    //   r[8]
+    //   ip, sp, bp (u16 big-endian)
+    //   c (u8)
+    //   reserved[7]
+    //   mem[MEM_SIZE]
+    const char magic[4] = { 'S', '8', 'D', 'I' };
+    f.write(magic, 4);
+    const uint8_t ver = 0x01;
+    f.write(reinterpret_cast<const char*>(&ver), 1);
+    f.write(reinterpret_cast<const char*>(r), 8);
+    write_u16_be(f, ip);
+    write_u16_be(f, sp);
+    write_u16_be(f, bp);
+    f.write(reinterpret_cast<const char*>(&c), 1);
+    const uint8_t zeros[7] = {0,0,0,0,0,0,0};
+    f.write(reinterpret_cast<const char*>(zeros), 7);
+    f.write(reinterpret_cast<const char*>(mem), MEM_SIZE);
+
+    if (!f) {
+        printf("Failed while writing debug image: %s\n", path);
+        return false;
+    }
+    return true;
+}
+
+static bool load_debug_image(const char* path)
+{
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return false;
+
+    char magic[4] = {0,0,0,0};
+    f.read(magic, 4);
+    if (!f) return false;
+    if (!(magic[0]=='S' && magic[1]=='8' && magic[2]=='D' && magic[3]=='I')) {
+        return false;
+    }
+    uint8_t ver = 0;
+    f.read(reinterpret_cast<char*>(&ver), 1);
+    if (!f || ver != 0x01) return false;
+
+    f.read(reinterpret_cast<char*>(r), 8);
+    if (!f) return false;
+    if (!read_u16_be(f, ip)) return false;
+    if (!read_u16_be(f, sp)) return false;
+    if (!read_u16_be(f, bp)) return false;
+    f.read(reinterpret_cast<char*>(&c), 1);
+    if (!f) return false;
+
+    char tmp[7];
+    f.read(tmp, 7);
+    if (!f) return false;
+
+    f.read(reinterpret_cast<char*>(mem), MEM_SIZE);
+    if (!f) return false;
+
+    STOP = 0;
+    return true;
+}
 
 /* MACHINE CODE **************************************************************/
 
@@ -1472,10 +1707,25 @@ void print_registers()
     printf("C = %d\n", c ? 1 : 0);
 }
 
-void run()
+void run(const bool break_enabled = false,
+         const uint16_t break_addr = 0,
+         const char* break_file = nullptr,
+         const int break_line = 0)
 {
     while (!STOP)
     {
+        if (break_enabled && ip == break_addr)
+        {
+            printf("BREAK at %s:%d (0x%04X)\n",
+                   break_file ? break_file : "<unknown>",
+                   break_line,
+                   static_cast<unsigned>(break_addr));
+            print_registers();
+            (void)save_debug_image("debug.img");
+            STOP = 1;
+            break;
+        }
+
         process_instruction();
     }
 
@@ -1595,21 +1845,105 @@ int main(int argc, char** argv)
 
     /*
      * Usage:
-     *   sophia8                 -> runs built-in test program
-     *   sophia8 <image.bin>     -> loads and runs a raw memory image
+     *   sophia8
+     *       runs built-in test program
+     *
+     *   sophia8 <image.bin>
+     *       loads and runs a raw memory image
+     *
+     *   sophia8 <program.deb> [<break_file> <break_line>]
+     *       loads .deb debug map (emitted by s8asm), loads the referenced .bin,
+     *       and optionally stops at the given source file/line.
+     *
+     *   sophia8 debug.img [<program.deb> <break_file> <break_line>]
+     *       resumes from a saved debug image (written on breakpoint) and may
+     *       still use a .deb + breakpoint.
      */
+
+    std::string deb_bin_path;
+    std::vector<DebLine> deb_lines;
+    bool have_deb = false;
+    bool have_state = false;
+
+    int argi = 1;
     if (argc >= 2)
     {
-        if (!load_bin_file(argv[1]))
+        // 1) Try to load a debug image first (resume).
+        if (load_debug_image(argv[argi]))
         {
-            return 1;
+            have_state = true;
+            argi++;
+        }
+    }
+
+    if (!have_state)
+    {
+        if (argc <= 1)
+        {
+            load_test_code();
+        }
+        else
+        {
+            const std::string p = argv[argi];
+            if (ends_with(p, ".deb"))
+            {
+                have_deb = load_deb_map(argv[argi], deb_bin_path, deb_lines);
+                if (!have_deb) return 1;
+                if (!load_bin_file(deb_bin_path.c_str())) return 1;
+                argi++;
+            }
+            else
+            {
+                if (!load_bin_file(argv[argi])) return 1;
+                argi++;
+            }
         }
     }
     else
     {
-        load_test_code();
+        // Resumed state: optionally load a .deb for breakpoint mapping.
+        if (argi < argc)
+        {
+            const std::string p = argv[argi];
+            if (ends_with(p, ".deb"))
+            {
+                have_deb = load_deb_map(argv[argi], deb_bin_path, deb_lines);
+                if (!have_deb) return 1;
+                argi++;
+            }
+        }
     }
 
-    run();
+    bool break_enabled = false;
+    uint16_t break_addr = 0;
+    const char* break_file = nullptr;
+    int break_line = 0;
+
+    if (argi + 1 < argc)
+    {
+        if (!have_deb)
+        {
+            printf("Breakpoint requires a .deb debug map.\n");
+            return 1;
+        }
+
+        break_file = argv[argi];
+        break_line = std::atoi(argv[argi + 1]);
+        if (break_line <= 0)
+        {
+            printf("Invalid breakpoint line: %s\n", argv[argi + 1]);
+            return 1;
+        }
+
+        if (!find_break_addr(deb_lines, break_file, break_line, break_addr))
+        {
+            printf("Breakpoint not found in .deb: %s:%d\n", break_file, break_line);
+            return 1;
+        }
+
+        break_enabled = true;
+    }
+
+    run(break_enabled, break_addr, break_file, break_line);
     return 0;
 }

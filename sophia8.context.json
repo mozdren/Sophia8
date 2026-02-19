@@ -1,6 +1,6 @@
 {
   "context_pack_name": "Sophia8 Assembler + ISA + Standard Libraries Context Pack",
-  "version": "1.2",
+  "version": "1.3",
   "intent": [
     "Authoritative, implementation-accurate reference for Sophia8 assembly as accepted by s8asm and executed by the sophia8 VM.",
     "All tokens are case sensitive.",
@@ -255,7 +255,21 @@
         "lesson": "Preserve the original line (before comment stripping) for diagnostics, and report file/line plus include stack. Good errors reduce debugging time more than any other feature.",
         "note": "If you extend the assembler, keep new errors consistent with AsmError formatting."
       }
-    ]
+    ],
+    "outputs": {
+      "binary_image": {
+        "extension": ".bin",
+        "description": "Full 0xFFFF-byte memory image (raw binary)."
+      },
+      "preprocessed_source": {
+        "extension": ".pre.s8",
+        "description": "Fully preprocessed source (all .include expanded). Each line is preceded by ';@ file:line' origin marker."
+      },
+      "debug_map": {
+        "extension": ".deb",
+        "description": "Text debug map: address/len/kind(CODE|DATA)/bytes + file:line: original source line. Used by VM for breakpoints."
+      }
+    }
   },
   "isa": {
     "mnemonics_case_sensitive": true,
@@ -1052,6 +1066,44 @@
       ".org operands must be numeric literals (no labels).",
       ".byte does not allow labels.",
       "MUL/MULR destination register order: encoded as (dst_high, dst_low). If you want low in R6 and high in R7, write: MUL #imm, R7, R6."
+    ]
+  },
+  "vm": {
+    "tool_name": "sophia8",
+    "usage": [
+      {
+        "pattern": "sophia8",
+        "meaning": "Runs built-in test program."
+      },
+      {
+        "pattern": "sophia8 <image.bin>",
+        "meaning": "Loads and runs a raw memory image."
+      },
+      {
+        "pattern": "sophia8 <program.deb>",
+        "meaning": "Loads .deb debug map, loads referenced .bin, runs."
+      },
+      {
+        "pattern": "sophia8 <program.deb> <break_file> <break_line>",
+        "meaning": "Runs and stops when IP reaches address mapped from source location (file:line). Writes debug.img snapshot and prints registers."
+      },
+      {
+        "pattern": "sophia8 debug.img",
+        "meaning": "Resumes execution from a saved debug snapshot (written on breakpoint)."
+      },
+      {
+        "pattern": "sophia8 debug.img <program.deb> <break_file> <break_line>",
+        "meaning": "Resumes from snapshot and can still use .deb mapping for a new breakpoint."
+      }
+    ],
+    "debug_snapshot": {
+      "file": "debug.img",
+      "format": "Binary snapshot: magic 'S8DI', version 0x01, registers, IP/SP/BP, carry, then full memory image."
+    },
+    "breakpoint_behavior": [
+      "On breakpoint hit, VM prints BREAK <file>:<line> (0xADDR).",
+      "Then prints registers (R0..R7, IP, SP, BP, C).",
+      "Then saves debug.img and stops."
     ]
   }
 }

@@ -411,6 +411,53 @@ static inline void emit_byte(std::vector<uint8_t>& img,
     used[addr] = 1;
 }
 
+// ===========================
+// Debug map (.deb)
+// ===========================
+
+struct DebRecord {
+    enum class Kind { Code, Data } kind;
+    uint32_t addr = 0;
+    std::vector<uint8_t> bytes;
+    // Source location and original line text.
+    // For implicit/stub emissions, file will be "<implicit>" and line_no=0.
+    std::string file;
+    int line_no = 0;
+    std::string text;
+};
+
+static inline void deb_push(std::vector<DebRecord>* deb,
+                            DebRecord::Kind kind,
+                            uint32_t addr,
+                            const std::vector<uint8_t>& bytes,
+                            const SrcLine& sl) {
+    if (!deb) return;
+    DebRecord r;
+    r.kind = kind;
+    r.addr = addr;
+    r.bytes = bytes;
+    r.file = sl.file;
+    r.line_no = sl.line_no;
+    r.text = sl.text;
+    deb->push_back(std::move(r));
+}
+
+static inline void deb_push_implicit(std::vector<DebRecord>* deb,
+                                     DebRecord::Kind kind,
+                                     uint32_t addr,
+                                     const std::vector<uint8_t>& bytes,
+                                     const std::string& text) {
+    if (!deb) return;
+    DebRecord r;
+    r.kind = kind;
+    r.addr = addr;
+    r.bytes = bytes;
+    r.file = "<implicit>";
+    r.line_no = 0;
+    r.text = text;
+    deb->push_back(std::move(r));
+}
+
 static inline uint32_t resolve_addr16(const std::string& tok,
                                       const std::unordered_map<std::string, uint32_t>& sym,
                                       const SrcLine& sl) {
@@ -456,7 +503,8 @@ static inline void emit_u16be(std::vector<uint8_t>& img,
     emit_byte(img, used, addr++, (uint8_t)(v & 0xFF), sl);
 }
 
-static std::vector<uint8_t> assemble(const std::vector<SrcLine>& src_lines) {
+static std::vector<uint8_t> assemble(const std::vector<SrcLine>& src_lines,
+                                     std::vector<DebRecord>* deb_records = nullptr) {
     std::unordered_map<std::string, uint32_t> sym;
     std::vector<Item> items;
 
@@ -587,6 +635,8 @@ static std::vector<uint8_t> assemble(const std::vector<SrcLine>& src_lines) {
 
             uint32_t addr = it.addr;
             if (it.name == ".byte") {
+                std::vector<uint8_t> span;
+                span.reserve(it.ops.size());
                 for (const auto& op : it.ops) {
                     require(!op.empty(), ".byte empty operand", it.src);
                     require(op[0] != '#', ".byte elements must not use '#'", it.src);
@@ -595,16 +645,25 @@ static std::vector<uint8_t> assemble(const std::vector<SrcLine>& src_lines) {
                     try { v = parse_int_literal(op); }
                     catch (...) { throw_here("Invalid .byte literal: " + op, it.src); }
                     require(v <= 0xFF, ".byte value out of 8-bit range: " + op, it.src);
+                    span.push_back((uint8_t)v);
                     emit_byte(img, used, addr++, (uint8_t)v, it.src);
                 }
+                deb_push(deb_records, DebRecord::Kind::Data, it.addr, span, it.src);
             } else if (it.name == ".string") {
                 require(it.ops.size() == 1, ".string expects exactly 1 operand", it.src);
                 auto bytes = decode_c_string(it.ops[0], it.src);
+                std::vector<uint8_t> span;
+                span.reserve(bytes.size() + 1);
                 for (uint8_t b : bytes) {
+                    span.push_back(b);
                     emit_byte(img, used, addr++, b, it.src);
                 }
+                span.push_back(0x00);
                 emit_byte(img, used, addr++, 0x00, it.src); // implicit terminator
+                deb_push(deb_records, DebRecord::Kind::Data, it.addr, span, it.src);
             } else if (it.name == ".word") {
+                std::vector<uint8_t> span;
+                span.reserve(it.ops.size() * 2);
                 for (const auto& op : it.ops) {
                     require(!op.empty(), ".word empty operand", it.src);
                     require(op[0] != '#', ".word elements must not use '#'", it.src);
@@ -618,8 +677,11 @@ static std::vector<uint8_t> assemble(const std::vector<SrcLine>& src_lines) {
                         catch (...) { throw_here("Invalid .word literal: " + op, it.src); }
                         require(v <= 0xFFFF, ".word value out of 16-bit range: " + op, it.src);
                     }
+                    span.push_back((uint8_t)((v >> 8) & 0xFF));
+                    span.push_back((uint8_t)(v & 0xFF));
                     emit_u16be(img, used, addr, v, it.src);
                 }
+                deb_push(deb_records, DebRecord::Kind::Data, it.addr, span, it.src);
             }
             continue;
         }
@@ -630,6 +692,9 @@ static std::vector<uint8_t> assemble(const std::vector<SrcLine>& src_lines) {
         uint8_t opc = opit->second;
 
         uint32_t addr = it.addr;
+        std::vector<uint8_t> span;
+        span.reserve((size_t)it.size);
+        span.push_back(opc);
         emit_byte(img, used, addr++, opc, it.src);
 
         auto spec = SPECS.at(it.name);
@@ -645,62 +710,92 @@ static std::vector<uint8_t> assemble(const std::vector<SrcLine>& src_lines) {
         if (m == "STORE") {
             uint8_t r = get_gpr(it.ops[0]);
             uint32_t a = get_addr(it.ops[1]);
+            span.push_back(r);
             emit_byte(img, used, addr++, r, it.src);
+            span.push_back((uint8_t)((a >> 8) & 0xFF));
+            span.push_back((uint8_t)(a & 0xFF));
             emit_u16be(img, used, addr, a, it.src);
+            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
             continue;
         }
         if (m == "LOAD") {
             uint32_t a = get_addr(it.ops[0]);
             uint8_t r = get_gpr(it.ops[1]);
+            span.push_back((uint8_t)((a >> 8) & 0xFF));
+            span.push_back((uint8_t)(a & 0xFF));
             emit_u16be(img, used, addr, a, it.src);
+            span.push_back(r);
             emit_byte(img, used, addr++, r, it.src);
+            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
             continue;
         }
         if (m == "JMP" || m == "CALL" || m == "JC" || m == "JNC") {
             uint32_t a = get_addr(it.ops[0]);
+            span.push_back((uint8_t)((a >> 8) & 0xFF));
+            span.push_back((uint8_t)(a & 0xFF));
             emit_u16be(img, used, addr, a, it.src);
+            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
             continue;
         }
         if (m == "JZ" || m == "JNZ") {
             uint8_t r = get_gpr(it.ops[0]);
             uint32_t a = get_addr(it.ops[1]);
+            span.push_back(r);
             emit_byte(img, used, addr++, r, it.src);
+            span.push_back((uint8_t)((a >> 8) & 0xFF));
+            span.push_back((uint8_t)(a & 0xFF));
             emit_u16be(img, used, addr, a, it.src);
+            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
             continue;
         }
         if (m == "SET" || m == "ADD" || m == "SUB" || m == "SHL" || m == "SHR") {
             uint8_t imm = get_imm(it.ops[0]);
             uint8_t r = get_gpr(it.ops[1]);
+            span.push_back(imm);
+            span.push_back(r);
             emit_byte(img, used, addr++, imm, it.src);
             emit_byte(img, used, addr++, r, it.src);
+            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
             continue;
         }
         if (m == "CMP") {
             uint8_t r = get_gpr(it.ops[0]);
             uint8_t imm = get_imm(it.ops[1]);
+            span.push_back(r);
+            span.push_back(imm);
             emit_byte(img, used, addr++, r, it.src);
             emit_byte(img, used, addr++, imm, it.src);
+            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
             continue;
         }
         if (m == "INC" || m == "DEC") {
             uint8_t r = get_gpr(it.ops[0]);
+            span.push_back(r);
             emit_byte(img, used, addr++, r, it.src);
+            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
             continue;
         }
         if (m == "CMPR" || m == "ADDR" || m == "SUBR") {
             uint8_t r0 = get_gpr(it.ops[0]);
             uint8_t r1 = get_gpr(it.ops[1]);
+            span.push_back(r0);
+            span.push_back(r1);
             emit_byte(img, used, addr++, r0, it.src);
             emit_byte(img, used, addr++, r1, it.src);
+            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
             continue;
         }
         if (m == "LOADR") {
             uint8_t rdst = get_gpr(it.ops[0]);
             uint8_t rhi  = get_gpr(it.ops[1]);
             uint8_t rlo  = get_gpr(it.ops[2]);
+            span.push_back(rdst);
+            span.push_back(rhi);
+            span.push_back(rlo);
             emit_byte(img, used, addr++, rdst, it.src);
             emit_byte(img, used, addr++, rhi, it.src);
             emit_byte(img, used, addr++, rlo, it.src);
+            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
             continue;
         }
 
@@ -708,36 +803,51 @@ static std::vector<uint8_t> assemble(const std::vector<SrcLine>& src_lines) {
             uint8_t rsrc = get_gpr(it.ops[0]);
             uint8_t rhi = get_gpr(it.ops[1]);
             uint8_t rlo = get_gpr(it.ops[2]);
+            span.push_back(rsrc);
+            span.push_back(rhi);
+            span.push_back(rlo);
             emit_byte(img, used, addr++, rsrc, it.src);
             emit_byte(img, used, addr++, rhi, it.src);
             emit_byte(img, used, addr++, rlo, it.src);
+            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
             continue;
         }
         if (m == "MUL" || m == "DIV") {
             uint8_t imm = get_imm(it.ops[0]);
             uint8_t r1 = get_gpr(it.ops[1]);
             uint8_t r2 = get_gpr(it.ops[2]);
+            span.push_back(imm);
+            span.push_back(r1);
+            span.push_back(r2);
             emit_byte(img, used, addr++, imm, it.src);
             emit_byte(img, used, addr++, r1, it.src);
             emit_byte(img, used, addr++, r2, it.src);
+            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
             continue;
         }
         if (m == "MULR" || m == "DIVR") {
             uint8_t rsrc = get_gpr(it.ops[0]);
             uint8_t r1 = get_gpr(it.ops[1]);
             uint8_t r2 = get_gpr(it.ops[2]);
+            span.push_back(rsrc);
+            span.push_back(r1);
+            span.push_back(r2);
             emit_byte(img, used, addr++, rsrc, it.src);
             emit_byte(img, used, addr++, r1, it.src);
             emit_byte(img, used, addr++, r2, it.src);
+            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
             continue;
         }
         if (m == "PUSH" || m == "POP") {
             uint8_t r = get_anyr(it.ops[0]);
+            span.push_back(r);
             emit_byte(img, used, addr++, r, it.src);
+            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
             continue;
         }
         if (m == "NOP" || m == "HALT" || m == "RET") {
             // opcode only
+            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
             continue;
         }
 
@@ -748,6 +858,13 @@ static std::vector<uint8_t> assemble(const std::vector<SrcLine>& src_lines) {
     img[0x0000] = OPC.at("JMP");
     img[0x0001] = (uint8_t)((entry >> 8) & 0xFF);
     img[0x0002] = (uint8_t)(entry & 0xFF);
+    deb_push_implicit(
+        deb_records,
+        DebRecord::Kind::Code,
+        0x0000,
+        std::vector<uint8_t>{OPC.at("JMP"), (uint8_t)((entry >> 8) & 0xFF), (uint8_t)(entry & 0xFF)},
+        "JMP <entry>"
+    );
 
     return img;
 }
@@ -786,6 +903,67 @@ static void write_preprocessed(const fs::path& pre_out, const std::vector<SrcLin
     }
 
     if (!f) throw std::runtime_error("Write failed: " + pre_out.string());
+}
+
+static fs::path default_debug_path(const fs::path& bin_out) {
+    fs::path p = bin_out;
+    // e.g. prog.bin -> prog.deb
+    p.replace_extension(".deb");
+    return p;
+}
+
+static std::string hex4(uint32_t v) {
+    std::ostringstream o;
+    o << std::hex << std::uppercase;
+    o.width(4);
+    o.fill('0');
+    o << (v & 0xFFFF);
+    return o.str();
+}
+
+static std::string hex2(uint32_t v) {
+    std::ostringstream o;
+    o << std::hex << std::uppercase;
+    o.width(2);
+    o.fill('0');
+    o << (v & 0xFF);
+    return o.str();
+}
+
+static void write_debug_map(const fs::path& deb_out,
+                            const std::vector<DebRecord>& recs,
+                            const fs::path& bin_out) {
+    std::ofstream f(deb_out, std::ios::binary);
+    if (!f) throw std::runtime_error("Cannot open debug output: " + deb_out.string());
+
+    f << "; s8asm debug map (.deb)\n";
+    f << "; This file is generated automatically and matches the emitted binary image exactly.\n";
+    f << "; Binary: " << bin_out.string() << "\n";
+    f << "; Format: AAAA  LEN  KIND  BYTES...  file:line: original source line\n\n";
+
+    // Sort by address so output is deterministic.
+    std::vector<DebRecord> sorted = recs;
+    std::sort(sorted.begin(), sorted.end(), [](const DebRecord& a, const DebRecord& b) {
+        if (a.addr != b.addr) return a.addr < b.addr;
+        // Keep CODE before DATA at same address (should not happen due to overlap rules).
+        return (int)a.kind < (int)b.kind;
+    });
+
+    for (const auto& r : sorted) {
+        f << hex4(r.addr) << "  ";
+        f.width(3);
+        f.fill(' ');
+        f << std::dec << (int)r.bytes.size() << "  ";
+        f << (r.kind == DebRecord::Kind::Code ? "CODE" : "DATA") << "  ";
+
+        for (size_t i = 0; i < r.bytes.size(); ++i) {
+            f << hex2(r.bytes[i]);
+            if (i + 1 < r.bytes.size()) f << ' ';
+        }
+        f << "  " << r.file << ":" << r.line_no << ": " << r.text << "\n";
+    }
+
+    if (!f) throw std::runtime_error("Write failed: " + deb_out.string());
 }
 
 static fs::path default_preprocessed_path(const fs::path& bin_out) {
@@ -838,8 +1016,12 @@ int main(int argc, char** argv) {
         // This helps debug issues that only show up after includes are expanded.
         write_preprocessed(default_preprocessed_path(output), expanded);
 
-        auto img = assemble(expanded);
+        std::vector<DebRecord> deb;
+        auto img = assemble(expanded, &deb);
         write_bin(output, img);
+
+        // Always dump debug map next to the binary.
+        write_debug_map(default_debug_path(output), deb, output);
         std::cout << "OK: wrote " << img.size() << " bytes to " << output.string() << "\n";
         return 0;
 
