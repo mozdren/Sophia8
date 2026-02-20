@@ -1,0 +1,114 @@
+; text.s8
+; Small text/parsing helpers extracted from Sophia BASIC.
+;
+; Conventions:
+; - Pointers are passed in R1:R2 unless stated otherwise.
+; - No registers are preserved unless explicitly documented.
+
+; ---------------------------------------------------------------------------
+; SKIPSP
+;   Skip ASCII spaces (0x20) starting at R1:R2.
+;   Args: R1:R2 ptr
+;   Returns: R1:R2 advanced
+;   Clobbers: R0
+; ---------------------------------------------------------------------------
+SKIPSP:
+SS_LOOP:
+    LOADR R0, R1, R2
+    CMP R0, #0x20
+    JNZ R0, SS_DONE
+    INC R2
+    JNZ R2, SS_LOOP
+    INC R1
+    JMP SS_LOOP
+SS_DONE:
+    RET
+
+; ---------------------------------------------------------------------------
+; ISDIGIT
+;   Tests whether *R1:R2 is ASCII '0'..'9'.
+;   Args: R1:R2 ptr
+;   Returns: R0 = 1 if digit else 0
+;   Clobbers: R3
+; ---------------------------------------------------------------------------
+ISDIGIT:
+    LOADR R3, R1, R2
+    ; if ch < '0' => false
+    SET #0x00, R0
+    ADDR R3, R0
+    CMP R0, #0x30
+    JC ID_NO
+    ; if ch < ':' => true
+    SET #0x00, R0
+    ADDR R3, R0
+    CMP R0, #0x3A
+    JC ID_Y
+ID_NO:
+    SET #0x00, R0
+    RET
+ID_Y:
+    SET #0x01, R0
+    RET
+
+; ---------------------------------------------------------------------------
+; PARSE_UINT8
+;   Parse an unsigned decimal number from R1:R2.
+;   Stops at first non-digit. No overflow checking (wraps modulo 256).
+;
+;   Args: R1:R2 ptr
+;   Returns: R0 = parsed value (0..255)
+;            R1:R2 advanced to first non-digit
+;   Clobbers: R3, R4, R7
+; ---------------------------------------------------------------------------
+PARSE_UINT8:
+    SET #0x00, R4          ; accumulator
+PU8_LOOP:
+    CALL ISDIGIT
+    JZ R0, PU8_DONE
+    LOADR R3, R1, R2
+    SUB #0x30, R3          ; digit 0..9
+    ; acc = acc*10 + digit
+    MUL #10, R7, R4        ; R4=low, R7=high (ignored)
+    ADDR R3, R4
+    ; ++ptr
+    INC R2
+    JNZ R2, PU8_LOOP
+    INC R1
+    JMP PU8_LOOP
+PU8_DONE:
+    SET #0x00, R0
+    ADDR R4, R0
+    RET
+
+; ---------------------------------------------------------------------------
+; TOUPPER_Z
+;   Convert an ASCII NUL-terminated string in-place to uppercase.
+;   Args: R1:R2 ptr
+;   Returns: -
+;   Clobbers: R0, R3
+; ---------------------------------------------------------------------------
+TOUPPER_Z:
+TU_LOOP:
+    LOADR R0, R1, R2
+    CMP R0, #0x00
+    JZ R0, TU_DONE
+    ; if 'a' <= ch < 'z'+1 then ch -= 0x20
+    SET #0x00, R3
+    ADDR R0, R3
+    SUB #0x61, R3
+    JC TU_NEXT
+    SET #0x00, R3
+    ADDR R0, R3
+    SUB #0x7B, R3
+    JC TU_DO
+    JMP TU_NEXT
+TU_DO:
+    SUB #0x20, R0
+    STORER R0, R1, R2
+TU_NEXT:
+    INC R2
+    JNZ R2, TU_LOOP
+    INC R1
+    JMP TU_LOOP
+TU_DONE:
+    RET

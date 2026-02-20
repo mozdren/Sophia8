@@ -1,0 +1,67 @@
+; rng.s8
+; Simple 16-bit RNG helpers extracted from Sophia BASIC.
+;
+; RNG_NEXT16
+;   seed = seed*109 + 89 (mod 65536)
+;   returns (seed & 0x7FFF) in R6:R7
+;
+;   Args: R1:R2 -> seed (two bytes: [seed_hi][seed_lo])
+;   Returns: R6:R7 random value in 0..32767
+;            seed updated in memory at R1:R2
+;   Clobbers: R0, R3, R4, R5
+;
+; Requires: ADD16 and MUL16U (from Sophia BASIC arithmetic helpers).
+; Note: this library is intended for codebases that already provide those 16-bit
+;       helpers (e.g., Sophia BASIC). For standalone programs, include your own
+;       ADD16/MUL16U equivalents.
+
+RNG_NEXT16:
+    ; load seed into R4:R5
+    LOADR R4, R1, R2
+    ; ++ptr to low byte
+    INC R2
+    JNZ R2, RN16_L1
+    INC R1
+RN16_L1:
+    LOADR R5, R1, R2
+    ; restore ptr back to high byte for store later
+    DEC R2
+    JNC RN16_L2
+    DEC R1
+RN16_L2:
+
+    ; multiply by 109
+    SET #0x00, R6
+    SET #109, R7
+    CALL MUL16U          ; product in R6:R7
+
+    ; add 89
+    SET #0x00, R4
+    ADDR R6, R4
+    SET #0x00, R5
+    ADDR R7, R5
+    SET #0x00, R6
+    SET #89, R7
+    CALL ADD16           ; result in R6:R7
+
+    ; store updated seed back
+    STORER R6, R1, R2
+    INC R2
+    JNZ R2, RN16_S1
+    INC R1
+RN16_S1:
+    STORER R7, R1, R2
+    ; restore ptr to high byte position (best-effort)
+    DEC R2
+    JNC RN16_S2
+    DEC R1
+RN16_S2:
+
+    ; mask high bit => 0..32767
+    SET #0x00, R0
+    ADDR R6, R0
+    CMP R0, #0x80
+    JC RN16_OK
+    SUB #0x80, R6
+RN16_OK:
+    RET

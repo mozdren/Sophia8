@@ -1,0 +1,204 @@
+; basic_helpers.s8
+; Helpers extracted from Sophia BASIC that are still BASIC-specific.
+;
+; This file intentionally contains routines that depend on BASIC global state
+; variables (e.g., CURPTR_H/CURPTR_L) or BASIC data layout.
+;
+; Exported:
+; - COPY_INBUF_6C00_TO_6D00
+; - GETTOKEN
+; - PARSE_INT16
+; - ADD_ENTRY_OFFSET
+; - RNG_NEXT (wrapper around RNG_NEXT16 from rng.s8)
+
+; NOTE: SKIPSP / ISDIGIT / PARSE_UINT8 / TOUPPER_Z were moved to text.s8.
+
+; ---------------------------------------------------------------------------
+; COPY_INBUF_6C00_TO_6D00
+;   Copy NUL-terminated string from 0x6C00 to 0x6D00 (incl terminator).
+; ---------------------------------------------------------------------------
+COPY_INBUF_6C00_TO_6D00:
+    SET #0x6C, R1
+    SET #0x00, R2
+    SET #0x6D, R3
+    SET #0x00, R4
+CIB_L0:
+    LOADR R0, R1, R2
+    STORER R0, R3, R4
+    CMP R0, #0x00
+    JZ R0, CIB_DONE
+    INC R2
+    JNZ R2, CIB_S1
+    INC R1
+CIB_S1:
+    INC R4
+    JNZ R4, CIB_D1
+    INC R3
+CIB_D1:
+    JMP CIB_L0
+CIB_DONE:
+    RET
+
+; ---------------------------------------------------------------------------
+; GETTOKEN
+;   Read the next space-delimited token from CURPTR into TOKENBUF.
+;   Leading spaces are skipped.
+;   TOKENBUF is fixed at 0x6880 and is max 23 chars + NUL.
+;
+;   Returns: TOKENBUF updated, CURPTR advanced.
+; ---------------------------------------------------------------------------
+GETTOKEN:
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    CALL SKIPSP
+    SET #0x68, R3
+    SET #0x80, R4
+    SET #0x00, R5
+GT_LOOP:
+    LOADR R0, R1, R2
+    JZ R0, GT_DONE
+    SET #0x00, R7
+    ADDR R0, R7
+    CMP R7, #0x20
+    JZ R7, GT_DONE
+    STORER R0, R3, R4
+    INC R4
+    JNZ R4, GT1
+    INC R3
+GT1:
+    INC R2
+    JNZ R2, GT2
+    INC R1
+GT2:
+    INC R5
+    CMP R5, #23
+    JNZ R5, GT_LOOP
+GT_DONE:
+    SET #0x00, R0
+    STORER R0, R3, R4
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    RET
+
+; ---------------------------------------------------------------------------
+; PARSE_INT16
+;   Parse signed decimal integer from CURPTR.
+;   Returns value in R6:R7 (signed 16-bit). Advances CURPTR.
+;   Uses BASIC globals: CURPTR_H/CURPTR_L and INT_SIGN.
+;
+;   Requires: MUL16U, NEG16 (from BASIC core).
+; ---------------------------------------------------------------------------
+PARSE_INT16:
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    ; sign flag (0=pos, 1=neg)
+    SET #0x00, R5
+    STORE R5, INT_SIGN
+
+    ; optional leading +/-
+    LOADR R0, R1, R2
+    SET #0x00, R3
+    ADDR R0, R3
+    CMP R3, #0x2D      ; '-'
+    JNZ R3, PI16_CHKPLUS
+    SET #0x01, R5
+    STORE R5, INT_SIGN
+    INC R2
+    JNZ R2, PI16_INIT
+    INC R1
+    JMP PI16_INIT
+PI16_CHKPLUS:
+    SET #0x00, R3
+    ADDR R0, R3
+    CMP R3, #0x2B      ; '+'
+    JNZ R3, PI16_INIT
+    INC R2
+    JNZ R2, PI16_INIT
+    INC R1
+
+PI16_INIT:
+    SET #0x00, R6      ; hi
+    SET #0x00, R7      ; lo
+
+PI16_LOOP:
+    CALL ISDIGIT
+    JZ R0, PI16_DONE
+    LOADR R0, R1, R2
+    SUB #0x30, R0      ; digit 0..9
+
+    ; value = value*10 + digit
+    ; MUL16U uses R1 internally (via DIV) so preserve the input pointer.
+    PUSH R1
+    PUSH R2
+    PUSH R0             ; save digit
+    SET #0x00, R4
+    ADDR R6, R4         ; multiplicand hi
+    SET #0x00, R5
+    ADDR R7, R5         ; multiplicand lo
+    SET #0x00, R6
+    SET #10, R7         ; multiplier = 10
+    CALL MUL16U         ; result -> R6:R7
+    POP R0              ; restore digit
+    POP R2
+    POP R1
+    ADDR R0, R7
+    JNC PI16_A2
+    INC R6
+PI16_A2:
+
+    ; advance pointer
+    INC R2
+    JNZ R2, PI16_LOOP
+    INC R1
+    JMP PI16_LOOP
+
+PI16_DONE:
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    LOAD INT_SIGN, R0
+    CMP R0, #0x01
+    JNZ R0, PI16_RET
+    CALL NEG16
+PI16_RET:
+    RET
+
+; ---------------------------------------------------------------------------
+; ADD_ENTRY_OFFSET
+;   Add (R6 * 84) to pointer R1:R2.
+;   Used by BASIC to index into line table/program storage.
+; ---------------------------------------------------------------------------
+ADD_ENTRY_OFFSET:
+    SET #0x00, R3
+    SET #0x00, R0
+    SET #0x00, R7
+    ADDR R6, R7
+AEO_LOOP:
+    JZ R7, AEO_DONE
+    ADD #84, R0
+    JNC AEO_NC
+    INC R3
+AEO_NC:
+    DEC R7
+    JMP AEO_LOOP
+AEO_DONE:
+    ADDR R3, R1
+    ADDR R0, R2
+    JNC AEO_RET
+    INC R1
+AEO_RET:
+    RET
+
+; ---------------------------------------------------------------------------
+; RNG_NEXT
+;   BASIC convenience wrapper for rng.s8's RNG_NEXT16.
+;   Uses BASIC variable RNG_SEED_PTR (a .word pointing to RNG_SEED_H).
+;   Returns value in R6:R7.
+;
+;   Requires: rng.s8 (RNG_NEXT16)
+; ---------------------------------------------------------------------------
+RNG_NEXT:
+    ; load pointer to the seed (R1:R2)
+    LOAD RNG_SEED_PTR, R1
+    LOAD RNG_SEED_PTR+1, R2
+    CALL RNG_NEXT16
+    RET

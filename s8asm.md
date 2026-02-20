@@ -4,7 +4,7 @@ Programmer’s Reference Manual (Assembler + ISA + Standard Libraries)
 
 This document describes the **Sophia8 assembler language**, the `s8asm` assembler tool,
 the Sophia8 VM instruction set as implemented by `sophia8`, and the provided
-standard libraries (`kernel.s8`, `mem.s8`, `fmt.s8`, `str.s8`, `cli.s8`).
+standard libraries (`kernel.s8`, `mem.s8`, `fmt.s8`, `str.s8`, `cli.s8`, `text.s8`, `rng.s8`).
 
 This is written as a *working engineer’s reference*, not marketing material.
 Everything here is explicit. Anything not described should be considered undefined.
@@ -384,9 +384,28 @@ These libraries are optional and are meant to be included explicitly.
 | Routine | Args | Returns | Clobbers | Description |
 |--------|------|---------|----------|-------------|
 | READLINE_ECHO | `R1:R2` buf, `R3` max (incl NUL) | `R4` len | `R0`,`R3`,`R5`,`R6`,`R7` | Read line, echo, backspace, NUL-terminate |
+| READLINE_SIMPLE | `R1:R2` buf, `R3` max (incl NUL) | `R4` len | `R0`,`R5`,`R6` | Read line, **no echo**, backspace editing, NUL-terminate |
+| READLINE_NOECHO | `R1:R2` buf, `R3` max (incl NUL) | `R4` len | `R0`,`R5`,`R6` | Read line, **no echo**, backspace editing, NUL-terminate |
 | SKIPSPACES | `R1:R2` ptr | `R1:R2` ptr | `R0`,`R6` | Skip spaces/tabs |
 | READTOKEN | `R1:R2` src, `R3:R4` dst, `R5` max (incl NUL) | `R6` len; `R1:R2` updated | `R0`,`R5`,`R6`,`R7` | Read space/tab-delimited token |
 | PARSE_U8_DEC | `R1:R2` ptr | `R0` value; `R4` ok; `R1:R2` updated | `R5`,`R6`,`R7` | Parse decimal 0..255 (skips spaces/tabs) |
+
+### `text.s8`
+
+Small text/parsing helpers (extracted from Sophia BASIC).
+
+| Routine | Args | Returns | Clobbers | Description |
+|--------|------|---------|----------|-------------|
+| SKIPSP | `R1:R2` ptr | `R1:R2` updated | `R0` | Skip ASCII spaces (0x20) |
+| ISDIGIT | `R1:R2` ptr | `R0` = 1/0 | `R3` | Test whether `*ptr` is `'0'..'9'` |
+| PARSE_UINT8 | `R1:R2` ptr | `R0` value; `R1:R2` updated | `R3`,`R4`,`R7` | Parse decimal unsigned number (wraps mod 256) |
+| TOUPPER_Z | `R1:R2` ptr | — | `R0`,`R3` | Uppercase ASCII string in-place until NUL |
+
+### `rng.s8`
+
+| Routine | Args | Returns | Clobbers | Description |
+|--------|------|---------|----------|-------------|
+| RNG_NEXT16 | `R1:R2` -> seed (`[hi][lo]`) | `R6:R7` random; seed updated | `R0`,`R3`,`R4`,`R5` | `seed = seed*109 + 89 (mod 65536)`, returns `seed & 0x7FFF` |
 
 ## 12. Example: Hello, Sophia!
 
