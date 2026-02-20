@@ -1336,20 +1336,25 @@ RZ_DEF:
 
 CMD_IF:
 
-    ; IF expr THEN line
+    ; IF expr THEN <line> | IF expr THEN <stmt>
+    ; - In RUN mode, THEN <line> performs a jump (like GOTO).
+    ; - In immediate mode, THEN <stmt> executes the statement; THEN <line> is a syntax error.
+
     LOAD CURPTR_H, R1
     LOAD CURPTR_L, R2
     CALL SKIPSP
     STORE R1, CURPTR_H
     STORE R2, CURPTR_L
+
+    ; evaluate condition
     CALL EVAL_EXPR
     ; result in R6:R7 (non-zero => true)
     CMP R6, #0x00
     JNZ R6, IF_TRUE
     CMP R7, #0x00
     JZ R7, IF_FALSE
-IF_TRUE:
 
+IF_TRUE:
     ; expect THEN
     LOAD CURPTR_H, R1
     LOAD CURPTR_L, R2
@@ -1368,16 +1373,35 @@ IF_TRUE:
     CMP R0, #0x01
     JNZ R0, IF_SYNTAX
 
+    ; Decide: THEN <line> or THEN <stmt>
     LOAD CURPTR_H, R1
     LOAD CURPTR_L, R2
     CALL SKIPSP
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+
+    ; digit => line number
+    CALL ISDIGIT
+    CMP R0, #0x01
+    JZ R0, IF_THEN_LINE
+
+    ; otherwise execute the statement tail immediately
+    CALL EXEC_STMT
+    RET
+
+IF_THEN_LINE:
+    ; THEN <line> is only meaningful in RUN mode
+    LOAD RUNNING, R0
+    CMP R0, #0x01
+    JNZ R0, IF_SYNTAX
+
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
     CALL PARSE_UINT8
+    ; store lineno (low byte)
     SET #0x00, R6
     ADDR R0, R6
-    SET #0x00, R7
-    ADDR R0, R7
-    STORE R6, TMP_LINENO_H
-    STORE R7, TMP_LINENO_L
+    STORE R6, TMP_LINENO_L
     CALL FIND_LINE
     CMP R0, #0x01
     JNZ R0, GOTO_UNDEF
@@ -1388,6 +1412,7 @@ IF_TRUE:
 
 IF_FALSE:
     RET
+
 IF_SYNTAX:
     SET #0x02, R1
     SET #0x48, R2
