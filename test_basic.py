@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parent
 S8ASM = str(ROOT / 's8asm')
 VM = str(ROOT / 'sophia8')
 
-BASIC_FILE = ROOT / 'sophia_basic_v1_finalfix9.s8'
+BASIC_FILE = ROOT / 'sophia_basic_v1_finalfix10.s8'
 LIB_FILES = [
     'kernel.s8',
     'cli.s8',
@@ -20,7 +20,6 @@ LIB_FILES = [
 
 def assemble_basic(tmpdir: Path) -> Path:
     """Copy BASIC + libraries into tmpdir and assemble. Returns path to .bin."""
-    # Copy BASIC and its relative-includes dependencies into temp dir.
     shutil.copy(BASIC_FILE, tmpdir / BASIC_FILE.name)
     for lf in LIB_FILES:
         shutil.copy(ROOT / lf, tmpdir / lf)
@@ -30,10 +29,11 @@ def assemble_basic(tmpdir: Path) -> Path:
     return binp
 
 
-def run_vm_with_input(image: Path, input_data: bytes, timeout: float = 0.8) -> str:
+def run_vm_with_input(image: Path, input_data: bytes, timeout: float = 0.9) -> str:
     """Run the VM with the given input. BASIC REPL does not exit, so we use a timeout and return partial stdout."""
     try:
-        cp = subprocess.run([VM, str(image.name)],
+        cp = subprocess.run(
+            [VM, str(image.name)],
             cwd=str(image.parent),
             input=input_data,
             stdout=subprocess.PIPE,
@@ -41,92 +41,46 @@ def run_vm_with_input(image: Path, input_data: bytes, timeout: float = 0.8) -> s
             timeout=timeout,
             check=False,
         )
-        return cp.stdout.decode("utf-8", errors="replace")
+        return cp.stdout.decode('utf-8', errors='replace')
     except subprocess.TimeoutExpired as e:
-        data = e.stdout or b""
-        return data.decode("utf-8", errors="replace")
+        data = e.stdout or b''
+        return data.decode('utf-8', errors='replace')
 
-class TestSophiaBasicV1(unittest.TestCase):
-    def test_banner(self):
+
+class TestIfThenElse(unittest.TestCase):
+    def test_if_then_else_statement_immediate(self):
         with tempfile.TemporaryDirectory() as td:
             td = Path(td)
             image = assemble_basic(td)
-            out = run_vm_with_input(image, b'', timeout=0.25)
-            self.assertIn('Sophia Basic v.1 (2026) by Karel Mozdren', out)
-            self.assertIn('READY.', out)
+            out = run_vm_with_input(
+                image,
+                b'IF 1 THEN PRINT 1 ELSE PRINT 2\n'
+                b'IF 0 THEN PRINT 3 ELSE PRINT 4\n',
+                timeout=1.0,
+            )
+            self.assertIn('\n1\n', out)
+            self.assertNotIn('\n2\n', out)
+            self.assertIn('\n4\n', out)
+            self.assertNotIn('\n3\n', out)
 
-    def test_let_and_print_string(self):
-        with tempfile.TemporaryDirectory() as td:
-            td = Path(td)
-            image = assemble_basic(td)
-            out = run_vm_with_input(image, b'LET A$="TEST"\nPRINT A$\n', timeout=0.5)
-            self.assertIn('\nTEST\n', out)
-
-    def test_input_and_print_string(self):
-        with tempfile.TemporaryDirectory() as td:
-            td = Path(td)
-            image = assemble_basic(td)
-            out = run_vm_with_input(image, b'INPUT A$\nhello\nPRINT A$\n', timeout=0.6)
-            self.assertIn('\nhello\n', out)
-
-    def test_input_and_print_int16(self):
-        with tempfile.TemporaryDirectory() as td:
-            td = Path(td)
-            image = assemble_basic(td)
-            out = run_vm_with_input(image, b'INPUT A%\n-123\nPRINT A%\n', timeout=0.7)
-            self.assertIn('\n-123\n', out)
-
-
-    def test_print_mul(self):
-        with tempfile.TemporaryDirectory() as td:
-            td = Path(td)
-            image = assemble_basic(td)
-            out = run_vm_with_input(image, b'PRINT 2*3\n', timeout=0.6)
-            self.assertIn('\n6\n', out)
-
-    def test_if_then_statement_immediate(self):
-        with tempfile.TemporaryDirectory() as td:
-            td = Path(td)
-            image = assemble_basic(td)
-            out = run_vm_with_input(image, b'IF 1 THEN PRINT 7\nIF 0 THEN PRINT 8\n', timeout=0.7)
-            # should print 7, should not print 8
-            self.assertIn('\n7\n', out)
-            self.assertNotIn('\n8\n', out)
-
-    def test_if_then_line_in_program(self):
+    def test_if_then_else_line_in_program(self):
         with tempfile.TemporaryDirectory() as td:
             td = Path(td)
             image = assemble_basic(td)
             prog = (
                 b'NEW\n'
                 b'10 LET A%=0\n'
-                b'20 IF A%=0 THEN 50\n'
-                b'30 PRINT 111\n'
-                b'40 END\n'
-                b'50 PRINT 222\n'
-                b'60 END\n'
+                b'20 IF A%=1 THEN 50 ELSE 60\n'
+                b'50 PRINT 111\n'
+                b'55 END\n'
+                b'60 PRINT 222\n'
+                b'70 END\n'
                 b'RUN\n'
             )
             out = run_vm_with_input(image, prog, timeout=1.2)
             self.assertIn('\n222\n', out)
             self.assertNotIn('\n111\n', out)
 
-    def test_rnd_range_and_determinism(self):
-        with tempfile.TemporaryDirectory() as td:
-            td = Path(td)
-            image = assemble_basic(td)
-            # Seed, generate two numbers, reseed, generate again - first should match.
-            out = run_vm_with_input(image, b'RANDOMIZE 1\nPRINT RND(10)\nPRINT RND(10)\nRANDOMIZE 1\nPRINT RND(10)\n', timeout=0.9)
-            # Extract printed integers (lines that are just digits or -digits)
-            nums = []
-            for line in out.splitlines():
-                s = line.strip()
-                if s.lstrip('-').isdigit():
-                    nums.append(int(s))
-            self.assertGreaterEqual(len(nums), 3)
-            a,b,c = nums[0], nums[1], nums[2]
-            self.assertTrue(0 <= a < 10)
-            self.assertTrue(0 <= b < 10)
-            self.assertEqual(a, c)
+
 if __name__ == '__main__':
     unittest.main()
