@@ -1,0 +1,3677 @@
+; Sophia Basic v.1 (2026) by Karel Mozdren
+; Phase 4: full 16-bit signed integer expressions + comparisons + AND/OR/NOT.
+; Plain-text lines, 100 lines max, 80 columns.
+;
+; Notes:
+; - Integer model: signed 16-bit for numeric variables + expressions.
+; - Adds relational operators (=, <>, <, >, <=, >=) and boolean operators AND/OR/NOT.
+; - Still plain-text program storage; no tokenization.
+
+.org 0x0400
+.include "kernel.s8"
+.include "cli.s8"
+.include "mem.s8"
+.include "fmt.s8"
+.include "str.s8"
+
+; ---------------------------------------------------------------------------
+; Fixed-address strings
+; ---------------------------------------------------------------------------
+.org 0x0200
+Banner: .string "Sophia Basic v.1 (2026) by Karel Mozdren\nREADY.\n"
+.org 0x0240
+Prompt: .string "> "
+.org 0x0244
+NL: .string "\n"
+.org 0x0248
+ErrSyntax: .string "?SYNTAX ERROR\n"
+.org 0x0260
+ErrNoProg: .string "?NO PROGRAM\n"
+.org 0x026E
+ErrUndefLine: .string "?UNDEFINED LINE\n"
+
+; keywords at stable addresses
+.org 0x0280
+K_NEW:   .string "NEW"
+.org 0x0288
+K_LIST:  .string "LIST"
+.org 0x0290
+K_RUN:   .string "RUN"
+.org 0x0298
+K_PRINT: .string "PRINT"
+.org 0x02A0
+K_GOTO:  .string "GOTO"
+.org 0x02A8
+K_IF:    .string "IF"
+.org 0x02B0
+K_THEN:  .string "THEN"
+.org 0x02B8
+K_END:   .string "END"
+.org 0x02C0
+K_STOP:  .string "STOP"
+
+; keyword
+.org 0x02C8
+K_LET:   .string "LET"
+
+; more keywords (phase 5)
+.org 0x02D0
+K_GOSUB: .string "GOSUB"
+.org 0x02D8
+K_RETURN:.string "RETURN"
+.org 0x02E0
+K_FOR:   .string "FOR"
+.org 0x02E8
+K_TO:    .string "TO"
+.org 0x02F0
+K_STEP:  .string "STEP"
+.org 0x02F8
+K_NEXT:  .string "NEXT"
+.org 0x0300
+K_INPUT: .string "INPUT"
+.org 0x0308
+K_POKE:  .string "POKE"
+.org 0x0310
+K_RANDOMIZE: .string "RANDOMIZE"
+.org 0x0320
+K_PEEK:  .string "PEEK"
+.org 0x0328
+K_RND:   .string "RND"
+
+; ---------------------------------------------------------------------------
+; State vars
+; ---------------------------------------------------------------------------
+; State vars
+; ---------------------------------------------------------------------------
+.org 0x6800
+LINECOUNT: .byte 0
+TMP_LINENO_H: .byte 0
+TMP_LINENO_L: .byte 0
+CURPTR_H: .byte 0
+CURPTR_L: .byte 0
+CURSRC_H: .byte 0
+CURSRC_L: .byte 0
+SAVCUR_H: .byte 0
+SAVCUR_L: .byte 0
+TMP_PTR_H: .byte 0
+TMP_PTR_L: .byte 0
+; Temporary storage for variable entry pointers (e.g. during string assignments).
+TMP_ENTRY_H: .byte 0
+TMP_ENTRY_L: .byte 0
+INT_SIGN: .byte 0
+RUN_LC: .byte 0
+RUN_INDEX: .byte 0
+JUMPED: .byte 0
+RUN_STOP: .byte 0
+RUNNING: .byte 0
+STRFREE_H: .byte 0
+STRFREE_L: .byte 0
+IDLEN: .byte 0
+IDTYPE: .byte 0
+TMPH: .byte 0
+TMPL: .byte 0
+MULH: .byte 0
+MULL: .byte 0
+DIVH: .byte 0
+DIVL: .byte 0
+TOKSTART_H: .byte 0
+TOKSTART_L: .byte 0
+
+; Phase 5 additions
+RNG_SEED_H: .byte 0
+RNG_SEED_L: .byte 0
+GOSUB_SP: .byte 0
+FOR_SP: .byte 0
+
+; GOSUB stack: 16 return indices (byte) stored sequentially at 0x6A00
+; FOR stack entries at 0x6A20, max 8 entries:
+;   +0..1 var entry ptr (H,L)
+;   +2..3 end value (H,L)
+;   +4..5 step value (H,L)
+;   +6    return index (next line index)
+;   +7    padding
+
+; ---------------------------------------------------------------------------
+; Scratch buffers (must NOT overlap with code)
+; ---------------------------------------------------------------------------
+; Token buffer used by GETTOKEN and keyword matching (24 bytes incl NUL)
+.org 0x6880
+TOKENBUF: .byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+
+; Identifier buffer used by PARSE_IDENT / VAR_FIND (8 bytes, zero-padded)
+.org 0x68A0
+IDBUF: .byte 0,0,0,0,0,0,0,0
+
+; Entry
+; ---------------------------------------------------------------------------
+.org 0x0C00
+.org
+START:
+    ; linecount=0
+    SET #0x00, R0
+    STORE R0, LINECOUNT
+
+    ; init variables + string heap
+    CALL INIT_VARS
+
+    ; banner
+    SET #0x02, R1
+    SET #0x00, R2
+    CALL PUTS
+
+REPL:
+    ; prompt
+    SET #0x02, R1
+    SET #0x40, R2
+    CALL PUTS
+
+    ; read line to 0x6C00 (CLI buffer) - keep away from code region
+    SET #0x6C, R1
+    SET #0x00, R2
+    SET #96, R3
+    CALL READLINE_ECHO
+
+    ; make a stable copy to 0x2200 so parsing is not affected by any
+    ; input/echo side-effects or stray terminators
+    CALL COPY_INBUF_6C00_TO_6D00
+
+    ; newline
+    SET #0x02, R1
+    SET #0x44, R2
+    CALL PUTS
+
+    ; uppercase stable copy
+    SET #0x6D, R1
+    SET #0x00, R2
+    CALL TOUPPER_Z
+
+    ; skip spaces
+    SET #0x6D, R1
+    SET #0x00, R2
+    CALL SKIPSP
+    LOADR R0, R1, R2
+    CMP R0, #0x00
+    JZ R0, REPL
+
+    ; digit? program line
+    CALL ISDIGIT
+    CMP R0, #0x01
+    JZ R0, HANDLE_PROGLINE
+
+    ; immediate statement
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    CALL EXEC_STMT
+    JMP REPL
+
+; ---------------------------------------------------------------------------
+; Program line store (same format as v1 patched)
+; Program base = 0x3000
+; ---------------------------------------------------------------------------
+HANDLE_PROGLINE:
+    ; parse line number => uint8 (stored in low byte), high byte = 0
+    CALL PARSE_UINT8
+    SET #0x00, R6
+    ADDR R0, R6
+    SET #0x00, R7
+    ADDR R0, R7
+    STORE R6, TMP_LINENO_H
+    STORE R7, TMP_LINENO_L
+
+    CALL SKIPSP
+    ; if end => delete
+    LOADR R0, R1, R2
+    CMP R0, #0x00
+    JZ R0, DELETE_LINE
+
+    ; save src ptr
+    STORE R1, CURSRC_H
+    STORE R2, CURSRC_L
+    CALL STORE_LINE
+    JMP REPL
+
+DELETE_LINE:
+    CALL DELETE_BY_LINENO
+    JMP REPL
+
+; STORE_LINE: replace if exists else append
+STORE_LINE:
+    CALL FIND_LINE
+    CMP R0, #0x01
+    JZ R0, SL_WRITE
+
+    LOAD LINECOUNT, R4
+    SET #0x00, R7
+    ADDR R4, R7
+    CMP R7, #100
+    JZ R7, SL_FAIL
+
+    INC R4
+    STORE R4, LINECOUNT
+    DEC R4
+
+SL_WRITE:
+    ; dst = 0x3000 + index*84
+    SET #0x30, R1
+    SET #0x00, R2
+    SET #0x00, R6
+    ADDR R4, R6
+    CALL ADD_ENTRY_OFFSET
+
+    ; write lineno
+    LOAD TMP_LINENO_H, R0
+    STORER R0, R1, R2
+    INC R2
+    JNZ R2, SL1
+    INC R1
+SL1:
+    LOAD TMP_LINENO_L, R0
+    STORER R0, R1, R2
+    INC R2
+    JNZ R2, SL2
+    INC R1
+SL2:
+    ; len ptr
+    STORE R1, TMP_PTR_H
+    STORE R2, TMP_PTR_L
+
+    ; advance dst past len byte
+    INC R2
+    JNZ R2, SL_LENOK
+    INC R1
+SL_LENOK:
+
+    ; copy text
+    LOAD CURSRC_H, R3
+    LOAD CURSRC_L, R4
+    SET #0x00, R5
+SL_CPY:
+    CMP R5, #80
+    JZ R5, SL_DONE
+    LOADR R0, R3, R4
+    CMP R0, #0x00
+    JZ R0, SL_DONE
+    STORER R0, R1, R2
+    INC R2
+    JNZ R2, SLD1
+    INC R1
+SLD1:
+    INC R4
+    JNZ R4, SLS1
+    INC R3
+SLS1:
+    INC R5
+    JMP SL_CPY
+SL_DONE:
+    SET #0x00, R0
+    STORER R0, R1, R2
+
+    ; write len
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+    SET #0x00, R0
+    ADDR R5, R0
+    STORER R0, R1, R2
+    RET
+
+SL_FAIL:
+    SET #0x02, R1
+    SET #0x48, R2
+    CALL PUTS
+    RET
+
+; FIND_LINE: lineno in TMP_LINENO, returns R0=1 found, R4=index
+FIND_LINE:
+    SET #0x00, R4
+    LOAD LINECOUNT, R5
+    STORE R5, RUN_LC
+FL_LOOP:
+    LOAD RUN_LC, R6
+    SET #0x00, R7
+    ADDR R4, R7
+    SUBR R6, R7
+    JZ R7, FL_NO
+
+    SET #0x30, R1
+    SET #0x00, R2
+    SET #0x00, R6
+    ADDR R4, R6
+    CALL ADD_ENTRY_OFFSET
+
+    LOADR R6, R1, R2
+    INC R2
+    JNZ R2, FL1
+    INC R1
+FL1:
+    LOADR R7, R1, R2
+
+    LOAD TMP_LINENO_L, R0
+    CMPR R7, R0
+    JZ R7, FL_YES
+
+    INC R4
+    JMP FL_LOOP
+FL_NO:
+    SET #0x00, R0
+    RET
+FL_YES:
+    SET #0x01, R0
+    RET
+
+DELETE_BY_LINENO:
+    CALL FIND_LINE
+    CMP R0, #0x01
+    JNZ R0, DB_DONE
+
+    SET #0x30, R1
+    SET #0x00, R2
+    SET #0x00, R6
+    ADDR R4, R6
+    CALL ADD_ENTRY_OFFSET
+
+    ; skip lineno
+    INC R2
+    JNZ R2, DB1
+    INC R1
+DB1:
+    INC R2
+    JNZ R2, DB2
+    INC R1
+DB2:
+    ; len=0
+    SET #0x00, R0
+    STORER R0, R1, R2
+DB_DONE:
+    RET
+
+LIST_ALL:
+    SET #0x00, R4
+    LOAD LINECOUNT, R5
+    STORE R5, RUN_LC
+LA_LOOP:
+    LOAD RUN_LC, R6
+    SET #0x00, R7
+    ADDR R4, R7
+    SUBR R6, R7
+    JZ R7, LA_DONE
+
+    SET #0x30, R1
+    SET #0x00, R2
+    SET #0x00, R6
+    ADDR R4, R6
+    CALL ADD_ENTRY_OFFSET
+
+    ; read lineno low
+    INC R2
+    JNZ R2, LA1
+    INC R1
+LA1:
+    LOADR R0, R1, R2
+    INC R2
+    JNZ R2, LA2
+    INC R1
+LA2:
+    ; len
+    LOADR R6, R1, R2
+    CMP R6, #0x00
+    JZ R6, LA_NEXT
+
+    ; preserve loop regs + pointer across PUTDEC8
+    PUSH R4
+    PUSH R5
+    STORE R1, TMP_PTR_H
+    STORE R2, TMP_PTR_L
+    CALL PUTDEC8
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+    POP R5
+    POP R4
+
+    SET #0x20, R0
+    CALL PUTC
+
+    INC R2
+    JNZ R2, LA3
+    INC R1
+LA3:
+    CALL PUTS
+    SET #0x0A, R0
+    CALL PUTC
+
+LA_NEXT:
+    INC R4
+    JMP LA_LOOP
+LA_DONE:
+    RET
+
+; ---------------------------------------------------------------------------
+; RUN engine: executes PRINT, GOTO, IF..THEN, END/STOP
+; ---------------------------------------------------------------------------
+RUN_PROG:
+    LOAD LINECOUNT, R0
+    CMP R0, #0x00
+    JZ R0, RUN_NOP
+
+    SET #0x00, R0
+    STORE R0, RUN_STOP
+    SET #0x01, R0
+    STORE R0, RUNNING
+
+    SET #0x00, R4
+    STORE R4, RUN_INDEX
+    LOAD LINECOUNT, R5
+    STORE R5, RUN_LC
+
+RP_LOOP:
+    LOAD RUN_STOP, R0
+    CMP R0, #0x01
+    JZ R0, RP_DONE
+
+    LOAD RUN_INDEX, R4
+    LOAD RUN_LC, R6
+    SET #0x00, R7
+    ADDR R4, R7
+    SUBR R6, R7
+    JZ R7, RP_DONE
+
+    SET #0x30, R1
+    SET #0x00, R2
+    SET #0x00, R6
+    ADDR R4, R6
+    CALL ADD_ENTRY_OFFSET
+
+    ; skip lineno
+    INC R2
+    JNZ R2, RP1
+    INC R1
+RP1:
+    INC R2
+    JNZ R2, RP2
+    INC R1
+RP2:
+    ; len
+    LOADR R0, R1, R2
+    CMP R0, #0x00
+    JZ R0, RP_NEXT
+
+    ; text
+    INC R2
+    JNZ R2, RP3
+    INC R1
+RP3:
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+
+    SET #0x00, R0
+    STORE R0, JUMPED
+
+    CALL EXEC_STMT
+
+    LOAD JUMPED, R0
+    CMP R0, #0x01
+    JZ R0, RP_LOOP
+
+RP_NEXT:
+    LOAD RUN_INDEX, R4
+    INC R4
+    STORE R4, RUN_INDEX
+    JMP RP_LOOP
+
+RP_DONE:
+    SET #0x00, R0
+    STORE R0, RUNNING
+    RET
+
+RUN_NOP:
+    SET #0x02, R1
+    SET #0x60, R2
+    CALL PUTS
+    RET
+
+; ---------------------------------------------------------------------------
+; EXEC_STMT: immediate or program
+; ---------------------------------------------------------------------------
+EXEC_STMT:
+    ; save token start for potential assignment
+    LOAD CURPTR_H, R0
+    STORE R0, TOKSTART_H
+    LOAD CURPTR_L, R0
+    STORE R0, TOKSTART_L
+
+    PUSH R4
+    CALL GETTOKEN
+    POP R4
+
+    ; NEW
+    SET #0x68, R1
+    SET #0x80, R2
+    SET #0x02, R3
+    SET #0x80, R4
+    CALL STREQ
+    CMP R0, #0x01
+    JZ R0, CMD_NEW
+
+    ; LIST
+    SET #0x68, R1
+    SET #0x80, R2
+    SET #0x02, R3
+    SET #0x88, R4
+    CALL STREQ
+    CMP R0, #0x01
+    JZ R0, CMD_LIST
+
+    ; RUN
+    SET #0x68, R1
+    SET #0x80, R2
+    SET #0x02, R3
+    SET #0x90, R4
+    CALL STREQ
+    CMP R0, #0x01
+    JZ R0, CMD_RUN
+
+    ; PRINT
+    SET #0x68, R1
+    SET #0x80, R2
+    SET #0x02, R3
+    SET #0x98, R7
+    PUSH R4
+    SET #0x00, R4
+    ADDR R7, R4
+    CALL STREQ
+    POP R4
+    CMP R0, #0x01
+    JZ R0, CMD_PRINT
+
+    ; GOTO
+    SET #0x68, R1
+    SET #0x80, R2
+    SET #0x02, R3
+    SET #0xA0, R4
+    CALL STREQ
+    CMP R0, #0x01
+    JZ R0, CMD_GOTO
+
+; GOSUB
+SET #0x68, R1
+    SET #0x80, R2
+SET #0x02, R3
+SET #0xD0, R4
+CALL STREQ
+CMP R0, #0x01
+JZ R0, CMD_GOSUB
+
+; RETURN
+SET #0x68, R1
+    SET #0x80, R2
+SET #0x02, R3
+SET #0xD8, R4
+CALL STREQ
+CMP R0, #0x01
+JZ R0, CMD_RETURN
+
+; FOR
+SET #0x68, R1
+    SET #0x80, R2
+SET #0x02, R3
+SET #0xE0, R4
+CALL STREQ
+CMP R0, #0x01
+JZ R0, CMD_FOR
+
+; NEXT
+SET #0x68, R1
+    SET #0x80, R2
+SET #0x02, R3
+SET #0xF8, R4
+CALL STREQ
+CMP R0, #0x01
+JZ R0, CMD_NEXT
+
+; INPUT
+SET #0x68, R1
+    SET #0x80, R2
+SET #0x03, R3
+SET #0x00, R4
+CALL STREQ
+CMP R0, #0x01
+JZ R0, CMD_INPUT
+
+; POKE
+SET #0x68, R1
+    SET #0x80, R2
+SET #0x03, R3
+SET #0x08, R4
+CALL STREQ
+CMP R0, #0x01
+JZ R0, CMD_POKE
+
+; RANDOMIZE
+SET #0x68, R1
+    SET #0x80, R2
+SET #0x03, R3
+SET #0x10, R4
+CALL STREQ
+CMP R0, #0x01
+JZ R0, CMD_RANDOMIZE
+
+    ; IF
+    SET #0x68, R1
+    SET #0x80, R2
+    SET #0x02, R3
+    SET #0xA8, R4
+    CALL STREQ
+    CMP R0, #0x01
+    JZ R0, CMD_IF
+
+    ; END
+    SET #0x68, R1
+    SET #0x80, R2
+    SET #0x02, R3
+    SET #0xB8, R4
+    CALL STREQ
+    CMP R0, #0x01
+    JZ R0, CMD_END
+
+    ; STOP
+    SET #0x68, R1
+    SET #0x80, R2
+    SET #0x02, R3
+    SET #0xC0, R4
+    CALL STREQ
+    CMP R0, #0x01
+    JZ R0, CMD_END
+
+    ; LET
+    SET #0x68, R1
+    SET #0x80, R2
+    SET #0x02, R3
+    SET #0xC8, R4
+    CALL STREQ
+    CMP R0, #0x01
+    JZ R0, CMD_LET
+
+    ; not a keyword: try assignment
+    JMP CMD_ASSIGN_DISPATCH
+
+    ; unknown -> syntax
+    SET #0x02, R1
+    SET #0x48, R2
+    CALL PUTS
+    RET
+
+CMD_NEW:
+    SET #0x00, R0
+    STORE R0, LINECOUNT
+
+    ; init variables + string heap
+    CALL INIT_VARS
+    RET
+CMD_LIST:
+    CALL LIST_ALL
+    RET
+CMD_RUN:
+    CALL RUN_PROG
+    RET
+
+CMD_LET:
+    ; LET <var>=...
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    CALL SKIPSP
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    CALL CMD_ASSIGN
+    CMP R0, #0x01
+    JZ R0, CL_OK
+    ; failed assignment => syntax
+    SET #0x02, R1
+    SET #0x48, R2
+    CALL PUTS
+CL_OK:
+    RET
+
+CMD_ASSIGN_DISPATCH:
+    ; restore pointer to token start, attempt assignment
+    LOAD TOKSTART_H, R1
+    LOAD TOKSTART_L, R2
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    CALL CMD_ASSIGN
+    CMP R0, #0x01
+    JZ R0, CAD_OK
+    SET #0x02, R1
+    SET #0x48, R2
+    CALL PUTS
+    RET
+CAD_OK:
+    RET
+CMD_PRINT:
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    CALL SKIPSP
+    CALL DO_PRINT
+    RET
+
+; CMD_ASSIGN (routine)
+;   Parses <ident>=<expr> or <ident$>="..."
+;   Returns R0=1 on success, R0=0 if not an assignment
+CMD_ASSIGN:
+    ; parse identifier from CURPTR
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    CALL PARSE_IDENT
+    CMP R0, #0x01
+    JNZ R0, CA_FAIL
+    ; save updated ptr
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+
+    CALL SKIPSP_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x3D
+    JNZ R0, CA_FAIL
+    CALL GETCHAR_CUR
+    CALL SKIPSP_CUR
+
+    ; find or create variable (uses IDBUF/IDTYPE)
+    CALL VAR_FIND_OR_CREATE
+    CMP R0, #0x01
+    JNZ R0, CA_FAIL
+    ; entry ptr in R1:R2
+
+    LOAD IDTYPE, R0
+    CMP R0, #0x01
+    JZ R0, CA_STR
+
+    ; numeric: eval expression
+    STORE R1, TMP_PTR_H
+    STORE R2, TMP_PTR_L
+    CALL EVAL_EXPR
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+    CALL STORE_VAR_INT
+    SET #0x01, R0
+    RET
+
+CA_STR:
+    ; Preserve variable entry pointer (R1:R2) across CURPTR helper calls.
+    STORE R1, TMP_ENTRY_H
+    STORE R2, TMP_ENTRY_L
+
+    ; string: expect opening quote
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x22
+    JNZ R0, CA_FAIL
+    CALL GETCHAR_CUR
+
+    ; allocate at STRFREE
+    LOAD STRFREE_H, R3
+    LOAD STRFREE_L, R4
+    STORE R3, TMP_PTR_H
+    STORE R4, TMP_PTR_L
+    SET #0x00, R5 ; len
+
+CA_SCOPY:
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x00
+    JZ R0, CA_SDONE
+    CMP R0, #0x22
+    JZ R0, CA_SDONE
+    CALL GETCHAR_CUR
+    STORER R0, R3, R4
+    INC R4
+    JNZ R4, CA_S1
+    INC R3
+CA_S1:
+    INC R5
+    JMP CA_SCOPY
+
+CA_SDONE:
+    ; consume closing quote if present
+    CMP R0, #0x22
+    JNZ R0, CA_SNZ
+    CALL GETCHAR_CUR
+CA_SNZ:
+    ; null terminate
+    SET #0x00, R0
+    STORER R0, R3, R4
+    INC R4
+    JNZ R4, CA_S2
+    INC R3
+CA_S2:
+    ; update STRFREE
+    STORE R3, STRFREE_H
+    STORE R4, STRFREE_L
+
+    ; store ptr+len into entry (offset 12..14)
+    LOAD TMP_ENTRY_H, R1
+    LOAD TMP_ENTRY_L, R2
+    PUSH R1
+    PUSH R2
+    ADD #12, R2
+    JNC CA_P1
+    INC R1
+CA_P1:
+    LOAD TMP_PTR_H, R0
+    STORER R0, R1, R2
+    INC R2
+    JNZ R2, CA_P2
+    INC R1
+CA_P2:
+    LOAD TMP_PTR_L, R0
+    STORER R0, R1, R2
+    INC R2
+    JNZ R2, CA_P3
+    INC R1
+CA_P3:
+    STORER R5, R1, R2
+    POP R2
+    POP R1
+
+    SET #0x01, R0
+    RET
+
+CA_FAIL:
+    SET #0x00, R0
+    RET
+
+CMD_GOTO:
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    CALL SKIPSP
+    CALL PARSE_UINT8
+    SET #0x00, R6
+    ADDR R0, R6
+    SET #0x00, R7
+    ADDR R0, R7
+    STORE R6, TMP_LINENO_H
+    STORE R7, TMP_LINENO_L
+    CALL FIND_LINE
+    CMP R0, #0x01
+    JNZ R0, GOTO_UNDEF
+    STORE R4, RUN_INDEX
+    SET #0x01, R0
+    STORE R0, JUMPED
+    RET
+GOTO_UNDEF:
+    SET #0x02, R1
+    SET #0x6E, R2
+    CALL PUTS
+    RET
+
+CMD_GOSUB:
+    LOAD RUNNING, R0
+    CMP R0, #0x01
+    JNZ R0, IF_SYNTAX
+
+    ; parse line number and find index
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    CALL SKIPSP
+    CALL PARSE_UINT8
+    SET #0x00, R6
+    ADDR R0, R6
+    SET #0x00, R7
+    ADDR R0, R7
+    STORE R6, TMP_LINENO_H
+    STORE R7, TMP_LINENO_L
+    CALL FIND_LINE
+    CMP R0, #0x01
+    JNZ R0, GOTO_UNDEF
+
+    ; push return index (RUN_INDEX+1) to 0x6A00 + sp
+    LOAD GOSUB_SP, R0
+    CMP R0, #16
+    JZ R0, IF_SYNTAX
+    SET #0x6A, R1
+    SET #0x00, R2
+    ADDR R0, R2
+    LOAD RUN_INDEX, R7
+    INC R7
+    STORER R7, R1, R2
+    INC R0
+    STORE R0, GOSUB_SP
+
+    ; jump
+    STORE R4, RUN_INDEX
+    SET #0x01, R0
+    STORE R0, JUMPED
+    RET
+
+CMD_RETURN:
+    LOAD RUNNING, R0
+    CMP R0, #0x01
+    JNZ R0, IF_SYNTAX
+
+    LOAD GOSUB_SP, R0
+    CMP R0, #0x00
+    JZ R0, IF_SYNTAX
+    DEC R0
+    STORE R0, GOSUB_SP
+    SET #0x6A, R1
+    SET #0x00, R2
+    ADDR R0, R2
+    LOADR R7, R1, R2
+    STORE R7, RUN_INDEX
+    SET #0x01, R0
+    STORE R0, JUMPED
+    RET
+
+CMD_FOR:
+    LOAD RUNNING, R0
+    CMP R0, #0x01
+    JNZ R0, IF_SYNTAX
+
+    ; parse identifier
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    CALL SKIPSP
+    CALL PARSE_IDENT
+    CMP R0, #0x01
+    JNZ R0, IF_SYNTAX
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    LOAD IDTYPE, R0
+    CMP R0, #0x01
+    JZ R0, IF_SYNTAX
+
+    CALL VAR_FIND_OR_CREATE
+    CMP R0, #0x01
+    JNZ R0, IF_SYNTAX
+    STORE R1, TMP_PTR_H
+    STORE R2, TMP_PTR_L
+
+    ; '='
+    CALL SKIPSP_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x3D
+    JNZ R0, IF_SYNTAX
+    CALL GETCHAR_CUR
+
+    ; start expr -> store to var
+    CALL EVAL_EXPR
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+    CALL STORE_VAR_INT
+
+    ; expect "TO"
+    CALL SKIPSP_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x54
+    JNZ R0, IF_SYNTAX
+    CALL GETCHAR_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x4F
+    JNZ R0, IF_SYNTAX
+    CALL GETCHAR_CUR
+
+    ; end expr -> TMPH/TMPL
+    CALL EVAL_EXPR
+    STORE R6, TMPH
+    STORE R7, TMPL
+
+    ; default step = 1 -> MULH/MULL
+    SET #0x00, R0
+    STORE R0, MULH
+    SET #0x01, R0
+    STORE R0, MULL
+
+    ; optional STEP
+    CALL SKIPSP_CUR
+    CALL MATCH_KW_STEP
+    CMP R0, #0x01
+    JNZ R0, FOR_PUSH
+    CALL CONSUME_KW
+    CALL EVAL_EXPR
+    STORE R6, MULH
+    STORE R7, MULL
+
+FOR_PUSH:
+    LOAD FOR_SP, R0
+    CMP R0, #8
+    JZ R0, IF_SYNTAX
+
+    ; addr = 0x6A20 + sp*8
+    SET #0x00, R3
+    ADDR R0, R3
+    SHL #3, R3
+    SET #0x6A, R1
+    SET #0x20, R2
+    ADDR R3, R2
+    JNC FOR_AOK
+    INC R1
+FOR_AOK:
+    ; var ptr
+    LOAD TMP_PTR_H, R7
+    STORER R7, R1, R2
+    INC R2
+    LOAD TMP_PTR_L, R7
+    STORER R7, R1, R2
+    INC R2
+    ; end
+    LOAD TMPH, R7
+    STORER R7, R1, R2
+    INC R2
+    LOAD TMPL, R7
+    STORER R7, R1, R2
+    INC R2
+    ; step
+    LOAD MULH, R7
+    STORER R7, R1, R2
+    INC R2
+    LOAD MULL, R7
+    STORER R7, R1, R2
+    INC R2
+    ; return index = RUN_INDEX+1
+    LOAD RUN_INDEX, R7
+    INC R7
+    STORER R7, R1, R2
+
+    INC R0
+    STORE R0, FOR_SP
+    RET
+
+CMD_NEXT:
+    LOAD RUNNING, R0
+    CMP R0, #0x01
+    JNZ R0, IF_SYNTAX
+
+    LOAD FOR_SP, R0
+    CMP R0, #0x00
+    JZ R0, IF_SYNTAX
+    DEC R0              ; top index in R0
+
+    ; addr = 0x6A20 + top*8
+    SET #0x00, R3
+    ADDR R0, R3
+    SHL #3, R3
+    SET #0x6A, R1
+    SET #0x20, R2
+    ADDR R3, R2
+    JNC NX_AOK
+    INC R1
+NX_AOK:
+    ; var ptr -> TMP_PTR
+    LOADR R4, R1, R2
+    INC R2
+    LOADR R5, R1, R2
+    STORE R4, TMP_PTR_H
+    STORE R5, TMP_PTR_L
+    INC R2
+    ; end -> TMPH/TMPL
+    LOADR R6, R1, R2
+    INC R2
+    LOADR R7, R1, R2
+    STORE R6, TMPH
+    STORE R7, TMPL
+    INC R2
+    ; step -> MULH/MULL
+    LOADR R6, R1, R2
+    INC R2
+    LOADR R7, R1, R2
+    STORE R6, MULH
+    STORE R7, MULL
+    INC R2
+    ; ret index -> DIVL
+    LOADR R6, R1, R2
+    STORE R6, DIVL
+
+    ; load current var value
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+    CALL LOAD_VAR_INT      ; R6:R7
+
+    ; add step
+    SET #0x00, R4
+    ADDR R6, R4
+    SET #0x00, R5
+    ADDR R7, R5
+    LOAD MULH, R6
+    LOAD MULL, R7
+    CALL ADD16             ; result in R6:R7
+
+    ; store back
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+    CALL STORE_VAR_INT
+
+    ; compare to end depending on step sign
+    SET #0x00, R4
+    ADDR R6, R4
+    SET #0x00, R5
+    ADDR R7, R5
+    LOAD TMPH, R6
+    LOAD TMPL, R7
+    LOAD MULH, R1
+    CMP R1, #0x80
+    JC NX_POS
+
+    CALL CMP16_GE
+    JMP NX_DECIDE
+NX_POS:
+    CALL CMP16_LE
+
+NX_DECIDE:
+    CMP R7, #0x01
+    JZ R7, NX_CONT
+
+    ; finish loop: pop FOR_SP = top index (R0)
+    STORE R0, FOR_SP
+    RET
+
+NX_CONT:
+    LOAD DIVL, R7
+    STORE R7, RUN_INDEX
+    SET #0x01, R1
+    STORE R1, JUMPED
+    RET
+
+CMD_INPUT:
+    ; INPUT <var>
+    ; Dedicated input path (does not reuse the main CLI line buffer for strings).
+    ; Save current CURPTR so INPUT can't corrupt parser state.
+    LOAD CURPTR_H, R0
+    STORE R0, SAVCUR_H
+    LOAD CURPTR_L, R0
+    STORE R0, SAVCUR_L
+
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    CALL SKIPSP
+    CALL PARSE_IDENT
+    CMP R0, #0x01
+    JNZ R0, IF_SYNTAX
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    CALL VAR_FIND_OR_CREATE
+    CMP R0, #0x01
+    JNZ R0, IF_SYNTAX
+    STORE R1, TMP_PTR_H
+    STORE R2, TMP_PTR_L
+
+    ; prompt "? "
+    SET #0x3F, R0
+    CALL PUTC
+    SET #0x20, R0
+    CALL PUTC
+
+    ; Branch by variable type.
+    LOAD IDTYPE, R0
+    CMP R0, #0x01
+    JZ R0, IN_READ_STR
+
+IN_READ_NUM:
+    ; numeric input: read line into 0x6E00 and parse signed integer
+    SET #0x6E, R1
+    SET #0x00, R2
+    SET #96, R3
+    CALL READLINE_ECHO
+
+    ; echo newline after input line
+    SET #0x02, R1
+    SET #0x44, R2
+    CALL PUTS
+
+    SET #0x6E, R0
+    STORE R0, CURPTR_H
+    SET #0x00, R0
+    STORE R0, CURPTR_L
+    CALL SKIPSP_CUR
+    CALL PARSE_INT16
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+    CALL STORE_VAR_INT
+    JMP IN_DONE
+
+IN_READ_STR:
+    ; string input: read directly into string heap at STRFREE
+    LOAD STRFREE_H, R6
+    LOAD STRFREE_L, R7
+    STORE R6, TMPH          ; start pointer high
+    STORE R7, TMPL          ; start pointer low
+
+    ; R1:R2 = STRFREE, max 96 incl NUL
+    SET #0x00, R1
+    ADDR R6, R1
+    SET #0x00, R2
+    ADDR R7, R2
+    SET #96, R3
+    CALL READLINE_ECHO
+
+    ; echo newline after input line
+    SET #0x02, R1
+    SET #0x44, R2
+    CALL PUTS
+
+    ; stash input length from READLINE_ECHO
+    STORE R4, IDLEN
+
+    ; advance STRFREE by (len + 1)
+    LOAD TMPH, R1
+    LOAD TMPL, R2
+    LOAD IDLEN, R0
+    ADDR R0, R2
+    JNC IN_ADV1
+    INC R1
+IN_ADV1:
+    ADD #1, R2
+    JNC IN_ADV2
+    INC R1
+IN_ADV2:
+    STORE R1, STRFREE_H
+    STORE R2, STRFREE_L
+
+    ; store ptr+len into entry (offset 12..14)
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+    PUSH R1
+    PUSH R2
+    ADD #12, R2
+    JNC IN_P1
+    INC R1
+IN_P1:
+    LOAD TMPH, R0
+    STORER R0, R1, R2
+    INC R2
+    JNZ R2, IN_P2
+    INC R1
+IN_P2:
+    LOAD TMPL, R0
+    STORER R0, R1, R2
+    INC R2
+    JNZ R2, IN_P3
+    INC R1
+IN_P3:
+    LOAD IDLEN, R0
+    STORER R0, R1, R2
+    POP R2
+    POP R1
+
+IN_DONE:
+
+    LOAD SAVCUR_H, R0
+    STORE R0, CURPTR_H
+    LOAD SAVCUR_L, R0
+    STORE R0, CURPTR_L
+    RET
+CMD_POKE:
+
+    ; POKE addr, value
+    CALL SKIPSP_CUR
+    CALL EVAL_EXPR
+    ; addr in R6:R7 -> save
+    STORE R6, TMPH
+    STORE R7, TMPL
+    CALL SKIPSP_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x2C
+    JNZ R0, IF_SYNTAX
+    CALL GETCHAR_CUR
+    CALL EVAL_EXPR
+    ; value in R6:R7
+    LOAD TMPH, R1
+    LOAD TMPL, R2
+    SET #0x00, R0
+    ADDR R7, R0
+    STORER R0, R1, R2
+    RET
+
+CMD_RANDOMIZE:
+    ; RANDOMIZE [seed]
+    CALL SKIPSP_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x00
+    JZ R0, RZ_DEF
+    ; parse signed integer seed (no full expression)
+    CALL PARSE_INT16
+    STORE R6, RNG_SEED_H
+    STORE R7, RNG_SEED_L
+    RET
+RZ_DEF:
+    SET #0x00, R0
+    STORE R0, RNG_SEED_H
+    SET #0x01, R0
+    STORE R0, RNG_SEED_L
+    RET
+
+CMD_IF:
+
+    ; IF expr THEN line
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    CALL SKIPSP
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    CALL EVAL_EXPR
+    ; result in R6:R7 (non-zero => true)
+    CMP R6, #0x00
+    JNZ R6, IF_TRUE
+    CMP R7, #0x00
+    JZ R7, IF_FALSE
+IF_TRUE:
+
+    ; expect THEN
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    CALL SKIPSP
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    PUSH R4
+    CALL GETTOKEN
+    POP R4
+
+    SET #0x68, R1
+    SET #0x80, R2
+    SET #0x02, R3
+    SET #0xB0, R4
+    CALL STREQ
+    CMP R0, #0x01
+    JNZ R0, IF_SYNTAX
+
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    CALL SKIPSP
+    CALL PARSE_UINT8
+    SET #0x00, R6
+    ADDR R0, R6
+    SET #0x00, R7
+    ADDR R0, R7
+    STORE R6, TMP_LINENO_H
+    STORE R7, TMP_LINENO_L
+    CALL FIND_LINE
+    CMP R0, #0x01
+    JNZ R0, GOTO_UNDEF
+    STORE R4, RUN_INDEX
+    SET #0x01, R0
+    STORE R0, JUMPED
+    RET
+
+IF_FALSE:
+    RET
+IF_SYNTAX:
+    SET #0x02, R1
+    SET #0x48, R2
+    CALL PUTS
+    RET
+
+CMD_END:
+    SET #0x01, R0
+    STORE R0, RUN_STOP
+    RET
+
+; ---------------------------------------------------------------------------
+; DO_PRINT: prints string literal, string variable, or numeric expression
+; ---------------------------------------------------------------------------
+DO_PRINT:
+    ; if starts with quote => literal
+    LOADR R0, R1, R2
+    CMP R0, #0x22
+    JZ R0, DP_STR
+
+    ; if starts with identifier, try string var first
+    PUSH R1
+    PUSH R2
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    CALL PARSE_IDENT
+    CMP R0, #0x01
+    JNZ R0, DP_EXPR
+
+    ; parsed ident, check if string
+    LOAD IDTYPE, R0
+    CMP R0, #0x01
+    JNZ R0, DP_EXPR_REW
+
+    ; update CURPTR from PARSE_IDENT advance
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    CALL VAR_FIND
+    CMP R0, #0x01
+    JNZ R0, DP_EXPR_REW
+
+    ; success: VAR_FIND returned entry pointer in R1:R2
+    ; We still have the saved parse pointer on the stack (from PUSH R1/PUSH R2 earlier).
+    ; Discard it now, but preserve entry pointer via TMP_PTR.
+    STORE R1, TMP_PTR_H
+    STORE R2, TMP_PTR_L
+    POP R2
+    POP R1
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+
+    ; print string from entry (ptr at 12/13)
+    PUSH R1
+    PUSH R2
+    ADD #12, R2
+    JNC DPS1
+    INC R1
+DPS1:
+    LOADR R3, R1, R2
+    INC R2
+    JNZ R2, DPS2
+    INC R1
+DPS2:
+    LOADR R4, R1, R2
+    INC R2
+    JNZ R2, DPS2B
+    INC R1
+DPS2B:
+    LOADR R5, R1, R2        ; length byte
+    POP R2
+    POP R1
+
+    ; PUTC clobbers R3 (kernel convention). Do not keep the string pointer
+    ; in R3 across output. Use R6:R7 instead.
+    SET #0x00, R6
+    ADDR R3, R6             ; ptr high
+    SET #0x00, R7
+    ADDR R4, R7             ; ptr low
+
+    ; print exactly LEN bytes (more robust than relying on NUL)
+DPS_LOOP:
+    JZ R5, DP_NL
+    LOADR R0, R6, R7
+    JZ R0, DP_NL
+    CALL PUTC
+    INC R7
+    JNZ R7, DPS_P
+    INC R6
+DPS_P:
+    DEC R5
+    JMP DPS_LOOP
+
+DP_EXPR_REW:
+    ; restore original pointer
+    POP R2
+    POP R1
+    JMP DP_EXPR2
+
+DP_EXPR:
+    ; failed parse ident => restore
+    POP R2
+    POP R1
+DP_EXPR2:
+    ; numeric expression
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    CALL EVAL_EXPR
+    CALL PUTDEC16S
+    JMP DP_NL
+
+DP_STR:
+    INC R2
+    JNZ R2, DS1
+    INC R1
+DS1:
+DS_LOOP:
+    LOADR R0, R1, R2
+    ; IMPORTANT: Sophia8 CMP is destructive (it subtracts into the left operand).
+    ; We must not CMP directly on R0 because we still need the original byte
+    ; for output. Compare on a temp copy instead.
+    SET #0x00, R7
+    ADDR R0, R7
+    CMP R7, #0x00
+    JZ R7, DP_NL
+    SET #0x00, R7
+    ADDR R0, R7
+    CMP R7, #0x22
+    JZ R7, DP_NL
+    CALL PUTC
+    INC R2
+    JNZ R2, DS_LOOP
+    INC R1
+    JMP DS_LOOP
+
+DP_NL:
+    SET #0x0A, R0
+    CALL PUTC
+    RET
+
+; ---------------------------------------------------------------------------
+; EVAL_UINT8_EXPR: n([+-]n)* where n is uint8 decimal
+; returns R0=value, advances CURPTR
+; ---------------------------------------------------------------------------
+EVAL_UINT8_EXPR:
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+
+    CALL PARSE_UINT8
+    SET #0x00, R6
+    ADDR R0, R6
+
+E8_LOOP:
+    CALL SKIPSP
+    LOADR R0, R1, R2
+
+    SET #0x00, R7
+    ADDR R0, R7
+    CMP R7, #0x2B
+    JZ R7, E8_PLUS
+
+    SET #0x00, R7
+    ADDR R0, R7
+    CMP R7, #0x2D
+    JZ R7, E8_MINUS
+
+    JMP E8_DONE
+
+E8_PLUS:
+    INC R2
+    JNZ R2, E8P1
+    INC R1
+E8P1:
+    CALL SKIPSP
+    PUSH R6
+    CALL PARSE_UINT8
+    POP R6
+    ADDR R0, R6
+    JMP E8_LOOP
+
+E8_MINUS:
+    INC R2
+    JNZ R2, E8M1
+    INC R1
+E8M1:
+    CALL SKIPSP
+    PUSH R6
+    CALL PARSE_UINT8
+    POP R6
+    SUBR R0, R6
+    JMP E8_LOOP
+
+E8_DONE:
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    SET #0x00, R0
+    ADDR R6, R0
+    RET
+
+; ---------------------------------------------------------------------------
+; Variables + expression engine (Phase 3)
+; ---------------------------------------------------------------------------
+;
+; Memory map used by BASIC:
+;   Var table:   0x6000..0x63FF (64 entries * 16 bytes)
+;   String heap: 0xA000..0xBFFF (simple bump allocator)
+;
+; Entry layout (16 bytes):
+;   0..7   name (zero-padded)
+;   8      type (0=int, 1=string, 0xFF=empty)
+;   9      reserved
+;   10     int_hi
+;   11     int_lo
+;   12     str_ptr_hi
+;   13     str_ptr_lo
+;   14     str_len
+;   15     reserved
+
+; ---------------------------------------------------------------------------
+; COPY_INBUF_6C00_TO_6D00
+; Copies NUL-terminated line from 0x6C00 to 0x6D00 (inclusive of terminator).
+; This protects the parser from any unexpected modifications to the CLI buffer.
+; ---------------------------------------------------------------------------
+COPY_INBUF_6C00_TO_6D00:
+    SET #0x6C, R1
+    SET #0x00, R2
+    SET #0x6D, R3
+    SET #0x00, R4
+CIB_L0:
+    LOADR R0, R1, R2
+    STORER R0, R3, R4
+    CMP R0, #0x00
+    JZ R0, CIB_DONE
+    INC R2
+    JNZ R2, CIB_S1
+    INC R1
+CIB_S1:
+    INC R4
+    JNZ R4, CIB_D1
+    INC R3
+CIB_D1:
+    JMP CIB_L0
+CIB_DONE:
+    RET
+
+INIT_VARS:
+    ; STRFREE = 0xA000
+    SET #0xA0, R0
+    STORE R0, STRFREE_H
+    SET #0x00, R0
+    STORE R0, STRFREE_L
+
+; RNG seed default = 0x1234
+SET #0x12, R0
+STORE R0, RNG_SEED_H
+SET #0x34, R0
+STORE R0, RNG_SEED_L
+
+; reset GOSUB / FOR stacks
+SET #0x00, R0
+STORE R0, GOSUB_SP
+STORE R0, FOR_SP
+
+    ; mark entries empty by writing 0xFF to type byte of each entry
+    SET #0x60, R1
+    SET #0x00, R2
+    SET #64, R3
+IV_LOOP:
+    PUSH R1
+    PUSH R2
+    ADD #8, R2
+    JNC IV_T1
+    INC R1
+IV_T1:
+    SET #0xFF, R0
+    STORER R0, R1, R2
+    POP R2
+    POP R1
+
+    ADD #16, R2
+    JNC IV_NC
+    INC R1
+IV_NC:
+    DEC R3
+    JNZ R3, IV_LOOP
+    RET
+
+; ----------------------
+; CURPTR helpers
+; ----------------------
+SKIPSP_CUR:
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    CALL SKIPSP
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    RET
+
+PEEKCHAR_CUR:
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    LOADR R0, R1, R2
+    RET
+
+GETCHAR_CUR:
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    LOADR R0, R1, R2
+    INC R2
+    JNZ R2, GC_OK
+    INC R1
+GC_OK:
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    RET
+
+; ----------------------
+; Identifier parsing
+; ----------------------
+PARSE_IDENT:
+    ; Parse identifier into IDBUF (0x2090), max 8 chars.
+    ; Accepts A-Z as first char, then A-Z or 0-9, optional trailing '$' to mark string var.
+    ; Input pointer: R1:R2, advanced on return. Returns R0=1 success else 0.
+    LOADR R0, R1, R2
+
+    ; first char must be A..Z
+    SET #0x00, R7
+    ADDR R0, R7
+    CMP R7, #0x41
+    JC PI_FAIL
+    SET #0x00, R7
+    ADDR R0, R7
+    CMP R7, #0x5B
+    JC PI_START
+    JMP PI_FAIL
+
+PI_START:
+    SET #0x00, R5
+    STORE R5, IDLEN
+    STORE R5, IDTYPE
+
+PI_LOOP:
+    LOADR R0, R1, R2
+
+    ; '$' => mark string and consume
+    SET #0x00, R7
+    ADDR R0, R7
+    CMP R7, #0x24
+    JZ R7, PI_DOLLAR
+
+    ; '%' => integer type marker (ignore, consume)
+    SET #0x00, R7
+    ADDR R0, R7
+    CMP R7, #0x25
+    JZ R7, PI_PERCENT
+    ; check A-Z
+    SET #0x00, R7
+    ADDR R0, R7
+    CMP R7, #0x41
+    JC PI_CHK_DIG
+    SET #0x00, R7
+    ADDR R0, R7
+    CMP R7, #0x5B
+    JC PI_STORE
+    JMP PI_DONE
+
+PI_CHK_DIG:
+    ; check 0-9
+    SET #0x00, R7
+    ADDR R0, R7
+    CMP R7, #0x30
+    JC PI_DONE
+    SET #0x00, R7
+    ADDR R0, R7
+    CMP R7, #0x3A
+    JC PI_STORE
+    JMP PI_DONE
+
+PI_STORE:
+    LOAD IDLEN, R5
+    ; CMP is destructive, compare on a temp copy
+    SET #0x00, R7
+    ADDR R5, R7
+    CMP R7, #8
+    JZ R7, PI_ADV
+
+    SET #0x68, R3
+    SET #0xA0, R4
+    ADDR R5, R4
+    ; store original char in R0 (not clobbered)
+    STORER R0, R3, R4
+
+    INC R5
+    STORE R5, IDLEN
+PI_ADV:
+    INC R2
+    JNZ R2, PI_LOOP
+    INC R1
+    JMP PI_LOOP
+
+PI_DOLLAR:
+    SET #0x01, R5
+    STORE R5, IDTYPE
+    INC R2
+    JNZ R2, PI_DONE
+    INC R1
+
+PI_PERCENT:
+    ; integer suffix '%': keep IDTYPE=0 and consume
+    INC R2
+    JNZ R2, PI_DONE
+    INC R1
+PI_DONE:
+    ; zero-pad name to 8 bytes
+    LOAD IDLEN, R5
+PI_PAD:
+    ; CMP is destructive, compare on a temp copy
+    SET #0x00, R7
+    ADDR R5, R7
+    CMP R7, #8
+    JZ R7, PI_OK
+    SET #0x68, R3
+    SET #0xA0, R4
+    ADDR R5, R4
+    SET #0x00, R7
+    STORER R7, R3, R4
+    INC R5
+    JMP PI_PAD
+
+PI_OK:
+    SET #0x01, R0
+    RET
+
+PI_FAIL:
+    SET #0x00, R0
+    RET
+
+; ----------------------
+; Variable lookup/create
+; ----------------------
+VAR_FIND:
+    SET #0x60, R1
+    SET #0x00, R2
+    SET #64, R7
+VF_LOOP:
+    ; read type at base+8
+    PUSH R1
+    PUSH R2
+    ADD #8, R2
+    JNC VF_T1
+    INC R1
+VF_T1:
+    LOADR R0, R1, R2
+    POP R2
+    POP R1
+
+    CMP R0, #0xFF
+    JZ R0, VF_NEXT
+
+    ; compare names
+    PUSH R1
+    PUSH R2
+    SET #0x68, R5
+    SET #0xA0, R6
+    SET #8, R4
+VF_CMP:
+    LOADR R0, R1, R2
+    LOADR R3, R5, R6
+    CMPR R0, R3
+    JNZ R0, VF_BAD
+    INC R2
+    JNZ R2, VF_C1
+    INC R1
+VF_C1:
+    INC R6
+    JNZ R6, VF_C2
+    INC R5
+VF_C2:
+    DEC R4
+    JNZ R4, VF_CMP
+
+    POP R2
+    POP R1
+
+    ; name match: check type
+    PUSH R1
+    PUSH R2
+    ADD #8, R2
+    JNC VF_T2
+    INC R1
+VF_T2:
+    LOADR R0, R1, R2
+    POP R2
+    POP R1
+
+    LOAD IDTYPE, R3
+    CMPR R0, R3
+    JZ R0, VF_FOUND
+    JMP VF_NEXT
+VF_BAD:
+    POP R2
+    POP R1
+
+VF_NEXT:
+    ADD #16, R2
+    JNC VF_NC
+    INC R1
+VF_NC:
+    DEC R7
+    JNZ R7, VF_LOOP
+    SET #0x00, R0
+    RET
+VF_FOUND:
+    SET #0x01, R0
+    RET
+
+VAR_FIND_OR_CREATE:
+    CALL VAR_FIND
+    CMP R0, #0x01
+    JZ R0, VFC_OK
+
+    ; find empty slot
+    SET #0x60, R1
+    SET #0x00, R2
+    SET #64, R7
+VFC_LOOP:
+    PUSH R1
+    PUSH R2
+    ADD #8, R2
+    JNC VFC_T1
+    INC R1
+VFC_T1:
+    LOADR R0, R1, R2
+    POP R2
+    POP R1
+    CMP R0, #0xFF
+    JZ R0, VFC_USE
+
+    ADD #16, R2
+    JNC VFC_NC
+    INC R1
+VFC_NC:
+    DEC R7
+    JNZ R7, VFC_LOOP
+
+    SET #0x00, R0
+    RET
+
+VFC_USE:
+    ; copy name[8]
+    SET #0x68, R5
+    SET #0xA0, R6
+    SET #8, R7
+VFC_CPY:
+    LOADR R0, R5, R6
+    STORER R0, R1, R2
+    INC R2
+    JNZ R2, VFC_C1
+    INC R1
+VFC_C1:
+    INC R6
+    JNZ R6, VFC_C2
+    INC R5
+VFC_C2:
+    DEC R7
+    JNZ R7, VFC_CPY
+
+    ; type
+    LOAD IDTYPE, R0
+    STORER R0, R1, R2
+
+    ; clear rest fields (bytes 9..15)
+    SET #7, R7
+VFC_CLR:
+    INC R2
+    JNZ R2, VFC_K
+    INC R1
+VFC_K:
+    SET #0x00, R0
+    STORER R0, R1, R2
+    DEC R7
+    JNZ R7, VFC_CLR
+
+    ; rewind entry pointer to base (we are at base+15)
+    SUB #15, R2
+    JNC VFC_OK
+    DEC R1
+VFC_OK:
+    SET #0x01, R0
+    RET
+
+; ----------------------
+; 16-bit value helpers
+; ----------------------
+LOAD_VAR_INT:
+    PUSH R1
+    PUSH R2
+    ADD #10, R2
+    JNC LVI1
+    INC R1
+LVI1:
+    LOADR R6, R1, R2
+    INC R2
+    JNZ R2, LVI2
+    INC R1
+LVI2:
+    LOADR R7, R1, R2
+    POP R2
+    POP R1
+    RET
+
+STORE_VAR_INT:
+    PUSH R1
+    PUSH R2
+    ADD #10, R2
+    JNC SVI1
+    INC R1
+SVI1:
+    STORER R6, R1, R2
+    INC R2
+    JNZ R2, SVI2
+    INC R1
+SVI2:
+    STORER R7, R1, R2
+    POP R2
+    POP R1
+    RET
+
+NEG16:
+    ; two's complement negate R6:R7
+    SET #0xFF, R0
+    SUBR R7, R0
+    SET #0x00, R7
+    ADDR R0, R7
+
+    SET #0xFF, R0
+    SUBR R6, R0
+    SET #0x00, R6
+    ADDR R0, R6
+
+    INC R7
+    JNZ R7, N16_RET
+    INC R6
+N16_RET:
+    RET
+
+ADD16:
+    ADDR R5, R7
+    JNC A16_NC
+    INC R6
+A16_NC:
+    ADDR R4, R6
+    RET
+
+SUB16:
+    SUBR R5, R7
+    JNC S16_NB
+    DEC R6
+S16_NB:
+    SUBR R4, R6
+    RET
+
+PUTDEC16S:
+    ; Print signed 16-bit integer in R6:R7
+    ; Clobbers: R0,R1,R2,R3,R4,R5,R6,R7
+    ; If value is 0 => prints 0
+    ; If negative => prints '-' then abs(value)
+
+    ; check zero
+    CMP R6, #0
+    JNZ R6, P16S_CHKNEG
+    CMP R7, #0
+    JNZ R7, P16S_CHKNEG
+    SET #0x30, R0
+    CALL PUTC
+    RET
+
+P16S_CHKNEG:
+    ; sign bit in high byte
+    ; sign test: if hi < 0x80 => positive
+    SET #0x00, R0
+    ADDR R6, R0
+    CMP R0, #0x80
+    JC P16S_POS
+
+    ; negative: print '-'
+    SET #0x2D, R0
+    CALL PUTC
+
+    ; abs via negate
+    CALL NEG16
+
+P16S_POS:
+    ; unsigned print of R6:R7
+    CALL PUTDEC16U
+    RET
+
+PUTDEC16U:
+    ; Print unsigned 16-bit integer in R6:R7 using repeated subtraction.
+    ; Clobbers: R0-R5
+
+    ; if high byte 0 -> PUTDEC8
+    CMP R6, #0
+    JNZ R6, P16U_DO
+    SET #0, R0
+    ADDR R7, R0
+    CALL PUTDEC8
+    RET
+
+P16U_DO:
+    SET #0, R4          ; printed flag
+
+    ; 10000
+    SET #0x27, R2
+    SET #0x10, R3
+    CALL P16U_DIGIT
+
+    ; 1000
+    SET #0x03, R2
+    SET #0xE8, R3
+    CALL P16U_DIGIT
+
+    ; 100
+    SET #0x00, R2
+    SET #0x64, R3
+    CALL P16U_DIGIT
+
+    ; 10
+    SET #0x00, R2
+    SET #0x0A, R3
+    CALL P16U_DIGIT
+
+    ; ones (0..9) in R7 (since value < 10)
+    SET #0x30, R0
+    ADDR R7, R0
+    CALL PUTC
+    RET
+
+P16U_DIGIT:
+    ; Compute one decimal digit by subtracting denom (R2:R3) from value (R6:R7)
+    ; Prints digit if printed flag set OR digit>0.
+    ; Updates value to remainder.
+    ; Uses R1 as digit counter.
+
+    SET #0, R1
+P16U_DLOOP:
+    ; if value < denom => stop
+    ; compare hi
+    SET #0, R0
+    ADDR R6, R0
+    CMPR R0, R2          ; destructive on R0
+    JC P16U_DDONE        ; carry => value_hi < denom_hi
+    JNZ R0, P16U_SUBOK   ; non-zero => value_hi > denom_hi
+    ; hi equal, compare lo
+    SET #0, R0
+    ADDR R7, R0
+    CMPR R0, R3
+    JC P16U_DDONE
+
+P16U_SUBOK:
+    ; value -= denom
+    SUBR R3, R7
+    JNC P16U_SNB
+    DEC R6
+P16U_SNB:
+    SUBR R2, R6
+    INC R1
+    JMP P16U_DLOOP
+
+P16U_DDONE:
+    ; decide printing
+    CMP R4, #0
+    JNZ R4, P16U_PRT
+    CMP R1, #0
+    JZ R1, P16U_RET
+P16U_PRT:
+    SET #0x30, R0
+    ADDR R1, R0
+    CALL PUTC
+    SET #1, R4
+P16U_RET:
+    RET
+
+; ---------------------------------------------------------------------------
+; Keyword matching for AND/OR/NOT in expressions
+; ---------------------------------------------------------------------------
+MATCH_KW_AND:
+    CALL MATCH_KW_A3
+    RET
+MATCH_KW_OR:
+    CALL MATCH_KW_O2
+    RET
+MATCH_KW_NOT:
+    CALL MATCH_KW_N3
+    RET
+
+; Match helpers: non-destructive peek from CURPTR after SKIPSP_CUR
+; Return R0=1 if matched, and store kw length in IDLEN for CONSUME_KW.
+MATCH_KW_A3:
+    ; AND
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    LOADR R0, R1, R2
+    CMP R0, #0x41
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x4E
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x44
+    JNZ R0, MK_NO
+    SET #3, R0
+    STORE R0, IDLEN
+    SET #1, R0
+    RET
+MATCH_KW_O2:
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    LOADR R0, R1, R2
+    CMP R0, #0x4F
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x52
+    JNZ R0, MK_NO
+    SET #2, R0
+    STORE R0, IDLEN
+    SET #1, R0
+    RET
+MATCH_KW_N3:
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    LOADR R0, R1, R2
+    CMP R0, #0x4E
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x4F
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x54
+    JNZ R0, MK_NO
+    SET #3, R0
+    STORE R0, IDLEN
+    SET #1, R0
+    RET
+
+MATCH_KW_STEP:
+    ; STEP (for FOR)
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    LOADR R0, R1, R2
+    CMP R0, #0x53
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x54
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x45
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x50
+    JNZ R0, MK_NO
+    SET #4, R0
+    STORE R0, IDLEN
+    SET #1, R0
+    RET
+
+MATCH_KW_PEEK:
+    ; PEEK
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    LOADR R0, R1, R2
+    CMP R0, #0x50
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x45
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x45
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x4B
+    JNZ R0, MK_NO
+    SET #4, R0
+    STORE R0, IDLEN
+    SET #1, R0
+    RET
+
+MATCH_KW_RND:
+    ; RND
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    LOADR R0, R1, R2
+    CMP R0, #0x52
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x4E
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x44
+    JNZ R0, MK_NO
+    SET #3, R0
+    STORE R0, IDLEN
+    SET #1, R0
+    RET
+
+MK_NO:
+    SET #0, R0
+    RET
+
+CONSUME_KW:
+    ; advance CURPTR by IDLEN
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    LOAD IDLEN, R0
+CK_LOOP:
+    CMP R0, #0
+    JZ R0, CK_DONE
+    INC R2
+    JNZ R2, CK_1
+    INC R1
+CK_1:
+    DEC R0
+    JMP CK_LOOP
+CK_DONE:
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    RET
+
+; ---------------------------------------------------------------------------
+; Boolean helpers
+; ---------------------------------------------------------------------------
+BOOL16_NOT:
+    ; R6:R7 => boolean NOT
+    CMP R6, #0
+    JNZ R6, BN_FALSE
+    CMP R7, #0
+    JNZ R7, BN_FALSE
+    SET #0, R6
+    SET #1, R7
+    RET
+BN_FALSE:
+    SET #0, R6
+    SET #0, R7
+    RET
+
+BOOL16_AND:
+    ; left in R4:R5, right in R6:R7 => R6:R7 = (left!=0 && right!=0)
+    ; bool(left)
+    CMP R4, #0
+    JNZ R4, BA_LNZ
+    CMP R5, #0
+    JZ R5, BA_FALSE
+BA_LNZ:
+    ; bool(right)
+    CMP R6, #0
+    JNZ R6, BA_TRUE
+    CMP R7, #0
+    JZ R7, BA_FALSE
+BA_TRUE:
+    SET #0, R6
+    SET #1, R7
+    RET
+BA_FALSE:
+    SET #0, R6
+    SET #0, R7
+    RET
+
+BOOL16_OR:
+    ; left in R4:R5, right in R6:R7 => R6:R7 = (left!=0 || right!=0)
+    CMP R4, #0
+    JNZ R4, BO_TRUE
+    CMP R5, #0
+    JNZ R5, BO_TRUE
+    CMP R6, #0
+    JNZ R6, BO_TRUE
+    CMP R7, #0
+    JZ R7, BO_FALSE
+BO_TRUE:
+    SET #0, R6
+    SET #1, R7
+    RET
+BO_FALSE:
+    SET #0, R6
+    SET #0, R7
+    RET
+
+; ---------------------------------------------------------------------------
+; Comparisons (signed 16-bit): left in R4:R5, right in R6:R7, result in R6:R7 (0/1)
+; ---------------------------------------------------------------------------
+CMP16_EQ:
+    CMPR R4, R6
+    JNZ R4, CE_FALSE
+    CMPR R5, R7
+    JNZ R5, CE_FALSE
+    SET #0, R6
+    SET #1, R7
+    RET
+CE_FALSE:
+    SET #0, R6
+    SET #0, R7
+    RET
+
+CMP16_NE:
+    CALL CMP16_EQ
+    ; invert
+    CALL BOOL16_NOT
+    RET
+
+; Signed less-than: compare sign first, then magnitude
+CMP16_LT:
+    ; signed (R4:R5) < (R6:R7) => R6:R7 = 0/1
+    ; determine sign flags: neg if hi >= 0x80
+    SET #0x00, R0
+    ADDR R4, R0
+    CMP R0, #0x80
+    JC CLT_LPOS
+    SET #1, R0
+    JMP CLT_LDONE
+CLT_LPOS:
+    SET #0, R0
+CLT_LDONE:
+    SET #0x00, R1
+    ADDR R6, R1
+    CMP R1, #0x80
+    JC CLT_RPOS
+    SET #1, R1
+    JMP CLT_RDONE
+CLT_RPOS:
+    SET #0, R1
+CLT_RDONE:
+    ; if signs differ: negative < positive
+    CMPR R0, R1
+    JZ R0, CLT_SAMESIGN
+    CMP R0, #1
+    JZ R0, CLT_TRUE
+    JMP CLT_FALSE
+CLT_SAMESIGN:
+    ; compare as unsigned (works for same sign)
+    CMPR R4, R6
+    JC CLT_TRUE
+    JNZ R4, CLT_FALSE
+    CMPR R5, R7
+    JC CLT_TRUE
+    JMP CLT_FALSE
+CLT_TRUE:
+    SET #0, R6
+    SET #1, R7
+    RET
+CLT_FALSE:
+    SET #0, R6
+    SET #0, R7
+    RET
+
+CMP16_GT:
+    ; left > right == right < left
+    ; swap and reuse LT
+    PUSH R4
+    PUSH R5
+    SET #0, R4
+    ADDR R6, R4
+    SET #0, R5
+    ADDR R7, R5
+    POP R7
+    POP R6
+    CALL CMP16_LT
+    RET
+
+CMP16_LE:
+    CALL CMP16_GT
+    CALL BOOL16_NOT
+    RET
+
+CMP16_GE:
+    CALL CMP16_LT
+    CALL BOOL16_NOT
+    RET
+
+; ---------------------------------------------------------------------------
+; Arithmetic helpers
+; ---------------------------------------------------------------------------
+SUB16_LR:
+    ; left in R4:R5, right in R6:R7 => result in R6:R7 = left-right
+    ; move left to R6:R7, right to R4:R5 then SUB16
+    STORE R6, TMPH
+    STORE R7, TMPL
+    SET #0, R6
+    ADDR R4, R6
+    SET #0, R7
+    ADDR R5, R7
+    LOAD TMPH, R4
+    LOAD TMPL, R5
+    CALL SUB16
+    RET
+
+SIGNFLAG_R45:
+    ; R0 = 1 if R4:R5 is negative (signed 16), else 0
+    SET #0, R0
+    ADDR R4, R0
+    CMP R0, #0x80
+    JC SF45_POS
+    SET #1, R0
+    RET
+SF45_POS:
+    SET #0, R0
+    RET
+
+SIGNFLAG_R67:
+    ; R0 = 1 if R6:R7 is negative
+    SET #0, R0
+    ADDR R6, R0
+    CMP R0, #0x80
+    JC SF67_POS
+    SET #1, R0
+    RET
+SF67_POS:
+    SET #0, R0
+    RET
+
+MUL16S:
+    ; signed multiply: left in R4:R5, right in R6:R7 => result in R6:R7
+    ; compute result sign flag in R0 (0/1)
+    CALL SIGNFLAG_R45   ; R0=left_neg
+    PUSH R0
+    CALL SIGNFLAG_R67   ; R0=right_neg
+    POP R1              ; R1=left_neg
+    ; R0=right_neg, R1=left_neg
+    CMPR R0, R1
+    JZ R0, M16S_SIGN0
+    SET #1, R2
+    JMP M16S_SIGNDONE
+M16S_SIGN0:
+    SET #0, R2
+M16S_SIGNDONE:
+    ; abs operands
+    CALL ABS16_R45
+    CALL ABS16_R67
+    ; unsigned multiply
+    CALL MUL16U
+    ; apply sign if needed
+    CMP R2, #0
+    JZ R2, M16S_RET
+    CALL NEG16
+M16S_RET:
+    RET
+
+DIV16S:
+    ; signed divide: left in R4:R5, right in R6:R7 => quotient in R6:R7
+    CMP R6, #0
+    JNZ R6, D16S_NZ
+    CMP R7, #0
+    JNZ R7, D16S_NZ
+    SET #0, R6
+    SET #0, R7
+    RET
+D16S_NZ:
+    CALL SIGNFLAG_R45   ; R0=left_neg
+    PUSH R0
+    CALL SIGNFLAG_R67   ; R0=right_neg
+    POP R1              ; left_neg
+    CMPR R0, R1
+    JZ R0, D16S_SIGN0
+    SET #1, R2
+    JMP D16S_SIGNDONE
+D16S_SIGN0:
+    SET #0, R2
+D16S_SIGNDONE:
+    CALL ABS16_R45
+    CALL ABS16_R67
+    CALL DIV16U
+    CMP R2, #0
+    JZ R2, D16S_RET
+    CALL NEG16
+D16S_RET:
+    RET
+
+ABS16_R45:
+    ; abs for value in R4:R5
+    SET #0x00, R2
+    ADDR R4, R2
+    CMP R2, #0x80
+    JC A45_RET
+    ; negative -> negate
+    PUSH R6
+    PUSH R7
+    SET #0, R6
+    ADDR R4, R6
+    SET #0, R7
+    ADDR R5, R7
+    CALL NEG16
+    SET #0, R4
+    ADDR R6, R4
+    SET #0, R5
+    ADDR R7, R5
+    POP R7
+    POP R6
+A45_RET:
+    RET
+
+ABS16_R67:
+    ; abs for value in R6:R7
+    SET #0x00, R2
+    ADDR R6, R2
+    CMP R2, #0x80
+    JC A67_RET
+    CALL NEG16
+A67_RET:
+    RET
+
+MUL16U:
+    ; unsigned multiply: (R4:R5) * (R6:R7) => R6:R7
+    ;
+    ; IMPORTANT:
+    ; Use shift/add multiply only (no MULR).
+    ; This avoids VM/toolchain variants where MULR encoding causes HALT
+    ; when BASIC evaluates * (e.g. PRINT 2*3).
+    ;
+    ; Scratch:
+    ;   TMPH:TMPL  accumulator (result)
+    ;   MULH:MULL  shifting multiplier copy
+    ; Clobbers: R0..R3
+
+    ; store multiplier copy
+    STORE R6, MULH
+    STORE R7, MULL
+
+    ; acc = 0
+    SET #0, R2
+    STORE R2, TMPH
+    STORE R2, TMPL
+
+    SET #16, R3
+MU_LOOP:
+    ; if (multiplier & 1) acc += multiplicand
+    LOAD MULL, R0
+    SET #0, R2
+    ADDR R0, R2
+    DIV #2, R2, R1          ; R1 = remainder (0/1)
+    CMP R1, #0
+    JZ R1, MU_SKIP_ADD
+
+    LOAD TMPH, R6
+    LOAD TMPL, R7
+    CALL ADD16              ; R6:R7 += R4:R5
+    STORE R6, TMPH
+    STORE R7, TMPL
+
+MU_SKIP_ADD:
+    ; multiplicand <<= 1  (correct 16-bit shift)
+    SHL #1, R5              ; low, carry = old bit7
+    JNC MU_SHL_NO_C
+    SET #1, R0
+    JMP MU_SHL_C_DONE
+MU_SHL_NO_C:
+    SET #0, R0
+MU_SHL_C_DONE:
+    SHL #1, R4
+    CMP R0, #0
+    JZ R0, MU_SHL_DONE
+    ADD #1, R4
+MU_SHL_DONE:
+
+    ; multiplier >>= 1 (stored in MULH:MULL)
+    LOAD MULH, R6
+    LOAD MULL, R7
+
+    ; old high LSB -> R1 (0/1)
+    SET #0, R0
+    ADDR R6, R0
+    DIV #2, R0, R1
+
+    SHR #1, R6
+    SHR #1, R7
+    CMP R1, #0
+    JZ R1, MU_SHR_DONE
+    ADD #0x80, R7
+MU_SHR_DONE:
+    STORE R6, MULH
+    STORE R7, MULL
+
+    DEC R3
+    JNZ R3, MU_LOOP
+
+    ; return acc in R6:R7
+    LOAD TMPH, R6
+    LOAD TMPL, R7
+    RET
+DIV16U:
+    ; unsigned divide (R4:R5) / (R6:R7) => quotient in R6:R7
+    ; remainder discarded
+    ; naive repeated subtraction (slow but OK for small BASIC)
+    ;
+    ; IMPORTANT: CMPR/CMP are destructive, and SUB16/ADD16 use R6:R7 as accumulator.
+    ; Keep the divisor in DIVH:DIVL, and the running quotient in TMPH:TMPL.
+
+    ; stash divisor
+    STORE R6, DIVH
+    STORE R7, DIVL
+
+    ; quotient = 0
+    SET #0, R2
+    STORE R2, TMPH
+    STORE R2, TMPL
+
+DU_LOOP:
+    ; reload divisor into R6:R7 for compare/subtract
+    LOAD DIVH, R6
+    LOAD DIVL, R7
+
+    ; if dividend < divisor => done
+    PUSH R4
+    PUSH R5
+    CMPR R4, R6
+    JC DU_DONE
+    JNZ R4, DU_SUB
+    CMPR R5, R7
+    JC DU_DONE
+DU_SUB:
+    ; restore original dividend into R4:R5
+    POP R5
+    POP R4
+
+    ; compute dividend -= divisor
+    ; set R6:R7 = dividend, R4:R5 = divisor, call SUB16, move back
+    PUSH R4
+    PUSH R5
+    LOAD DIVH, R4
+    LOAD DIVL, R5
+    POP R7      ; dividend low -> R7
+    POP R6      ; dividend high -> R6
+    CALL SUB16
+    ; move result back to dividend regs
+    SET #0, R4
+    ADDR R6, R4
+    SET #0, R5
+    ADDR R7, R5
+
+    ; quotient++
+    LOAD TMPH, R6
+    LOAD TMPL, R7
+    INC R7
+    JNZ R7, DU_Q1
+    INC R6
+DU_Q1:
+    STORE R6, TMPH
+    STORE R7, TMPL
+
+    JMP DU_LOOP
+
+DU_DONE:
+    ; restore stack (compare path)
+    POP R5
+    POP R4
+
+    ; return quotient in R6:R7
+    LOAD TMPH, R6
+    LOAD TMPL, R7
+    RET
+
+MOD16U:
+    ; unsigned modulo (R4:R5) % (R6:R7) => remainder in R6:R7
+    ; Uses naive repeated subtraction (slow but acceptable for BASIC).
+    ; If divisor is 0, returns 0.
+    ;
+    ; IMPORTANT: CMPR/CMP are destructive; SUB16 uses R6:R7 as accumulator.
+
+    ; divisor == 0 ?
+    SET #0x00, R0
+    ADDR R6, R0
+    JNZ R0, MU_OKDIV
+    SET #0x00, R0
+    ADDR R7, R0
+    JNZ R0, MU_OKDIV
+    SET #0x00, R6
+    SET #0x00, R7
+    RET
+MU_OKDIV:
+    ; stash divisor
+    STORE R6, DIVH
+    STORE R7, DIVL
+
+MU_LOOP2:
+    ; reload divisor into R6:R7 for compare/subtract
+    LOAD DIVH, R6
+    LOAD DIVL, R7
+
+    ; if dividend < divisor => done
+    PUSH R4
+    PUSH R5
+    CMPR R4, R6
+    JC MU_DONE2
+    JNZ R4, MU_SUB2
+    CMPR R5, R7
+    JC MU_DONE2
+MU_SUB2:
+    ; restore original dividend into R4:R5
+    POP R5
+    POP R4
+
+    ; compute dividend -= divisor
+    PUSH R4
+    PUSH R5
+    LOAD DIVH, R4
+    LOAD DIVL, R5
+    POP R7      ; dividend low -> R7
+    POP R6      ; dividend high -> R6
+    CALL SUB16
+    ; move result back to dividend regs
+    SET #0x00, R4
+    ADDR R6, R4
+    SET #0x00, R5
+    ADDR R7, R5
+
+    JMP MU_LOOP2
+
+MU_DONE2:
+    ; restore stack (compare path)
+    POP R5
+    POP R4
+
+    ; return remainder in R6:R7
+    SET #0x00, R6
+    ADDR R4, R6
+    SET #0x00, R7
+    ADDR R5, R7
+    RET
+
+; ----------------------
+
+; Number parsing
+; ----------------------
+PARSE_NUM_DEC:
+    ; Parses unsigned decimal at CURPTR into R6:R7.
+    ; Advances CURPTR.
+    SET #0, R6
+    SET #0, R7
+PND_LOOP:
+    CALL PEEKCHAR_CUR
+
+    ; digit?
+    SET #0, R4
+    ADDR R0, R4
+    CMP R4, #0x30
+    JC PND_DONE
+    SET #0, R4
+    ADDR R0, R4
+    CMP R4, #0x3A
+    JNC PND_DONE
+
+    ; consume digit
+    CALL GETCHAR_CUR
+    SUB #0x30, R0
+
+    ; val = val*10
+    PUSH R0
+    SET #10, R0
+    CALL MUL16U8
+    POP R0
+
+    ; val += digit
+    ADDR R0, R7
+    JNC PND_LOOP
+    INC R6
+    JMP PND_LOOP
+PND_DONE:
+    RET
+
+MUL16U8:
+    ; unsigned: (R6:R7) *= R0 (8-bit)
+    ; result in R6:R7
+    ; Uses shift-add
+    SET #0, R4
+    ADDR R6, R4
+    SET #0, R5
+    ADDR R7, R5
+
+    SET #0, R6
+    SET #0, R7
+
+    SET #8, R3
+M168_LOOP:
+    ; if (R0 LSB) add multiplicand
+    SET #0, R2
+    ADDR R0, R2
+    DIV #2, R2, R1     ; R1=remainder
+    CMP R1, #0
+    JZ R1, M168_SKIP
+    CALL ADD16
+M168_SKIP:
+    ; multiplicand <<= 1
+    ; Correct 16-bit left shift (see MUL16U note)
+    SHL #1, R5
+    JNC M168_M1
+    SET #1, R1
+    JMP M168_M1C
+M168_M1:
+    SET #0, R1
+M168_M1C:
+    SHL #1, R4
+    CMP R1, #0
+    JZ R1, M168_M1D
+    ADD #1, R4
+M168_M1D:
+    ; multiplier >>= 1
+    SHR #1, R0
+    DEC R3
+    JNZ R3, M168_LOOP
+    RET
+PARSE_NUM_HEX:
+    SET #0x00, R6
+    SET #0x00, R7
+PNH_LOOP:
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x30
+    JC PNH_DONE
+    CMP R0, #0x3A
+    JC PNH_DIG
+    CMP R0, #0x41
+    JC PNH_DONE
+    CMP R0, #0x47
+    JC PNH_HEX
+    JMP PNH_DONE
+PNH_DIG:
+    CALL GETCHAR_CUR
+    SUB #0x30, R0
+    JMP PNH_ACC
+PNH_HEX:
+    CALL GETCHAR_CUR
+    SUB #0x41, R0
+    ADD #10, R0
+PNH_ACC:
+    SHL #4, R7
+    ADDR R0, R7
+    JMP PNH_LOOP
+PNH_DONE:
+    RET
+
+; ----------------------
+; Expression evaluator (minimal but usable)
+; ----------------------
+; Expression evaluator (16-bit signed + relops + AND/OR/NOT)
+;
+; Grammar (lowest precedence last):
+;   expr      := or_expr
+;   or_expr   := and_expr (OR and_expr)*
+;   and_expr  := rel_expr (AND rel_expr)*
+;   rel_expr  := add_expr ( (=|<>|<|>|<=|>=) add_expr )?
+;   add_expr  := term (("+"|"-") term)*
+;   term      := factor (("*"|"/") factor)*
+;   factor    := "-" factor | NOT factor | "(" expr ")" | "$"hex | number | ident
+;
+; Values:
+;   - numeric values are signed 16-bit in R6:R7
+;   - boolean results are 0 (false) or 1 (true)
+; ----------------------
+
+EVAL_EXPR:
+    CALL PARSE_OR
+    RET
+
+; OR
+PARSE_OR:
+    CALL PARSE_AND
+PO_LOOP:
+    CALL SKIPSP_CUR
+    CALL MATCH_KW_OR
+    CMP R0, #0x01
+    JNZ R0, PO_DONE
+    ; consume OR
+    CALL CONSUME_KW
+    PUSH R6
+    PUSH R7
+    CALL PARSE_AND
+    POP R5
+    POP R4
+    ; left in R4:R5, right in R6:R7
+    CALL BOOL16_OR
+    JMP PO_LOOP
+PO_DONE:
+    RET
+
+; AND
+PARSE_AND:
+    CALL PARSE_REL
+PA_LOOP:
+    CALL SKIPSP_CUR
+    CALL MATCH_KW_AND
+    CMP R0, #0x01
+    JNZ R0, PA_DONE
+    CALL CONSUME_KW
+    PUSH R6
+    PUSH R7
+    CALL PARSE_REL
+    POP R5
+    POP R4
+    CALL BOOL16_AND
+    JMP PA_LOOP
+PA_DONE:
+    RET
+
+; relational
+PARSE_REL:
+    CALL PARSE_ADD
+    CALL SKIPSP_CUR
+    CALL PEEKCHAR_CUR
+    ; '='
+    CMP R0, #0x3D
+    JZ R0, PR_EQ
+    ; '<'
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x3C
+    JZ R0, PR_LT
+    ; '>'
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x3E
+    JZ R0, PR_GT
+    RET
+
+PR_EQ:
+    CALL GETCHAR_CUR
+    PUSH R6
+    PUSH R7
+    CALL PARSE_ADD
+    POP R5
+    POP R4
+    CALL CMP16_EQ
+    RET
+
+PR_LT:
+    CALL GETCHAR_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x3D      ; <=
+    JZ R0, PR_LE
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x3E      ; <>
+    JZ R0, PR_NE
+    ; '<'
+    PUSH R6
+    PUSH R7
+    CALL PARSE_ADD
+    POP R5
+    POP R4
+    CALL CMP16_LT
+    RET
+
+PR_GT:
+    CALL GETCHAR_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x3D      ; >=
+    JZ R0, PR_GE
+    ; '>'
+    PUSH R6
+    PUSH R7
+    CALL PARSE_ADD
+    POP R5
+    POP R4
+    CALL CMP16_GT
+    RET
+
+PR_LE:
+    CALL GETCHAR_CUR
+    PUSH R6
+    PUSH R7
+    CALL PARSE_ADD
+    POP R5
+    POP R4
+    CALL CMP16_LE
+    RET
+
+PR_GE:
+    CALL GETCHAR_CUR
+    PUSH R6
+    PUSH R7
+    CALL PARSE_ADD
+    POP R5
+    POP R4
+    CALL CMP16_GE
+    RET
+
+PR_NE:
+    CALL GETCHAR_CUR
+    PUSH R6
+    PUSH R7
+    CALL PARSE_ADD
+    POP R5
+    POP R4
+    CALL CMP16_NE
+    RET
+
+; add/sub
+PARSE_ADD:
+    CALL PARSE_TERM
+PA2_LOOP:
+    CALL SKIPSP_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x2B
+    JZ R0, PA2_ADD
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x2D
+    JZ R0, PA2_SUB
+    RET
+PA2_ADD:
+    CALL GETCHAR_CUR
+    PUSH R6
+    PUSH R7
+    CALL PARSE_TERM
+    POP R5
+    POP R4
+    ; left in R4:R5, right in R6:R7 => R6:R7 = left+right
+    CALL ADD16
+    JMP PA2_LOOP
+PA2_SUB:
+    CALL GETCHAR_CUR
+    PUSH R6
+    PUSH R7
+    CALL PARSE_TERM
+    POP R5
+    POP R4
+    ; R6:R7 = left-right
+    CALL SUB16_LR
+    JMP PA2_LOOP
+
+; term mul/div
+PARSE_TERM:
+    CALL PARSE_FACTOR
+PT2_LOOP:
+    CALL SKIPSP_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x2A
+    JZ R0, PT2_MUL
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x2F
+    JZ R0, PT2_DIV
+    RET
+PT2_MUL:
+    CALL GETCHAR_CUR
+    PUSH R6
+    PUSH R7
+    CALL PARSE_FACTOR
+    POP R5
+    POP R4
+    CALL MUL16S
+    JMP PT2_LOOP
+PT2_DIV:
+    CALL GETCHAR_CUR
+    PUSH R6
+    PUSH R7
+    CALL PARSE_FACTOR
+    POP R5
+    POP R4
+    CALL DIV16S
+    JMP PT2_LOOP
+
+PARSE_FACTOR:
+    CALL SKIPSP_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x2D
+    JZ R0, PF2_NEG
+    CALL MATCH_KW_NOT
+    CMP R0, #0x01
+    JZ R0, PF2_NOT
+    ; refresh char after keyword probe
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x28
+    JZ R0, PF2_PAR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x24
+    JZ R0, PF2_HEX
+    CALL ISDIGIT
+    CMP R0, #0x01
+    JZ R0, PF2_DEC
+    
+; PEEK(...)
+CALL MATCH_KW_PEEK
+CMP R0, #0x01
+JZ R0, PF2_PEEK
+; RND()
+CALL MATCH_KW_RND
+CMP R0, #0x01
+JZ R0, PF2_RND
+
+; identifier
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    CALL PARSE_IDENT
+    CMP R0, #0x01
+    JNZ R0, PF2_ZERO
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    LOAD IDTYPE, R0
+    CMP R0, #0x01
+    JZ R0, PF2_ZERO
+    CALL VAR_FIND
+    CMP R0, #0x01
+    JNZ R0, PF2_ZERO
+    CALL LOAD_VAR_INT
+    RET
+PF2_ZERO:
+    SET #0x00, R6
+    SET #0x00, R7
+    RET
+PF2_NEG:
+    CALL GETCHAR_CUR
+    CALL PARSE_FACTOR
+    CALL NEG16
+    RET
+PF2_NOT:
+    CALL CONSUME_KW
+    CALL PARSE_FACTOR
+    CALL BOOL16_NOT
+    RET
+PF2_PAR:
+    CALL GETCHAR_CUR
+    CALL EVAL_EXPR
+    CALL SKIPSP_CUR
+    CALL GETCHAR_CUR
+    RET
+PF2_HEX:
+    CALL GETCHAR_CUR
+    CALL PARSE_NUM_HEX
+    RET
+PF2_DEC:
+    CALL PARSE_NUM_DEC
+    RET
+
+PF2_PEEK:
+    CALL CONSUME_KW
+    CALL SKIPSP_CUR
+    CALL GETCHAR_CUR       ; '('
+    CALL EVAL_EXPR
+    CALL SKIPSP_CUR
+    CALL GETCHAR_CUR       ; ')'
+    ; address in R6:R7
+    SET #0x00, R1
+    ADDR R6, R1
+    SET #0x00, R2
+    ADDR R7, R2
+    LOADR R7, R1, R2
+    SET #0x00, R6
+    RET
+
+PF2_RND:
+    ; RND() or RND(<n>) => integer in 0..n-1 (if n>0), else raw RNG_NEXT
+    CALL CONSUME_KW
+    CALL SKIPSP_CUR
+
+    ; divisor in R4:R5 (0 => no modulo)
+    SET #0x00, R4
+    SET #0x00, R5
+    STORE R4, DIVH
+    STORE R5, DIVL
+
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x28
+    JNZ R0, RND_GEN
+
+    ; consume '(' and parse expression
+    CALL GETCHAR_CUR
+    CALL SKIPSP_CUR
+    CALL EVAL_EXPR          ; result in R6:R7
+    ; save divisor
+    SET #0x00, R4
+    ADDR R6, R4
+    SET #0x00, R5
+    ADDR R7, R5
+    STORE R4, DIVH
+    STORE R5, DIVL
+
+    CALL SKIPSP_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x29
+    JNZ R0, RND_GEN
+    CALL GETCHAR_CUR
+
+RND_GEN:
+    ; generate raw random in R6:R7
+    CALL RNG_NEXT
+    ; reload divisor (RNG_NEXT may clobber regs)
+    LOAD DIVH, R4
+    LOAD DIVL, R5
+
+    ; if divisor == 0, return raw
+    SET #0x00, R0
+    ADDR R4, R0
+    JNZ R0, RND_MOD
+    SET #0x00, R0
+    ADDR R5, R0
+    JZ R0, RND_RET
+
+RND_MOD:
+    ; remainder = rand % divisor
+    ; save divisor
+    PUSH R4
+    PUSH R5
+    ; move rand -> dividend R4:R5
+    SET #0x00, R4
+    ADDR R6, R4
+    SET #0x00, R5
+    ADDR R7, R5
+    ; restore divisor -> R6:R7
+    POP R7
+    POP R6
+    CALL MOD16U
+
+RND_RET:
+    RET
+
+; ---------------------------------------------------------------------------
+; Helpers (same as v1 patched)
+; ---------------------------------------------------------------------------
+GETTOKEN:
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    CALL SKIPSP
+    SET #0x68, R3
+    SET #0x80, R4
+    SET #0x00, R5
+GT_LOOP:
+    LOADR R0, R1, R2
+    JZ R0, GT_DONE
+    SET #0x00, R7
+    ADDR R0, R7
+    CMP R7, #0x20
+    JZ R7, GT_DONE
+    STORER R0, R3, R4
+    INC R4
+    JNZ R4, GT1
+    INC R3
+GT1:
+    INC R2
+    JNZ R2, GT2
+    INC R1
+GT2:
+    INC R5
+    CMP R5, #23
+    JNZ R5, GT_LOOP
+GT_DONE:
+    SET #0x00, R0
+    STORER R0, R3, R4
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    RET
+
+SKIPSP:
+SS_LOOP:
+    LOADR R0, R1, R2
+    CMP R0, #0x20
+    JNZ R0, SS_DONE
+    INC R2
+    JNZ R2, SS_LOOP
+    INC R1
+    JMP SS_LOOP
+SS_DONE:
+    RET
+
+ISDIGIT:
+    LOADR R0, R1, R2
+    SET #0x00, R3
+    ADDR R0, R3
+    SUB #0x30, R3
+    JC ID_NO
+    SET #0x00, R3
+    ADDR R0, R3
+    SUB #0x3A, R3
+    JC ID_Y
+ID_NO:
+    SET #0x00, R0
+    RET
+ID_Y:
+    SET #0x01, R0
+    RET
+
+PARSE_INT16:
+    ; Parse signed decimal integer from CURPTR.
+    ; Returns value in R6:R7 (signed 16-bit). Advances CURPTR.
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    ; sign flag (0=pos, 1=neg)
+    SET #0x00, R5
+    STORE R5, INT_SIGN
+
+    ; optional leading +/-
+    LOADR R0, R1, R2
+    SET #0x00, R3
+    ADDR R0, R3
+    CMP R3, #0x2D      ; '-'
+    JNZ R3, PI16_CHKPLUS
+    SET #0x01, R5
+    STORE R5, INT_SIGN
+    INC R2
+    JNZ R2, PI16_INIT
+    INC R1
+    JMP PI16_INIT
+PI16_CHKPLUS:
+    SET #0x00, R3
+    ADDR R0, R3
+    CMP R3, #0x2B      ; '+'
+    JNZ R3, PI16_INIT
+    INC R2
+    JNZ R2, PI16_INIT
+    INC R1
+
+PI16_INIT:
+    SET #0x00, R6      ; hi
+    SET #0x00, R7      ; lo
+
+PI16_LOOP:
+    CALL ISDIGIT
+    JZ R0, PI16_DONE
+    LOADR R0, R1, R2
+    SUB #0x30, R0      ; digit 0..9
+
+    ; value = value*10 + digit
+    ; Use the proven MUL16U helper used by expression evaluation.
+    ; This avoids subtle carry bugs in hand-rolled shift logic.
+    ; MUL16U uses R1 internally (via DIV) so preserve the input pointer.
+    PUSH R1
+    PUSH R2
+    PUSH R0             ; save digit
+    SET #0x00, R4
+    ADDR R6, R4         ; multiplicand hi
+    SET #0x00, R5
+    ADDR R7, R5         ; multiplicand lo
+    SET #0x00, R6
+    SET #10, R7         ; multiplier = 10
+    CALL MUL16U         ; result -> R6:R7
+    POP R0              ; restore digit
+    POP R2
+    POP R1
+    ADDR R0, R7
+    JNC PI16_A2
+    INC R6
+PI16_A2:
+
+    ; advance pointer
+    INC R2
+    JNZ R2, PI16_LOOP
+    INC R1
+    JMP PI16_LOOP
+
+PI16_DONE:
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    LOAD INT_SIGN, R0
+    CMP R0, #0x01
+    JNZ R0, PI16_RET
+    CALL NEG16
+PI16_RET:
+    RET
+
+PARSE_UINT8:
+    SET #0x00, R4
+PU8_LOOP:
+    CALL ISDIGIT
+    JZ R0, PU8_DONE
+    LOADR R3, R1, R2
+    SUB #0x30, R3
+    MUL #10, R7, R4
+    ADDR R3, R4
+    INC R2
+    JNZ R2, PU8_LOOP
+    INC R1
+    JMP PU8_LOOP
+PU8_DONE:
+    SET #0x00, R0
+    ADDR R4, R0
+    RET
+
+TOUPPER_Z:
+TU_LOOP:
+    LOADR R0, R1, R2
+    CMP R0, #0x00
+    JZ R0, TU_DONE
+    SET #0x00, R3
+    ADDR R0, R3
+    SUB #0x61, R3
+    JC TU_NEXT
+    SET #0x00, R3
+    ADDR R0, R3
+    SUB #0x7B, R3
+    JC TU_DO
+    JMP TU_NEXT
+TU_DO:
+    SUB #0x20, R0
+    STORER R0, R1, R2
+TU_NEXT:
+    INC R2
+    JNZ R2, TU_LOOP
+    INC R1
+    JMP TU_LOOP
+TU_DONE:
+    RET
+
+ADD_ENTRY_OFFSET:
+    SET #0x00, R3
+    SET #0x00, R0
+    SET #0x00, R7
+    ADDR R6, R7
+AEO_LOOP:
+    JZ R7, AEO_DONE
+    ADD #84, R0
+    JNC AEO_NC
+    INC R3
+AEO_NC:
+    DEC R7
+    JMP AEO_LOOP
+AEO_DONE:
+    ADDR R3, R1
+    ADDR R0, R2
+    JNC AEO_RET
+    INC R1
+AEO_RET:
+    RET
+; ---------------------------------------------------------------------------
+; READLINE_SIMPLE
+;   Read a line into buffer (no echo; terminal may echo itself).
+;   Stops on LF (0x0A) or CR (0x0D). Handles backspace by deleting last char.
+;   Args: R1:R2 dest, R3 max incl terminator
+;   Returns: R4 length
+; ---------------------------------------------------------------------------
+READLINE_SIMPLE:
+    SET #0x00, R4          ; length
+    SET #0x00, R5
+    ADDR R3, R5
+    JZ R5, RLS_DONE
+    DEC R5                 ; remaining data bytes
+RLS_LOOP:
+    JZ R5, RLS_DONE
+    CALL GETC              ; char in R0
+    ; LF?
+    SET #0x00, R6
+    ADDR R0, R6
+    CMP R6, #0x0A
+    JZ R6, RLS_DONE
+    ; CR?
+    SET #0x00, R6
+    ADDR R0, R6
+    CMP R6, #0x0D
+    JZ R6, RLS_DONE
+    ; backspace?
+    SET #0x00, R6
+    ADDR R0, R6
+    CMP R6, #0x08
+    JZ R6, RLS_BS
+    SET #0x00, R6
+    ADDR R0, R6
+    CMP R6, #0x7F
+    JZ R6, RLS_BS
+
+    STORER R0, R1, R2
+    INC R2
+    JNZ R2, RLS_P1
+    INC R1
+RLS_P1:
+    INC R4
+    DEC R5
+    JMP RLS_LOOP
+
+RLS_BS:
+    JZ R4, RLS_LOOP
+    DEC R2
+    JNC RLS_BS1
+    DEC R1
+RLS_BS1:
+    DEC R4
+    INC R5
+    JMP RLS_LOOP
+
+RLS_DONE:
+    SET #0x00, R0
+    STORER R0, R1, R2
+    RET
+
+; ---------------------------------------------------------------------------
+; READLINE_NOECHO
+;   Read a line into buffer WITHOUT echo (host terminal typically echoes).
+;   Supports backspace editing logically.
+;   Args: R1:R2 dest, R3 max incl terminator
+;   Returns: R4 length
+; ---------------------------------------------------------------------------
+READLINE_NOECHO:
+    SET #0x00, R4          ; length
+    SET #0x00, R5
+    ADDR R3, R5
+    JZ R5, RLNE_DONE
+    DEC R5                 ; remaining data bytes
+
+RLNE_LOOP:
+    JZ R5, RLNE_DONE
+    CALL GETC              ; R0
+
+    ; newline (0x0A)
+    SET #0x00, R6
+    ADDR R0, R6
+    CMP R6, #0x0A
+    JZ R6, RLNE_DONE
+
+    ; carriage return (0x0D)
+    SET #0x00, R6
+    ADDR R0, R6
+    CMP R6, #0x0D
+    JZ R6, RLNE_DONE
+
+    ; backspace (0x08)
+    SET #0x00, R6
+    ADDR R0, R6
+    CMP R6, #0x08
+    JZ R6, RLNE_BS
+
+    ; DEL (0x7F)
+    SET #0x00, R6
+    ADDR R0, R6
+    CMP R6, #0x7F
+    JZ R6, RLNE_BS
+
+    ; store char
+    STORER R0, R1, R2
+
+    ; ++ptr
+    INC R2
+    JNZ R2, RLNE_PTR
+    INC R1
+RLNE_PTR:
+
+    INC R4
+    DEC R5
+    JMP RLNE_LOOP
+
+RLNE_BS:
+    JZ R4, RLNE_LOOP
+    ; --ptr
+    DEC R2
+    JNC RLNE_BS_OK
+    DEC R1
+RLNE_BS_OK:
+    DEC R4
+    INC R5
+    JMP RLNE_LOOP
+
+RLNE_DONE:
+    SET #0x00, R0
+    STORER R0, R1, R2
+    RET
+
+; ---------------------------------------------------------------------------
+; RNG (integer-only): seed = seed*109 + 89 (mod 65536)
+; Returns value in R6:R7 in range 0..32767 (mask bit15)
+; ---------------------------------------------------------------------------
+RNG_NEXT:
+    ; load seed into R4:R5
+    LOAD RNG_SEED_H, R4
+    LOAD RNG_SEED_L, R5
+    ; multiply by 109
+    SET #0x00, R6
+    SET #109, R7
+    CALL MUL16U          ; product in R6:R7
+    ; add 89
+    SET #0x00, R4
+    ADDR R6, R4
+    SET #0x00, R5
+    ADDR R7, R5
+    SET #0x00, R6
+    SET #89, R7
+    CALL ADD16           ; result in R6:R7
+    ; store seed
+    STORE R6, RNG_SEED_H
+    STORE R7, RNG_SEED_L
+    ; mask high bit (bit15) => ensure 0..32767
+    SET #0x00, R0
+    ADDR R6, R0
+    CMP R0, #0x80
+    JC RNG_OK
+    SUB #0x80, R6
+RNG_OK:
+    RET
+

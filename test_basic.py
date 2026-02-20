@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parent
 S8ASM = str(ROOT / 's8asm')
 VM = str(ROOT / 'sophia8')
 
-BASIC_FILE = ROOT / 'sophia_basic_v1_newlibs.s8'
+BASIC_FILE = ROOT / 'sophia_basic_v1_finalfix8.s8'
 LIB_FILES = [
     'kernel.s8',
     'cli.s8',
@@ -79,5 +79,29 @@ class TestSophiaBasicV1(unittest.TestCase):
             self.assertIn('\n-123\n', out)
 
 
+    def test_print_mul(self):
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            image = assemble_basic(td)
+            out = run_vm_with_input(image, b'PRINT 2*3\n', timeout=0.6)
+            self.assertIn('\n6\n', out)
+
+    def test_rnd_range_and_determinism(self):
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            image = assemble_basic(td)
+            # Seed, generate two numbers, reseed, generate again - first should match.
+            out = run_vm_with_input(image, b'RANDOMIZE 1\nPRINT RND(10)\nPRINT RND(10)\nRANDOMIZE 1\nPRINT RND(10)\n', timeout=0.9)
+            # Extract printed integers (lines that are just digits or -digits)
+            nums = []
+            for line in out.splitlines():
+                s = line.strip()
+                if s.lstrip('-').isdigit():
+                    nums.append(int(s))
+            self.assertGreaterEqual(len(nums), 3)
+            a,b,c = nums[0], nums[1], nums[2]
+            self.assertTrue(0 <= a < 10)
+            self.assertTrue(0 <= b < 10)
+            self.assertEqual(a, c)
 if __name__ == '__main__':
     unittest.main()
