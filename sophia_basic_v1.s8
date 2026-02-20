@@ -205,7 +205,7 @@ REPL:
     ; immediate statement
     STORE R1, CURPTR_H
     STORE R2, CURPTR_L
-    CALL EXEC_STMT
+    CALL EXEC_LINE
     JMP REPL
 
 ; ---------------------------------------------------------------------------
@@ -509,7 +509,7 @@ RP3:
     SET #0x00, R0
     STORE R0, JUMPED
 
-    CALL EXEC_STMT
+    CALL EXEC_LINE
 
     LOAD JUMPED, R0
     CMP R0, #0x01
@@ -533,7 +533,38 @@ RUN_NOP:
     RET
 
 ; ---------------------------------------------------------------------------
-; EXEC_STMT: immediate or program
+; EXEC_LINE: execute one or more statements separated by ':'
+;   Stops at end-of-line (NUL). Used in both immediate mode and RUN mode.
+;   Notes:
+;     - Individual statements are executed by EXEC_STMT.
+;     - After each statement, CURPTR is expected to point to the next
+;       character after that statement.
+; ---------------------------------------------------------------------------
+EXEC_LINE:
+EL_LOOP:
+    CALL SKIPSP_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x00
+    JZ R0, EL_DONE
+
+    CALL EXEC_STMT
+
+    ; if program execution was stopped, do not continue parsing.
+    LOAD RUN_STOP, R0
+    CMP R0, #0x01
+    JZ R0, EL_DONE
+
+    CALL SKIPSP_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x3A        ; ':'
+    JNZ R0, EL_DONE
+    CALL GETCHAR_CUR     ; consume ':'
+    JMP EL_LOOP
+EL_DONE:
+    RET
+
+; ---------------------------------------------------------------------------
+; EXEC_STMT: execute a single statement (keyword or assignment)
 ; ---------------------------------------------------------------------------
 EXEC_STMT:
     ; save token start for potential assignment
@@ -1389,11 +1420,20 @@ IF_TRUE:
     CMP R0, #0x01
     JZ R0, IF_THEN_LINE
 
-    ; otherwise execute the statement tail immediately
-    CALL EXEC_STMT
+    ; otherwise execute the statement tail immediately (may contain ':' list)
+    CALL EXEC_LINE
 
-    ; Optional ELSE part is ignored when condition is true.
-    ; We do not error on trailing ELSE to allow: IF 1 THEN PRINT 1 ELSE PRINT 2
+    ; Optional ELSE part must be skipped when condition is true so it is not
+    ; treated as a standalone statement by EXEC_LINE.
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    CALL FIND_ELSE
+    CMP R0, #0x01
+    JNZ R0, IF_TRUE_DONE
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    CALL SKIP_TO_EOL
+IF_TRUE_DONE:
     RET
 
 IF_THEN_LINE:
@@ -1455,7 +1495,8 @@ IF_FALSE:
     CMP R0, #0x01
     JZ R0, IF_ELSE_LINE
 
-    CALL EXEC_STMT
+    CALL EXEC_LINE
+    CALL SKIP_TO_EOL
     RET
 
 IF_ELSE_LINE:
@@ -1583,6 +1624,20 @@ FE_DONE:
     POP R5
     POP R4
     POP R3
+    RET
+
+; ---------------------------------------------------------------------------
+; SKIP_TO_EOL
+;   Advances CURPTR to end-of-line (NUL). Used to skip an ELSE clause.
+; ---------------------------------------------------------------------------
+SKIP_TO_EOL:
+STOE_LOOP:
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x00
+    JZ R0, STOE_DONE
+    CALL GETCHAR_CUR
+    JMP STOE_LOOP
+STOE_DONE:
     RET
 
 IF_SYNTAX:
