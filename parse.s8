@@ -1,0 +1,185 @@
+; parse.s8 — string tokenization and numeric parsing
+;
+; Depends only on LOADR/STORER and does not require kernel.
+; No registers preserved unless noted.
+
+; ---------------------------------------------------------------------------
+; SKIPSPACES
+;   Advance pointer over spaces and tabs.
+;   Args:
+;     R1:R2 = pointer
+;   Returns:
+;     R1:R2 = advanced pointer
+;   Clobbers: R0, R6
+; ---------------------------------------------------------------------------
+SKIPSPACES:
+SKIPSPACES_LOOP:
+    LOADR R0, R1, R2
+    ; stop on NUL
+    JZ R0, SKIPSPACES_DONE
+
+    ; if char == ' ' (0x20) or '\t' (0x09) => skip
+    SET #0x00, R6
+    ADDR R0, R6
+    CMP R6, #0x20
+    JZ R6, SKIPSPACES_ADV
+
+    SET #0x00, R6
+    ADDR R0, R6
+    CMP R6, #0x09
+    JZ R6, SKIPSPACES_ADV
+
+    JMP SKIPSPACES_DONE
+
+SKIPSPACES_ADV:
+    INC R2
+    JNZ R2, SKIPSPACES_LOOP
+    INC R1
+    JMP SKIPSPACES_LOOP
+
+SKIPSPACES_DONE:
+    RET
+
+; ---------------------------------------------------------------------------
+; READTOKEN
+;   Read a space-delimited token from a string.
+;   Args:
+;     R1:R2 = src pointer
+;     R3:R4 = dst buffer
+;     R5    = max bytes to write INCLUDING NUL (>=1 recommended)
+;   Returns:
+;     R6 = token length (excluding terminator)
+;     R1:R2 = updated src pointer (points at delimiter or NUL)
+;   Clobbers: R0, R5, R6, R7
+;   Notes:
+;     - Leading spaces/tabs are skipped.
+;     - Token ends on space/tab or NUL.
+;     - Always NUL-terminates if R5>0.
+; ---------------------------------------------------------------------------
+READTOKEN:
+    SET #0x00, R6
+    CALL SKIPSPACES
+
+    ; if no room, nothing
+    JZ R5, READTOKEN_DONE
+
+READTOKEN_LOOP:
+    ; if last byte reserved for NUL, stop
+    SET #0x00, R7
+    ADDR R5, R7
+    DEC R7
+    JZ R7, READTOKEN_TERM
+
+    LOADR R0, R1, R2
+    JZ R0, READTOKEN_TERM
+
+    ; delimiter? ' ' or '\t'
+    SET #0x00, R7
+    ADDR R0, R7
+    CMP R7, #0x20
+    JZ R7, READTOKEN_TERM
+
+    SET #0x00, R7
+    ADDR R0, R7
+    CMP R7, #0x09
+    JZ R7, READTOKEN_TERM
+
+    ; store char
+    STORER R0, R3, R4
+
+    ; ++src
+    INC R2
+    JNZ R2, READTOKEN_SRC_OK
+    INC R1
+READTOKEN_SRC_OK:
+
+    ; ++dst
+    INC R4
+    JNZ R4, READTOKEN_DST_OK
+    INC R3
+READTOKEN_DST_OK:
+
+    INC R6
+    DEC R5
+    JMP READTOKEN_LOOP
+
+READTOKEN_TERM:
+    SET #0x00, R0
+    STORER R0, R3, R4
+READTOKEN_DONE:
+    RET
+
+; ---------------------------------------------------------------------------
+; PARSE_U8_DEC
+;   Parse an unsigned decimal integer (0..255).
+;   Args:
+;     R1:R2 = pointer to text (leading spaces/tabs allowed)
+;   Returns:
+;     R0 = parsed value (undefined if R4==0)
+;     R4 = 1 on success, 0 on failure (no digits or overflow)
+;     R1:R2 = advanced pointer (after last digit on success)
+;   Clobbers: R5, R6, R7
+; ---------------------------------------------------------------------------
+PARSE_U8_DEC:
+    CALL SKIPSPACES
+    SET #0x00, R4          ; success flag
+    SET #0x00, R6          ; value low
+    SET #0x00, R7          ; value high (overflow detect)
+
+PARSE_U8_DEC_LOOP:
+    LOADR R5, R1, R2
+    JZ R5, PARSE_U8_DEC_DONE
+
+    ; check digit '0'..'9'
+    SET #0x00, R0
+    ADDR R5, R0
+    CMP R0, #0x30
+    JC PARSE_U8_DEC_DONE           ; < '0'
+
+    SET #0x00, R0
+    ADDR R5, R0
+    CMP R0, #0x3A
+    JC PARSE_U8_DEC_IS_DIGIT       ; < ':' => digit
+    JMP PARSE_U8_DEC_DONE
+
+PARSE_U8_DEC_IS_DIGIT:
+    ; have at least one digit
+    SET #0x01, R4
+
+    ; digit = ch - '0' into R5
+    SET #0x00, R0
+    ADDR R5, R0
+    SUB #0x30, R0
+    SET #0x00, R5
+    ADDR R0, R5
+
+    ; value = value*10 + digit
+    ; We want low in R6, high in R7.
+    MUL #10, R7, R6
+    JNC PARSE_U8_DEC_MUL_OK
+    JMP PARSE_U8_DEC_OVERFLOW
+PARSE_U8_DEC_MUL_OK:
+
+    ADDR R5, R6
+    JNC PARSE_U8_DEC_ADD_OK
+    INC R7
+PARSE_U8_DEC_ADD_OK:
+    JNZ R7, PARSE_U8_DEC_OVERFLOW
+
+    ; ++ptr
+    INC R2
+    JNZ R2, PARSE_U8_DEC_LOOP
+    INC R1
+    JMP PARSE_U8_DEC_LOOP
+
+PARSE_U8_DEC_OVERFLOW:
+    SET #0x00, R4
+    RET
+
+PARSE_U8_DEC_DONE:
+    JZ R4, PARSE_U8_DEC_FAIL
+    SET #0x00, R0
+    ADDR R6, R0
+    RET
+PARSE_U8_DEC_FAIL:
+    RET

@@ -1,0 +1,146 @@
+; ctype.s8 — character classification and case conversion (ctype.h-like)
+;
+; Conventions (this file):
+;   Args:     R0 = character (byte)
+;   Returns:  R4 = 1 if true, 0 if false
+;   Clobbers: R5
+
+; ---------------------------------------------------------------------------
+; ISSPACE
+;   True for: space (0x20), tab (0x09), CR (0x0D), LF (0x0A)
+; ---------------------------------------------------------------------------
+ISSPACE:
+    SET #0x00, R4
+    SET #0x00, R5
+    ADDR R0, R5
+    CMP R5, #0x20
+    JZ R5, ISSPACE_TRUE
+    SET #0x00, R5
+    ADDR R0, R5
+    CMP R5, #0x09
+    JZ R5, ISSPACE_TRUE
+    SET #0x00, R5
+    ADDR R0, R5
+    CMP R5, #0x0D
+    JZ R5, ISSPACE_TRUE
+    SET #0x00, R5
+    ADDR R0, R5
+    CMP R5, #0x0A
+    JZ R5, ISSPACE_TRUE
+    RET
+ISSPACE_TRUE:
+    SET #0x01, R4
+    RET
+
+; ---------------------------------------------------------------------------
+; ISDIGIT  ('0'..'9')
+; ---------------------------------------------------------------------------
+ISDIGIT:
+    SET #0x00, R4
+    SET #0x00, R5
+    ADDR R0, R5
+    CMP R5, #0x30
+    JC ISDIGIT_DONE
+    SET #0x00, R5
+    ADDR R0, R5
+    CMP R5, #0x3A
+    JC ISDIGIT_TRUE
+    JMP ISDIGIT_DONE
+ISDIGIT_TRUE:
+    SET #0x01, R4
+ISDIGIT_DONE:
+    RET
+
+; ---------------------------------------------------------------------------
+; ISUPPER ('A'..'Z')
+; ---------------------------------------------------------------------------
+ISUPPER:
+    SET #0x00, R4
+    SET #0x00, R5
+    ADDR R0, R5
+    CMP R5, #0x41
+    JC ISUPPER_DONE
+    SET #0x00, R5
+    ADDR R0, R5
+    CMP R5, #0x5B
+    JC ISUPPER_TRUE
+    JMP ISUPPER_DONE
+ISUPPER_TRUE:
+    SET #0x01, R4
+ISUPPER_DONE:
+    RET
+
+; ---------------------------------------------------------------------------
+; ISLOWER ('a'..'z')
+; ---------------------------------------------------------------------------
+ISLOWER:
+    SET #0x00, R4
+    SET #0x00, R5
+    ADDR R0, R5
+    CMP R5, #0x61
+    JC ISLOWER_DONE
+    SET #0x00, R5
+    ADDR R0, R5
+    CMP R5, #0x7B
+    JC ISLOWER_TRUE
+    JMP ISLOWER_DONE
+ISLOWER_TRUE:
+    SET #0x01, R4
+ISLOWER_DONE:
+    RET
+
+; ---------------------------------------------------------------------------
+; ISALPHA (A-Z or a-z)
+; ---------------------------------------------------------------------------
+ISALPHA:
+    CALL ISUPPER
+    JNZ R4, ISALPHA_TRUE
+    CALL ISLOWER
+    JNZ R4, ISALPHA_TRUE
+    SET #0x00, R4
+    RET
+ISALPHA_TRUE:
+    SET #0x01, R4
+    RET
+
+; ---------------------------------------------------------------------------
+; ISALNUM (alpha or digit)
+; ---------------------------------------------------------------------------
+ISALNUM:
+    CALL ISALPHA
+    JNZ R4, ISALNUM_TRUE
+    CALL ISDIGIT
+    JNZ R4, ISALNUM_TRUE
+    SET #0x00, R4
+    RET
+ISALNUM_TRUE:
+    SET #0x01, R4
+    RET
+
+; ---------------------------------------------------------------------------
+; TOUPPER
+;   If 'a'..'z', subtract 0x20.
+;   Args: R0 = char
+;   Returns: R0 = converted char
+;   Clobbers: R4, R5
+; ---------------------------------------------------------------------------
+TOUPPER:
+    CALL ISLOWER
+    JZ R4, TOUPPER_DONE
+    SUB #0x20, R0
+TOUPPER_DONE:
+    RET
+
+; ---------------------------------------------------------------------------
+; TOLOWER
+;   If 'A'..'Z', add 0x20.
+;   Args: R0 = char
+;   Returns: R0 = converted char
+;   Clobbers: R4, R5
+; ---------------------------------------------------------------------------
+TOLOWER:
+    CALL ISUPPER
+    JZ R4, TOLOWER_DONE
+    ADD #0x20, R0
+TOLOWER_DONE:
+    RET

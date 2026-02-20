@@ -1,0 +1,338 @@
+; conv.s8 — integer/string conversions (small stdlib subset)
+;
+; Dependencies:
+;   - parse.s8: SKIPSPACES
+;   - u16.s8: U16_MUL_U8, U16_ADD, U16_CMP, U16_DIV_U8
+;   - int16.s8: I16_NEG
+;
+; ---------------------------------------------------------------------------
+; PARSE_U16_DEC
+;   Parse an unsigned decimal integer (0..65535).
+;   Args:
+;     R1:R2 = pointer to text (leading spaces/tabs allowed)
+;   Returns:
+;     R6:R7 = parsed value (undefined if R4==0)
+;     R4 = 1 on success, 0 on failure (no digits or overflow)
+;     R1:R2 = advanced pointer (after last digit on success)
+;   Clobbers: R0, R3, R5
+; ---------------------------------------------------------------------------
+PARSE_U16_DEC:
+    CALL SKIPSPACES
+    SET #0x00, R6
+    SET #0x00, R7
+    SET #0x00, R0
+    STORE R0, TMP_PARSE_OK
+
+P_U16_LOOP:
+    LOADR R5, R1, R2
+    JZ R5, P_U16_DONE
+
+    ; digit?
+    SET #0x00, R0
+    ADDR R5, R0
+    CMP R0, #0x30
+    JC P_U16_DONE
+
+    SET #0x00, R0
+    ADDR R5, R0
+    CMP R0, #0x3A
+    JC P_U16_ISDIG
+    JMP P_U16_DONE
+
+P_U16_ISDIG:
+    SET #0x01, R0
+    STORE R0, TMP_PARSE_OK
+
+    ; digit = ch - '0' (store to TMP_DIG)
+    SET #0x00, R0
+    ADDR R5, R0
+    SUB #0x30, R0
+    STORE R0, TMP_DIG
+
+    ; save pointer
+    STORE R1, TMP_PTR_H
+    STORE R2, TMP_PTR_L
+
+    ; value = value * 10
+    SET #0x00, R0
+    ADDR R6, R0
+    SET #0x00, R1
+    ADDR R7, R1
+    SET #10, R2
+    CALL U16_MUL_U8
+    JNZ R4, P_U16_FAIL_OVER
+    ; result in R0:R1
+
+    ; + digit
+    SET #0x00, R2
+    LOAD TMP_DIG, R3
+    CALL U16_ADD
+    JNZ R4, P_U16_FAIL_OVER
+
+    ; store back to value
+    SET #0x00, R6
+    ADDR R0, R6
+    SET #0x00, R7
+    ADDR R1, R7
+
+    ; restore pointer
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+
+    ; ++ptr
+    INC R2
+    JNZ R2, P_U16_LOOP
+    INC R1
+    JMP P_U16_LOOP
+
+P_U16_FAIL_OVER:
+    SET #0x00, R0
+    STORE R0, TMP_PARSE_OK
+    SET #0x00, R4
+    RET
+
+P_U16_DONE:
+    LOAD TMP_PARSE_OK, R4
+    RET
+
+; ---------------------------------------------------------------------------
+; PARSE_I16_DEC
+;   Parse a signed decimal integer (-32768..32767).
+;   Args:
+;     R1:R2 = pointer to text (leading spaces/tabs allowed)
+;   Returns:
+;     R6:R7 = parsed value (undefined if R4==0)
+;     R4 = 1 on success, 0 on failure
+;     R1:R2 = advanced pointer (after last digit on success)
+;   Clobbers: R0, R3, R5
+; ---------------------------------------------------------------------------
+PARSE_I16_DEC:
+    CALL SKIPSPACES
+    SET #0x00, R5            ; sign flag: 0=+, 1=-
+
+    LOADR R0, R1, R2
+    ; '-'?
+    SET #0x00, R3
+    ADDR R0, R3
+    CMP R3, #0x2D
+    JZ R3, P_I16_NEG
+    ; '+'?
+    SET #0x00, R3
+    ADDR R0, R3
+    CMP R3, #0x2B
+    JZ R3, P_I16_POS
+    JMP P_I16_PARSE
+
+P_I16_NEG:
+    SET #0x01, R5
+    INC R2
+    JNZ R2, P_I16_PARSE
+    INC R1
+    JMP P_I16_PARSE
+P_I16_POS:
+    INC R2
+    JNZ R2, P_I16_PARSE
+    INC R1
+
+P_I16_PARSE:
+    CALL PARSE_U16_DEC
+    JZ R4, P_I16_FAIL
+
+    ; range check
+    JZ R5, P_I16_POS_RANGE
+    ; negative: allow <= 32768
+    SET #0x80, R0
+    SET #0x00, R1
+    SET #0x00, R2
+    SET #0x00, R3
+    ADDR R6, R2
+    ADDR R7, R3
+    CALL U16_CMP
+    ; if A > limit => fail
+    CMP R4, #0x02
+    JZ R4, P_I16_FAIL
+
+    ; negate
+    SET #0x00, R0
+    ADDR R6, R0
+    SET #0x00, R1
+    ADDR R7, R1
+    CALL I16_NEG
+    SET #0x00, R6
+    ADDR R0, R6
+    SET #0x00, R7
+    ADDR R1, R7
+    SET #0x01, R4
+    RET
+
+P_I16_POS_RANGE:
+    ; positive: allow <= 32767
+    SET #0x7F, R0
+    SET #0xFF, R1
+    SET #0x00, R2
+    SET #0x00, R3
+    ADDR R6, R2
+    ADDR R7, R3
+    CALL U16_CMP
+    CMP R4, #0x02
+    JZ R4, P_I16_FAIL
+    SET #0x01, R4
+    RET
+
+P_I16_FAIL:
+    SET #0x00, R4
+    RET
+
+; ---------------------------------------------------------------------------
+; U16_TO_DEC_BUF
+;   Convert unsigned 16-bit value to decimal ASCII.
+;   Args:
+;     R0:R1 = value
+;     R2:R3 = output buffer
+;     R4    = max bytes INCLUDING NUL (>=2 recommended)
+;   Returns:
+;     R5 = length (excluding NUL)
+;     R6 = 1 on success, 0 on failure (buffer too small)
+;   Clobbers: R7
+;
+; Notes:
+;   Writes minimal digits (no leading zeros). Always NUL-terminates on success.
+; ---------------------------------------------------------------------------
+U16_TO_DEC_BUF:
+    ; max must be >= 2 for at least one digit + NUL
+    SET #0x00, R6
+    ADDR R4, R6
+    CMP R6, #0x02
+    JC U16_TO_DEC_FAIL
+
+    ; preserve max and output pointer (division uses/clobbers many regs)
+    STORE R4, TMP_MAX
+    STORE R2, TMP_OUT_H
+    STORE R3, TMP_OUT_L
+
+    ; end_ptr = out + (max-1)
+    LOAD TMP_OUT_H, R6
+    LOAD TMP_OUT_L, R7
+    LOAD TMP_MAX, R5
+    DEC R5
+U16_TO_DEC_END_ADV:
+    JZ R5, U16_TO_DEC_END_DONE
+    INC R7
+    JNZ R7, U16_TO_DEC_END_ADV_OK
+    INC R6
+U16_TO_DEC_END_ADV_OK:
+    DEC R5
+    JMP U16_TO_DEC_END_ADV
+U16_TO_DEC_END_DONE:
+    ; write NUL at end
+    SET #0x00, R5
+    STORER R5, R6, R7
+
+    ; write_ptr = end-1
+    DEC R7
+    JNC U16_TO_DEC_WPTR_OK
+    DEC R6
+U16_TO_DEC_WPTR_OK:
+
+    ; count = 0
+    SET #0x00, R5
+    STORE R5, TMP_LEN
+
+    ; if value == 0 => write '0'
+    JNZ R0, U16_TO_DEC_LOOP
+    JNZ R1, U16_TO_DEC_LOOP
+    SET #0x30, R3
+    STORER R3, R6, R7
+    SET #0x01, R5
+    STORE R5, TMP_LEN
+    JMP U16_TO_DEC_COPY_TO_START
+
+U16_TO_DEC_LOOP:
+    ; save write_ptr
+    STORE R6, TMP_WPTR_H
+    STORE R7, TMP_WPTR_L
+
+    SET #10, R2
+    CALL U16_DIV_U8          ; quotient in R0:R1, remainder in R3
+
+    ; restore write_ptr
+    LOAD TMP_WPTR_H, R6
+    LOAD TMP_WPTR_L, R7
+
+    ; store digit
+    ADD #0x30, R3
+    STORER R3, R6, R7
+
+    ; count++
+    LOAD TMP_LEN, R5
+    INC R5
+    STORE R5, TMP_LEN
+
+    ; move write_ptr back
+    DEC R7
+    JNC U16_TO_DEC_WPTR2_OK
+    DEC R6
+U16_TO_DEC_WPTR2_OK:
+
+    ; continue while quotient != 0
+    JNZ R0, U16_TO_DEC_LOOP
+    JNZ R1, U16_TO_DEC_LOOP
+
+U16_TO_DEC_COPY_TO_START:
+    ; src = write_ptr + 1
+    INC R7
+    JNZ R7, U16_TO_DEC_SRC_START_OK
+    INC R6
+U16_TO_DEC_SRC_START_OK:
+
+    ; dst = out
+    LOAD TMP_OUT_H, R2
+    LOAD TMP_OUT_L, R3
+
+    ; len = TMP_LEN
+    LOAD TMP_LEN, R5
+    JZ R5, U16_TO_DEC_FAIL
+
+U16_TO_DEC_MEMCPY:
+    LOADR R4, R6, R7
+    STORER R4, R2, R3
+
+    ; ++src
+    INC R7
+    JNZ R7, U16_TO_DEC_SRC_INC_OK
+    INC R6
+U16_TO_DEC_SRC_INC_OK:
+    ; ++dst
+    INC R3
+    JNZ R3, U16_TO_DEC_DST_INC_OK
+    INC R2
+U16_TO_DEC_DST_INC_OK:
+
+    DEC R5
+    JNZ R5, U16_TO_DEC_MEMCPY
+
+    ; NUL terminator at dst
+    SET #0x00, R4
+    STORER R4, R2, R3
+
+    ; return
+    LOAD TMP_LEN, R5
+    SET #0x01, R6
+    RET
+
+U16_TO_DEC_FAIL:
+    SET #0x00, R6
+    SET #0x00, R5
+    RET
+
+; Store length temporarily for return (single byte is enough: max 5)
+TMP_LEN: .byte 0
+TMP_PARSE_OK: .byte 0
+TMP_DIG: .byte 0
+TMP_PTR_H: .byte 0
+TMP_PTR_L: .byte 0
+TMP_MAX: .byte 0
+TMP_OUT_H: .byte 0
+TMP_OUT_L: .byte 0
+TMP_WPTR_H: .byte 0
+TMP_WPTR_L: .byte 0

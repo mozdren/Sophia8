@@ -1,0 +1,214 @@
+.org 0x0200
+
+.include "kernel.s8"
+.include "line.s8"
+.include "parse.s8"
+.include "ctype.s8"
+.include "u16.s8"
+.include "int16.s8"
+.include "conv.s8"
+
+START:
+    ; --- ctype ---
+    SET #0x35, R0           ; '5'
+    CALL ISDIGIT
+    CMP R4, #0x01
+    JNZ R4, FAIL_CTYPE_DIGIT
+
+    SET #0x61, R0           ; 'a'
+    CALL ISDIGIT
+    JZ R4, OK1
+    JMP FAIL_CTYPE_NOTDIGIT
+OK1:
+
+    SET #0x41, R0           ; 'A'
+    CALL TOLOWER
+    SET #0x00, R5
+    ADDR R0, R5
+    CMP R5, #0x61           ; 'a'
+    JNZ R5, FAIL_CTYPE_TOLOWER
+
+    SET #0x7A, R0           ; 'z'
+    CALL TOUPPER
+    SET #0x00, R5
+    ADDR R0, R5
+    CMP R5, #0x5A           ; 'Z'
+    JNZ R5, FAIL_CTYPE_TOUPPER
+
+    ; --- u16 add ---
+    SET #0x00, R0
+    SET #0xFF, R1
+    SET #0x00, R2
+    SET #0x01, R3
+    CALL U16_ADD
+    CMP R0, #0x01
+    JNZ R0, FAIL_U16_ADD1
+    CMP R1, #0x00
+    JNZ R1, FAIL_U16_ADD1
+    CMP R4, #0x00
+    JNZ R4, FAIL_U16_ADD1
+
+    SET #0xFF, R0
+    SET #0xFF, R1
+    SET #0x00, R2
+    SET #0x01, R3
+    CALL U16_ADD
+    CMP R0, #0x00
+    JNZ R0, FAIL_U16_ADD2
+    CMP R1, #0x00
+    JNZ R1, FAIL_U16_ADD2
+    CMP R4, #0x01
+    JNZ R4, FAIL_U16_ADD2
+
+    ; --- u16 div ---
+    SET #0x03, R0           ; 1000 = 0x03E8
+    SET #0xE8, R1
+    SET #10, R2
+    CALL U16_DIV_U8
+    CMP R0, #0x00
+    JNZ R0, FAIL_U16_DIV1
+    CMP R1, #100
+    JNZ R1, FAIL_U16_DIV1
+    CMP R3, #0x00
+    JNZ R3, FAIL_U16_DIV1
+
+    SET #0xFF, R0           ; 65535
+    SET #0xFF, R1
+    SET #10, R2
+    CALL U16_DIV_U8
+    CMP R0, #0x19           ; 6553 = 0x1999
+    JNZ R0, FAIL_U16_DIV2
+    CMP R1, #0x99
+    JNZ R1, FAIL_U16_DIV2
+    CMP R3, #0x05
+    JNZ R3, FAIL_U16_DIV2
+
+    ; --- PARSE_U16_DEC ---
+    SET #0x40, R1
+    SET #0x00, R2
+    CALL PARSE_U16_DEC
+    CMP R4, #0x01
+    JNZ R4, FAIL_PARSE_U16
+    CMP R6, #0xFF
+    JNZ R6, FAIL_PARSE_U16
+    CMP R7, #0xFF
+    JNZ R7, FAIL_PARSE_U16
+    ; pointer should now be at 'x'
+    LOADR R0, R1, R2
+    CMP R0, #0x78
+    JNZ R0, FAIL_PARSE_U16_PTR
+
+    ; --- PARSE_I16_DEC (-32768) ---
+    SET #0x40, R1
+    SET #0x10, R2
+    CALL PARSE_I16_DEC
+    CMP R4, #0x01
+    JNZ R4, FAIL_PARSE_I16
+    CMP R6, #0x80
+    JNZ R6, FAIL_PARSE_I16
+    CMP R7, #0x00
+    JNZ R7, FAIL_PARSE_I16
+
+    ; --- U16_TO_DEC_BUF (65535) ---
+    SET #0xFF, R0
+    SET #0xFF, R1
+    SET #0x43, R2
+    SET #0x00, R3
+    SET #8, R4              ; plenty
+    CALL U16_TO_DEC_BUF
+    CMP R6, #0x01
+    JNZ R6, FAIL_U16_TO_DEC
+    ; compare first 5 chars
+    SET #0x43, R1
+    SET #0x00, R2
+    LOADR R0, R1, R2
+    CMP R0, #0x36           ; '6'
+    JNZ R0, FAIL_U16_TO_DEC
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x35           ; '5'
+    JNZ R0, FAIL_U16_TO_DEC
+
+    ; PASS
+    SET #0x40, R1
+    SET #0x80, R2
+    CALL PUTS
+    HALT
+
+; --- fail handlers ---
+FAIL_CTYPE_DIGIT:     SET #0x40, R1
+                      SET #0xA0, R2
+                      JMP FAIL_PRINT
+FAIL_CTYPE_NOTDIGIT:  SET #0x40, R1
+                      SET #0xC0, R2
+                      JMP FAIL_PRINT
+FAIL_CTYPE_TOLOWER:   SET #0x40, R1
+                      SET #0xE0, R2
+                      JMP FAIL_PRINT
+FAIL_CTYPE_TOUPPER:   SET #0x41, R1
+                      SET #0x00, R2
+                      JMP FAIL_PRINT
+FAIL_U16_ADD1:        SET #0x41, R1
+                      SET #0x20, R2
+                      JMP FAIL_PRINT
+FAIL_U16_ADD2:        SET #0x41, R1
+                      SET #0x40, R2
+                      JMP FAIL_PRINT
+FAIL_U16_DIV1:        SET #0x41, R1
+                      SET #0x60, R2
+                      JMP FAIL_PRINT
+FAIL_U16_DIV2:        SET #0x41, R1
+                      SET #0x80, R2
+                      JMP FAIL_PRINT
+FAIL_PARSE_U16:       SET #0x41, R1
+                      SET #0xA0, R2
+                      JMP FAIL_PRINT
+FAIL_PARSE_U16_PTR:   SET #0x41, R1
+                      SET #0xC0, R2
+                      JMP FAIL_PRINT
+FAIL_PARSE_I16:       SET #0x41, R1
+                      SET #0xE0, R2
+                      JMP FAIL_PRINT
+FAIL_U16_TO_DEC:      SET #0x42, R1
+                      SET #0x00, R2
+                      JMP FAIL_PRINT
+
+FAIL_PRINT:
+    CALL PUTS
+    HALT
+
+
+.org 0x4000
+STR_U16: .string " 65535x"
+.org 0x4010
+STR_I16: .string "-32768"
+
+.org 0x4080
+MSG_PASS: .string "ALL PASS\n"
+.org 0x40A0
+MSG_FAIL_CTYPE_DIGIT: .string "FAIL ctype isdigit\n"
+.org 0x40C0
+MSG_FAIL_CTYPE_NOTDIGIT: .string "FAIL ctype notdigit\n"
+.org 0x40E0
+MSG_FAIL_CTYPE_TOLOWER: .string "FAIL ctype tolower\n"
+.org 0x4100
+MSG_FAIL_CTYPE_TOUPPER: .string "FAIL ctype toupper\n"
+.org 0x4120
+MSG_FAIL_U16_ADD1: .string "FAIL u16 add1\n"
+.org 0x4140
+MSG_FAIL_U16_ADD2: .string "FAIL u16 add2\n"
+.org 0x4160
+MSG_FAIL_U16_DIV1: .string "FAIL u16 div1\n"
+.org 0x4180
+MSG_FAIL_U16_DIV2: .string "FAIL u16 div2\n"
+.org 0x41A0
+MSG_FAIL_PARSE_U16: .string "FAIL parse u16\n"
+.org 0x41C0
+MSG_FAIL_PARSE_U16_PTR: .string "FAIL parse u16 ptr\n"
+.org 0x41E0
+MSG_FAIL_PARSE_I16: .string "FAIL parse i16\n"
+.org 0x4200
+MSG_FAIL_U16_TO_DEC: .string "FAIL u16 to dec\n"
+
+.org 0x4300
+OUTBUF: .byte 0,0,0,0,0,0,0,0

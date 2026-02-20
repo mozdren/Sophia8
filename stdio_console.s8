@@ -1,0 +1,43 @@
+; stdio_console.s8 — stdio-like console wrappers
+;
+; Dependencies:
+;   - kernel.s8: PUTC, GETC, PUTS
+;   - line.s8: READLINE_ECHO
+
+; ---------------------------------------------------------------------------
+; PUTCHAR
+;   Args: R0 = char
+; ---------------------------------------------------------------------------
+PUTCHAR:
+    CALL PUTC
+    RET
+
+; ---------------------------------------------------------------------------
+; GETCHAR
+;   Returns: R0 = char
+; ---------------------------------------------------------------------------
+GETCHAR:
+    CALL GETC
+    RET
+
+; ---------------------------------------------------------------------------
+; FPUTS
+;   Print NUL-terminated string.
+;   Args: R1:R2 = pointer
+; ---------------------------------------------------------------------------
+FPUTS:
+    CALL PUTS
+    RET
+
+; ---------------------------------------------------------------------------
+; FGETS
+;   Read a line into buffer (echoing).
+;   Args:
+;     R1:R2 = destination buffer
+;     R3    = max bytes INCLUDING terminator
+;   Returns:
+;     R4 = length (excluding NUL)
+; ---------------------------------------------------------------------------
+FGETS:
+    CALL READLINE_ECHO
+    RET

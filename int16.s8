@@ -1,0 +1,117 @@
+; int16.s8 — 16-bit signed helpers (two's complement)
+;
+; Depends on u16.s8 (U16_SUB / U16_CMP).
+;
+; Conventions (this file):
+;   i16 value = HI:LO
+;   A in R0:R1, B in R2:R3
+
+; ---------------------------------------------------------------------------
+; I16_NEG
+;   R0:R1 = -R0:R1
+;   Clobbers: R2, R3, R4
+; ---------------------------------------------------------------------------
+I16_NEG:
+    ; compute 0 - x
+    SET #0x00, R2
+    SET #0x00, R3
+    ; swap: want A=0, B=x. Place x into R2:R3 for U16_SUB expects A in R0:R1.
+    ; We currently have x in R0:R1. Move x -> R2:R3.
+    SET #0x00, R2
+    ADDR R0, R2
+    SET #0x00, R3
+    ADDR R1, R3
+    SET #0x00, R0
+    SET #0x00, R1
+    CALL U16_SUB
+    RET
+
+; ---------------------------------------------------------------------------
+; I16_ABS
+;   R0:R1 = abs(R0:R1)
+;   Clobbers: R2, R3, R4
+; ---------------------------------------------------------------------------
+I16_ABS:
+    ; if sign bit (bit15) set, negate
+    SET #0x00, R2
+    ADDR R0, R2
+    CMP R2, #0x80
+    JC I16_ABS_DONE
+    CALL I16_NEG
+I16_ABS_DONE:
+    RET
+
+; ---------------------------------------------------------------------------
+; I16_CMP
+;   Signed compare A (R0:R1) vs B (R2:R3).
+;   Returns:
+;     R4 = 0 if A < B
+;     R4 = 1 if A == B
+;     R4 = 2 if A > B
+;   Clobbers: R5, R6, R7
+; ---------------------------------------------------------------------------
+I16_CMP:
+    ; Extract sign bits by comparing high byte to 0x80
+    SET #0x00, R5
+    ADDR R0, R5
+    CMP R5, #0x80
+    JC I16_CMP_A_POS
+    ; A negative
+    SET #0x01, R6
+    JMP I16_CMP_A_SIGN_DONE
+I16_CMP_A_POS:
+    SET #0x00, R6
+I16_CMP_A_SIGN_DONE:
+
+    SET #0x00, R5
+    ADDR R2, R5
+    CMP R5, #0x80
+    JC I16_CMP_B_POS
+    ; B negative
+    SET #0x01, R7
+    JMP I16_CMP_B_SIGN_DONE
+I16_CMP_B_POS:
+    SET #0x00, R7
+I16_CMP_B_SIGN_DONE:
+
+    ; if signs differ: negative < positive
+    SET #0x00, R5
+    ADDR R6, R5
+    CMPR R7, R5
+    JZ R5, I16_CMP_SAME_SIGN
+    ; R5 = R6 - R7; if borrow => R6 < R7 => A positive, B negative => A > B
+    JC I16_CMP_A_GT_B
+    ; else A negative, B positive
+    JMP I16_CMP_A_LT_B
+
+I16_CMP_SAME_SIGN:
+    ; Same sign: if both negative, compare unsigned reversed (because more negative is smaller)
+    JZ R6, I16_CMP_UNSIGNED
+    ; both negative: compare B vs A unsigned
+    ; swap A and B into expected regs for U16_CMP
+    SET #0x00, R5
+    ADDR R0, R5
+    SET #0x00, R0
+    ADDR R2, R0
+    SET #0x00, R2
+    ADDR R5, R2
+
+    SET #0x00, R5
+    ADDR R1, R5
+    SET #0x00, R1
+    ADDR R3, R1
+    SET #0x00, R3
+    ADDR R5, R3
+    CALL U16_CMP
+    RET
+
+I16_CMP_UNSIGNED:
+    CALL U16_CMP
+    RET
+
+I16_CMP_A_LT_B:
+    SET #0x00, R4
+    RET
+I16_CMP_A_GT_B:
+    SET #0x02, R4
+    RET
