@@ -1,1076 +1,2078 @@
-// s8asm.cpp - Sophia8 Assembler (C++17)
-// Spec: deterministic Sophia8 assembler with .include and .org entry marker.
-//
-// Features (frozen):
-// - Output is full 0xFFFF-byte memory image (addresses 0x0000..0xFFFE), zero-filled.
-// - Implicit entry stub at 0x0000..0x0002: JMP <ENTRY>
-// - Default emission begins at 0x0003.
-// - .org <addr>: sets location counter to addr (>=0x0003). Multiple allowed.
-// - .org (no operand): entry marker only (does not move LC). Allowed exactly once.
-// - If .org (no operand) exists -> ENTRY is its LC. Else ENTRY is first .org <addr>.
-// - .org is mandatory overall (either form must appear at least once).
-// - .include "file.s8": pure textual include at position; nested includes allowed.
-//   Path resolution: 1) including file dir, 2) entry file dir, else error.
-//   Include cycles: strict error w/ include chain. Multiple include of same file: strict error.
-// - Labels are global; duplicate labels are strict error.
-// - Case-sensitive syntax. Comments start with ';' to end-of-line.
-// - Immediates must use '#': #0x.. #123 #0b..
-// - Addresses are plain 0x.... or labels (no '#').
-// - .byte: numeric literals only (no labels, no '#'), trailing comma allowed.
-// - .word: numeric literals or labels (no '#'), trailing comma allowed.
-// - Any overlap emission is a strict error.
-//
-// Build:
-//   g++ -std=c++17 -O2 s8asm.cpp -o s8asm
-// Use:
-//   ./s8asm main.s8 -o image.bin
+/*****************************************************************************/
+/*                                                                           */
+/* Project: Sophia8 - an 8 bit virtual machine                               */
+/* Author:  Karel Mozdren                                                    */
+/* File:    sophia8.cpp                                                      */
+/* Date:    06.04.2017                                                       */
+/*                                                                           */
+/* Description:                                                              */
+/*                                                                           */
+/* This is a simple virtual machine which simulates 8 bit computer with      */
+/* 16 bit addressing, and random access memory (not a plain stack machine).  */
+/* The machine has 8 general purpose registers and a stack which starts      */
+/* pointing at the end of memory and goes down as being pushed upon.         */
+/*                                                                           */
+/*****************************************************************************/
 
-#include <cstdint>
+/* INCLUDES ******************************************************************/
+
+//#define DEBUG_COMMAND
+
 #include <cstdio>
-#include <cstdlib>
+#include <cstdint>
 #include <cstring>
+#include <cstdlib>
+
 #include <string>
 #include <vector>
-#include <unordered_map>
-#include <unordered_set>
-#include <optional>
-#include <stdexcept>
-#include <sstream>
 #include <fstream>
-#include <iostream>
+#include <sstream>
 #include <filesystem>
 #include <algorithm>
 
-namespace fs = std::filesystem;
+#include "definitions.h"
 
-static constexpr uint32_t MEM_SIZE = 0xFFFF; // bytes, valid indices 0x0000..0xFFFE
+#ifndef LOADR
+    #define LOADR 0x1C
+#endif
+
+/* Windows real-time console I/O */
+#ifdef _WIN32
+    #include <conio.h>
+#else
+    /* POSIX real-time console I/O (Linux/macOS) */
+    #include <unistd.h>
+    #include <termios.h>
+    #include <fcntl.h>
+    #include <sys/select.h>
+    #include <sys/time.h>
+    #include <cstdlib>
+#endif
+
+#ifdef DEBUG_COMMAND
+    #define DBG_CMD(...) do { printf(__VA_ARGS__); printf("\n"); } while (0)
+#else
+    #define DBG_CMD(...)
+#endif
+
+/* Memory-mapped I/O (0xFF00..0xFF03)
+ * 0xFF00 KBD_STATUS (R): bit0=1 if a byte is available
+ * 0xFF01 KBD_DATA   (R): pops a byte (7-bit ASCII), returns 0x00 if none
+ * 0xFF02 TTY_STATUS (R): bit0=1 always
+ * 0xFF03 TTY_DATA   (W): write byte to console
+ */
+static inline uint8_t mmio_read(uint16_t address);
+static inline void    mmio_write(uint16_t address, uint8_t value);
+static inline uint8_t mem_read(uint16_t address);
+static inline void    mem_write(uint16_t address, uint8_t value);
+
+
+/* REGISTERS *****************************************************************/
+
+/* registers */
+
+static uint8_t  r[8];           /* general purpose registers                 */
+static uint16_t ip;             /* instruction pointer                       */
+static uint16_t sp;             /* stack pointer                             */
+static uint16_t bp;             /* stack frame pointer                       */
+
+/* flags registers */
+
+static uint8_t  c;              /* carry flag                                */
+
+/* MEMORY ********************************************************************/
+
+static uint8_t  mem[MEM_SIZE];  /* random access memory                      */
 
 static void print_help(const char* prog)
 {
-    // Keep this text implementation-accurate. Anything not listed here should be considered undefined.
-    std::cout
-        << "Sophia8 Assembler (s8asm)\n"
-        << "\n"
-        << "Usage:\n"
-        << "  " << prog << " <input.s8> [-o <output.bin>]\n"
-        << "\n"
-        << "Options:\n"
-        << "  -o, --output <file>   Output image file (default: sophia8_image.bin)\n"
-        << "  -h, --help            Show this help\n"
-        << "\n"
-        << "What it produces:\n"
-        << "  <output.bin>          Full 0xFFFF-byte memory image (0x0000..0xFFFE), zero-filled\n"
-        << "  <output.pre.s8>       Fully preprocessed source (.include expanded) with ';@ file:line' markers\n"
-        << "  <output.deb>          Debug map used by sophia8 for file:line breakpoints\n"
-        << "\n"
-        << "Key rules (strict):\n"
-        << "  - Implicit entry stub at 0x0000..0x0002: JMP <entry>. User code/data must start >= 0x0003\n"
-        << "  - .org <addr> sets absolute location (numeric literal only); .org (no operand) marks entry (once)\n"
-        << "  - .include is textual, include-once is enforced, include cycles are errors\n"
-        << "  - Labels are global and case-sensitive; duplicates and undefined labels are errors\n"
-        << "  - .byte: numeric literals only; .word: literals or labels; .string: 7-bit ASCII with escapes\n"
-        << "  - Any overlapping emission is an error\n"
-        << "\n"
-        << "Examples:\n"
-        << "  " << prog << " main.s8 -o program.bin\n";
+    printf("Sophia8 VM (sophia8)\n\n");
+    printf("Usage:\n");
+    printf("  %s\n", prog);
+    printf("      Run built-in test program.\n\n");
+    printf("  %s <image.bin>\n", prog);
+    printf("      Load and run a raw 0xFFFF-byte memory image.\n\n");
+    printf("  %s <program.deb>\n", prog);
+    printf("      Load a .deb debug map (emitted by s8asm), then load its referenced .bin, then run.\n\n");
+    printf("  %s <program.deb> <break_file> <break_line>\n", prog);
+    printf("      Run and stop when execution reaches the source location mapped from file:line.\n");
+    printf("      When hit: prints registers, writes debug.img snapshot, and stops.\n\n");
+    printf("  %s debug.img\n", prog);
+    printf("      Resume execution from a previously saved debug snapshot.\n\n");
+    printf("  %s debug.img <program.deb> <break_file> <break_line>\n", prog);
+    printf("      Resume from snapshot and use .deb mapping to set a new breakpoint.\n\n");
+    printf("Options:\n");
+    printf("  -h, --help\n");
+    printf("      Show this help.\n");
 }
 
-struct AsmError : public std::runtime_error {
+/* Memory-mapped I/O implementation ******************************************/
+#ifndef _WIN32
+/* POSIX (Linux/macOS) console input
+ *
+ * We emulate the same MMIO semantics as the Windows implementation:
+ *  - KBD_STATUS returns 1 if a byte is available
+ *  - KBD_DATA   returns a 7-bit ASCII byte and consumes it, or 0 if none
+ *
+ * The terminal is put into a non-canonical, no-echo mode and stdin is set
+ * to non-blocking. We also keep a 1-byte queue so that KBD_STATUS does not
+ * consume input.
+ */
+static termios g_old_term;
+static bool    g_term_configured = false;
+static int     g_old_flags = -1;
+static int     g_kbd_queued = -1;
+
+static void restore_console()
+{
+    if (!g_term_configured) return;
+
+    tcsetattr(STDIN_FILENO, TCSANOW, &g_old_term);
+    if (g_old_flags != -1)
+    {
+        fcntl(STDIN_FILENO, F_SETFL, g_old_flags);
+    }
+
+    g_term_configured = false;
+    g_kbd_queued = -1;
+}
+
+static void setup_console()
+{
+    if (g_term_configured) return;
+
+    /* save and configure terminal (raw-ish: no canonical mode, no echo) */
+    if (tcgetattr(STDIN_FILENO, &g_old_term) == 0)
+    {
+        termios raw = g_old_term;
+        raw.c_lflag &= static_cast<unsigned long>(~(ICANON | ECHO));
+        raw.c_cc[VMIN]  = 0;
+        raw.c_cc[VTIME] = 0;
+        tcsetattr(STDIN_FILENO, TCSANOW, &raw);
+    }
+
+    /* set stdin non-blocking */
+    g_old_flags = fcntl(STDIN_FILENO, F_GETFL, 0);
+    if (g_old_flags != -1)
+    {
+        fcntl(STDIN_FILENO, F_SETFL, g_old_flags | O_NONBLOCK);
+    }
+
+    atexit(restore_console);
+    g_term_configured = true;
+}
+
+static bool stdin_readable_now()
+{
+    setup_console();
+
+    fd_set rfds;
+    FD_ZERO(&rfds);
+    FD_SET(STDIN_FILENO, &rfds);
+
+    timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 0;
+
+    const int rc = select(STDIN_FILENO + 1, &rfds, NULL, NULL, &tv);
+    return (rc > 0) && FD_ISSET(STDIN_FILENO, &rfds);
+}
+
+static void fill_kbd_queue_if_needed()
+{
+    if (g_kbd_queued != -1) return;
+    if (!stdin_readable_now()) return;
+
+    unsigned char ch = 0;
+    const ssize_t n = read(STDIN_FILENO, &ch, 1);
+    if (n == 1)
+    {
+        g_kbd_queued = static_cast<int>(ch & 0x7F); /* 7-bit ASCII */
+    }
+}
+
+static uint8_t pop_kbd_byte()
+{
+    fill_kbd_queue_if_needed();
+    if (g_kbd_queued == -1) return 0x00;
+
+    const uint8_t out = static_cast<uint8_t>(g_kbd_queued);
+    g_kbd_queued = -1;
+    return out;
+}
+#endif
+
+static inline uint8_t mmio_read(uint16_t address)
+{
+#ifdef _WIN32
+    if (address == 0xFF00) return _kbhit() ? 0x01 : 0x00;
+    if (address == 0xFF01)
+    {
+        if (!_kbhit()) return 0x00;
+
+        int ch = _getch();
+        if (ch == 0 || ch == 0xE0)
+        {
+            /* swallow special key */
+            (void)_getch();
+            return 0x00;
+        }
+
+        return static_cast<uint8_t>(ch & 0x7F);
+    }
+    if (address == 0xFF02) return 0x01;
+    return 0x00;
+#else
+    if (address == 0xFF00)
+    {
+        fill_kbd_queue_if_needed();
+        return (g_kbd_queued != -1) ? 0x01 : 0x00;
+    }
+
+    if (address == 0xFF01)
+    {
+        return pop_kbd_byte();
+    }
+
+    if (address == 0xFF02)
+    {
+        /* bit0=1 always (as documented by kernel.s8) */
+        return 0x01;
+    }
+
+    return 0x00;
+#endif
+}
+
+static inline void mmio_write(const uint16_t address, const uint8_t value)
+{
+    if (address == 0xFF03)
+    {
+        putchar(static_cast<int>(value));
+        fflush(stdout);
+    }
+}
+
+static inline uint8_t mem_read(const uint16_t address)
+{
+    if (address >= 0xFF00 && address <= 0xFF03) return mmio_read(address);
+    if (address >= MEM_SIZE) return 0x00;
+    return mem[address];
+}
+
+static inline void mem_write(const uint16_t address, const uint8_t value)
+{
+    if (address >= 0xFF00 && address <= 0xFF03) { mmio_write(address, value); return; }
+    if (address >= MEM_SIZE) return;
+    mem[address] = value;
+}
+
+/* SPECIAL TRIGGERS **********************************************************/
+
+static uint8_t  STOP = 0x00;    /* should stop the machine?                  */
+
+/* DEBUG / BREAKPOINT SUPPORT ************************************************/
+
+namespace fs = std::filesystem;
+
+struct DebLine {
+    uint16_t addr = 0;
+    bool is_code = false;
     std::string file;
-    int line_no;
-    std::string line;
-    std::vector<std::string> include_stack;
-    AsmError(std::string msg,
-             std::string file_,
-             int line_no_,
-             std::string line_,
-             std::vector<std::string> stack = {})
-        : std::runtime_error(std::move(msg)),
-          file(std::move(file_)),
-          line_no(line_no_),
-          line(std::move(line_)),
-          include_stack(std::move(stack)) {}
+    int line_no = 0;
 };
 
-static inline std::string trim(const std::string& s) {
-    size_t b = 0;
-    while (b < s.size() && std::isspace((unsigned char)s[b])) b++;
-    size_t e = s.size();
-    while (e > b && std::isspace((unsigned char)s[e-1])) e--;
-    return s.substr(b, e-b);
+static bool ends_with(const std::string& s, const std::string& suf) {
+    return s.size() >= suf.size() && s.compare(s.size() - suf.size(), suf.size(), suf) == 0;
 }
 
-static inline bool starts_with(const std::string& s, const std::string& p) {
-    return s.size() >= p.size() && std::memcmp(s.data(), p.data(), p.size()) == 0;
+static std::string trim(const std::string& s) {
+    const auto b = s.find_first_not_of(" \t\r\n");
+    if (b == std::string::npos) return "";
+    const auto e = s.find_last_not_of(" \t\r\n");
+    return s.substr(b, e - b + 1);
 }
 
-static inline std::vector<std::string> split_operands(const std::string& s) {
-    std::vector<std::string> out;
-    std::string cur;
-    for (char ch : s) {
-        if (ch == ',') {
-            auto t = trim(cur);
-            if (!t.empty()) out.push_back(t);
-            cur.clear();
-        } else {
-            cur.push_back(ch);
+static bool load_deb_map(const char* deb_path,
+                         std::string& out_bin_path,
+                         std::vector<DebLine>& out_lines)
+{
+    out_bin_path.clear();
+    out_lines.clear();
+
+    std::ifstream f(deb_path, std::ios::binary);
+    if (!f) {
+        printf("Failed to open .deb file: %s\n", deb_path);
+        return false;
+    }
+
+    std::string line;
+    while (std::getline(f, line)) {
+        if (line.rfind("; Binary:", 0) == 0) {
+            out_bin_path = trim(line.substr(std::strlen("; Binary:")));
+            continue;
+        }
+        if (line.empty() || line[0] == ';') continue;
+
+        std::istringstream iss(line);
+        std::string addr_hex;
+        std::string len_str;
+        std::string kind_str;
+        if (!(iss >> addr_hex >> len_str >> kind_str)) continue;
+
+        uint32_t addr_val = 0;
+        try {
+            addr_val = static_cast<uint32_t>(std::stoul(addr_hex, nullptr, 16));
+        } catch (...) {
+            continue;
+        }
+
+        // Parse source location from the end of the *full* line:
+        //   ...  <file>:<line>: <original source line>
+        const auto c1 = line.rfind(':');
+        if (c1 == std::string::npos) continue;
+        const auto c0 = line.rfind(':', c1 - 1);
+        if (c0 == std::string::npos) continue;
+
+        const std::string line_part = trim(line.substr(c0 + 1, c1 - (c0 + 1)));
+        if (line_part.empty() || !std::all_of(line_part.begin(), line_part.end(), [](char ch){ return ch >= '0' && ch <= '9'; }))
+        {
+            continue;
+        }
+
+        const auto pos2 = line.rfind("  ", c0);
+        if (pos2 == std::string::npos) continue;
+        const std::string file_part = trim(line.substr(pos2, c0 - pos2));
+
+        int line_no = 0;
+        try {
+            line_no = std::stoi(line_part);
+        } catch (...) {
+            continue;
+        }
+
+        DebLine dl;
+        dl.addr = static_cast<uint16_t>(addr_val & 0xFFFF);
+        dl.is_code = (kind_str == "CODE");
+        dl.file = file_part;
+        dl.line_no = line_no;
+        out_lines.push_back(std::move(dl));
+    }
+
+    if (out_bin_path.empty()) {
+        printf("Invalid .deb file (missing '; Binary:' header): %s\n", deb_path);
+        return false;
+    }
+
+    // Resolve bin path relative to the .deb directory if needed.
+    try {
+        fs::path binp(out_bin_path);
+        if (binp.is_relative()) {
+            fs::path debp(deb_path);
+            binp = debp.parent_path() / binp;
+            out_bin_path = binp.lexically_normal().string();
+        }
+    } catch (...) {
+        // ignore
+    }
+
+    return true;
+}
+
+static bool find_break_addr(const std::vector<DebLine>& lines,
+                            const std::string& break_file,
+                            const int break_line,
+                            uint16_t& out_addr)
+{
+    out_addr = 0;
+    bool found = false;
+    uint16_t best = 0xFFFF;
+
+    fs::path wantp(break_file);
+    const std::string want_base = wantp.filename().string();
+
+    for (const auto& l : lines) {
+        if (!l.is_code) continue;
+        if (l.line_no != break_line) continue;
+
+        bool match = false;
+        if (l.file == break_file) match = true;
+        else {
+            fs::path p(l.file);
+            if (p.filename().string() == want_base) match = true;
+        }
+        if (!match) continue;
+
+        if (!found || l.addr < best) {
+            found = true;
+            best = l.addr;
         }
     }
-    auto t = trim(cur);
-    if (!t.empty()) out.push_back(t);
-    return out; // trailing comma => last empty ignored
+
+    if (!found) return false;
+    out_addr = best;
+    return true;
 }
 
-static inline bool is_ident(const std::string& s) {
-    if (s.empty()) return false;
-    if (!(std::isalpha((unsigned char)s[0]) || s[0]=='_')) return false;
-    for (size_t i=1;i<s.size();++i) {
-        char c = s[i];
-        if (!(std::isalnum((unsigned char)c) || c=='_')) return false;
+// Returns true if the .deb map contains *any* mapping (CODE or DATA) for the
+// requested source file:line.
+//
+// This is used to provide a clear error when users try to set a breakpoint
+// on a line that exists but does not emit executable code.
+static bool has_any_mapping_for_line(const std::vector<DebLine>& lines,
+                                    const std::string& break_file,
+                                    const int break_line)
+{
+    fs::path wantp(break_file);
+    const std::string want_base = wantp.filename().string();
+
+    for (const auto& l : lines)
+    {
+        if (l.line_no != break_line) continue;
+
+        bool match = false;
+        if (l.file == break_file) match = true;
+        else
+        {
+            fs::path p(l.file);
+            if (p.filename().string() == want_base) match = true;
+        }
+
+        if (match) return true;
+    }
+    return false;
+}
+
+// Returns true if the requested source file:line has a *unique* CODE mapping at the
+// resolved breakpoint address. This prevents setting breakpoints on lines that
+// share the same address with another CODE mapping (e.g. label-only lines).
+static bool is_executable_line_at_addr(const std::vector<DebLine>& lines,
+                                       const std::string& break_file,
+                                       const int break_line,
+                                       const uint16_t addr)
+{
+    fs::path wantp(break_file);
+    const std::string want_base = wantp.filename().string();
+
+    auto matches_file = [&](const std::string& f) -> bool {
+        if (f == break_file) return true;
+        fs::path p(f);
+        return p.filename().string() == want_base;
+    };
+
+    bool has_code_for_line = false;
+    bool has_other_code_same_addr = false;
+
+    for (const auto& l : lines)
+    {
+        if (!l.is_code) continue;
+        if (l.addr != addr) continue;
+        if (!matches_file(l.file)) continue;
+
+        if (l.line_no == break_line) has_code_for_line = true;
+        else has_other_code_same_addr = true;
+    }
+
+    // If there is a CODE mapping for that line but some *other* CODE mapping shares the
+    // same address, we consider this line non-executable (typical for label-only lines).
+    if (!has_code_for_line) return false;
+    if (has_other_code_same_addr) return false;
+
+    return true;
+}
+
+static void write_u16_be(std::ofstream& f, const uint16_t v) {
+    const uint8_t b[2] = { static_cast<uint8_t>((v >> 8) & 0xFF), static_cast<uint8_t>(v & 0xFF) };
+    f.write(reinterpret_cast<const char*>(b), 2);
+}
+
+static bool read_u16_be(std::ifstream& f, uint16_t& out) {
+    uint8_t b[2];
+    f.read(reinterpret_cast<char*>(b), 2);
+    if (!f) return false;
+    out = static_cast<uint16_t>((static_cast<uint16_t>(b[0]) << 8) | static_cast<uint16_t>(b[1]));
+    return true;
+}
+
+static bool save_debug_image(const char* path)
+{
+    std::ofstream f(path, std::ios::binary);
+    if (!f) {
+        printf("Failed to write debug image: %s\n", path);
+        return false;
+    }
+
+    // Layout:
+    //   magic[4] = "S8DI"
+    //   version  = 0x01
+    //   r[8]
+    //   ip, sp, bp (u16 big-endian)
+    //   c (u8)
+    //   reserved[7]
+    //   mem[MEM_SIZE]
+    const char magic[4] = { 'S', '8', 'D', 'I' };
+    f.write(magic, 4);
+    const uint8_t ver = 0x01;
+    f.write(reinterpret_cast<const char*>(&ver), 1);
+    f.write(reinterpret_cast<const char*>(r), 8);
+    write_u16_be(f, ip);
+    write_u16_be(f, sp);
+    write_u16_be(f, bp);
+    f.write(reinterpret_cast<const char*>(&c), 1);
+    const uint8_t zeros[7] = {0,0,0,0,0,0,0};
+    f.write(reinterpret_cast<const char*>(zeros), 7);
+    f.write(reinterpret_cast<const char*>(mem), MEM_SIZE);
+
+    if (!f) {
+        printf("Failed while writing debug image: %s\n", path);
+        return false;
     }
     return true;
 }
 
-static inline uint32_t parse_int_literal(const std::string& s) {
-    // hex 0x, bin 0b, else decimal
-    if (s.size() >= 2 && s[0]=='0' && (s[1]=='x' || s[1]=='X')) {
-        return std::stoul(s.substr(2), nullptr, 16);
+static bool load_debug_image(const char* path)
+{
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return false;
+
+    char magic[4] = {0,0,0,0};
+    f.read(magic, 4);
+    if (!f) return false;
+    if (!(magic[0]=='S' && magic[1]=='8' && magic[2]=='D' && magic[3]=='I')) {
+        return false;
     }
-    if (s.size() >= 2 && s[0]=='0' && (s[1]=='b' || s[1]=='B')) {
-        return std::stoul(s.substr(2), nullptr, 2);
-    }
-    return std::stoul(s, nullptr, 10);
+    uint8_t ver = 0;
+    f.read(reinterpret_cast<char*>(&ver), 1);
+    if (!f || ver != 0x01) return false;
+
+    f.read(reinterpret_cast<char*>(r), 8);
+    if (!f) return false;
+    if (!read_u16_be(f, ip)) return false;
+    if (!read_u16_be(f, sp)) return false;
+    if (!read_u16_be(f, bp)) return false;
+    f.read(reinterpret_cast<char*>(&c), 1);
+    if (!f) return false;
+
+    char tmp[7];
+    f.read(tmp, 7);
+    if (!f) return false;
+
+    f.read(reinterpret_cast<char*>(mem), MEM_SIZE);
+    if (!f) return false;
+
+    STOP = 0;
+    return true;
 }
 
-static inline std::string join_stack(const std::vector<std::string>& st) {
-    std::ostringstream oss;
-    for (size_t i=0;i<st.size();++i) {
-        oss << "  [" << i << "] " << st[i] << "\n";
-    }
-    return oss.str();
-}
-static inline bool is_hex_digit(char c) {
-    return (c>='0'&&c<='9')||(c>='a'&&c<='f')||(c>='A'&&c<='F');
-}
-static inline uint8_t hex_val(char c) {
-    if (c>='0'&&c<='9') return (uint8_t)(c-'0');
-    if (c>='a'&&c<='f') return (uint8_t)(10 + (c-'a'));
-    return (uint8_t)(10 + (c-'A'));
-}
+/* MACHINE CODE **************************************************************/
 
+/**
+ *
+ * initializes memory and registers to a startup values.
+ * 
+ * All ram values are set to 0x00 (HALT) and sets stack pointer and block
+ * pointer to top of the memory.
+ *
+ */
+void init_machine()
+{
+    uint16_t i;
+    STOP = 0;
 
-// ===========================
-// ISA hardcoded
-// ===========================
-static const std::unordered_map<std::string, uint8_t> OPC = {
-    {"HALT",0x00},{"LOAD",0x01},{"STORE",0x02},{"STORER",0x03},{"LOADR",0x1C},{"SET",0x04},
-    {"INC",0x05},{"DEC",0x06},{"JMP",0x07},{"CMP",0x08},{"CMPR",0x09},
-    {"JZ",0x0A},{"JNZ",0x0B},{"JC",0x0C},{"JNC",0x0D},{"ADD",0x0E},
-    {"ADDR",0x0F},{"PUSH",0x10},{"POP",0x11},{"CALL",0x12},{"RET",0x13},
-    {"SUB",0x14},{"SUBR",0x15},{"MUL",0x16},{"MULR",0x17},{"DIV",0x18},
-    {"DIVR",0x19},{"SHL",0x1A},{"SHR",0x1B},{"NOP",0xFF},
-};
-
-static const std::unordered_map<std::string, int> ILEN = {
-    {"HALT",1},{"NOP",1},{"RET",1},
-    {"INC",2},{"DEC",2},{"PUSH",2},{"POP",2},
-    {"JMP",3},{"CALL",3},{"JC",3},{"JNC",3},
-    {"SET",3},{"ADD",3},{"SUB",3},{"CMP",3},{"CMPR",3},{"ADDR",3},{"SUBR",3},{"SHL",3},{"SHR",3},
-    {"LOAD",4},{"STORE",4},{"STORER",4},{"LOADR",4},{"JZ",4},{"JNZ",4},{"MUL",4},{"MULR",4},{"DIV",4},{"DIVR",4},
-};
-
-static const std::unordered_map<std::string, uint8_t> REGTOK = {
-    {"R0",0xF2},{"R1",0xF3},{"R2",0xF4},{"R3",0xF5},{"R4",0xF6},{"R5",0xF7},{"R6",0xF8},{"R7",0xF9},
-    {"IP",0xFA},{"SP",0xFB},{"BP",0xFC},
-};
-
-static inline bool is_gpr(const std::string& r) {
-    return r.size()==2 && r[0]=='R' && r[1]>='0' && r[1]<='7';
-}
-
-enum class OpKind { Addr16, Imm8, Gpr, AnyReg };
-
-static const std::unordered_map<std::string, std::vector<OpKind>> SPECS = {
-    {"LOAD",  {OpKind::Addr16, OpKind::Gpr}},
-    {"STORE", {OpKind::Gpr, OpKind::Addr16}},
-    {"STORER",{OpKind::Gpr, OpKind::Gpr, OpKind::Gpr}},
-    {"LOADR", {OpKind::Gpr, OpKind::Gpr, OpKind::Gpr}},
-    {"SET",   {OpKind::Imm8, OpKind::Gpr}},
-    {"INC",   {OpKind::Gpr}},
-    {"DEC",   {OpKind::Gpr}},
-    {"JMP",   {OpKind::Addr16}},
-    {"CALL",  {OpKind::Addr16}},
-    {"RET",   {}},
-    {"JZ",    {OpKind::Gpr, OpKind::Addr16}},
-    {"JNZ",   {OpKind::Gpr, OpKind::Addr16}},
-    {"JC",    {OpKind::Addr16}},
-    {"JNC",   {OpKind::Addr16}},
-    {"CMP",   {OpKind::Gpr, OpKind::Imm8}},
-    {"CMPR",  {OpKind::Gpr, OpKind::Gpr}},
-    {"ADD",   {OpKind::Imm8, OpKind::Gpr}},
-    {"ADDR",  {OpKind::Gpr, OpKind::Gpr}},
-    {"SUB",   {OpKind::Imm8, OpKind::Gpr}},
-    {"SUBR",  {OpKind::Gpr, OpKind::Gpr}},
-    {"MUL",   {OpKind::Imm8, OpKind::Gpr, OpKind::Gpr}},
-    {"MULR",  {OpKind::Gpr, OpKind::Gpr, OpKind::Gpr}},
-    {"DIV",   {OpKind::Imm8, OpKind::Gpr, OpKind::Gpr}},
-    {"DIVR",  {OpKind::Gpr, OpKind::Gpr, OpKind::Gpr}},
-    {"SHL",   {OpKind::Imm8, OpKind::Gpr}},
-    {"SHR",   {OpKind::Imm8, OpKind::Gpr}},
-    {"PUSH",  {OpKind::AnyReg}},
-    {"POP",   {OpKind::AnyReg}},
-    {"NOP",   {}},
-    {"HALT",  {}},
-};
-
-// ===========================
-// Preprocessor (.include)
-// ===========================
-
-struct SrcLine {
-    std::string text;
-    std::string file;
-    int line_no;
-    std::vector<std::string> include_stack; // entry -> ... -> current file
-};
-
-static std::string read_file_text(const fs::path& p) {
-    std::ifstream in(p, std::ios::binary);
-    if (!in) throw std::runtime_error("Cannot open file: " + p.string());
-    std::ostringstream ss;
-    ss << in.rdbuf();
-    return ss.str();
-}
-
-static fs::path canonical_or_absolute(const fs::path& p) {
-    // canonical() fails if file doesn't exist; use absolute then weakly_canonical
-    std::error_code ec;
-    auto abs = fs::absolute(p, ec);
-    if (ec) return p;
-    auto wc = fs::weakly_canonical(abs, ec);
-    if (ec) return abs;
-    return wc;
-}
-
-static fs::path resolve_include(const fs::path& including_file,
-                                const fs::path& entry_file,
-                                const std::string& inc,
-                                const SrcLine& at) {
-    // inc is as in quotes
-    fs::path rel = inc;
-    if (rel.is_absolute()) {
-        if (fs::exists(rel)) return canonical_or_absolute(rel);
-        throw AsmError("Include file not found: " + rel.string(), at.file, at.line_no, at.text, at.include_stack);
-    }
-    fs::path p1 = including_file.parent_path() / rel;
-    if (fs::exists(p1)) return canonical_or_absolute(p1);
-    fs::path p2 = entry_file.parent_path() / rel;
-    if (fs::exists(p2)) return canonical_or_absolute(p2);
-    throw AsmError("Include file not found (searched: including dir, entry dir): " + rel.string(),
-                   at.file, at.line_no, at.text, at.include_stack);
-}
-
-static void preprocess_file(const fs::path& file_path,
-                            const fs::path& entry_file,
-                            std::vector<SrcLine>& out,
-                            std::vector<fs::path>& stack_paths,
-                            std::unordered_set<std::string>& included_set,
-                            std::vector<std::string> include_stack) {
-    fs::path canon = canonical_or_absolute(file_path);
-    std::string canon_s = canon.string();
-
-    // cycle detection (stack)
-    for (const auto& sp : stack_paths) {
-        if (canonical_or_absolute(sp).string() == canon_s) {
-            // cycle: report chain
-            std::ostringstream msg;
-            msg << "Include cycle detected:\n";
-            for (const auto& p : stack_paths) msg << "  -> " << canonical_or_absolute(p).string() << "\n";
-            msg << "  -> " << canon_s << "\n";
-            throw AsmError(msg.str(), canon_s, 0, "", include_stack);
-        }
+    /* clean all memory */
+    for (i = 0; i < MEM_SIZE; i++)
+    {
+        mem[i] = HALT;
     }
 
-    // include-once strict: if already included anywhere, error
-    if (included_set.find(canon_s) != included_set.end()) {
-        throw AsmError("Multiple inclusion is forbidden (already included): " + canon_s,
-                       canon_s, 0, "", include_stack);
-    }
-    included_set.insert(canon_s);
-
-    stack_paths.push_back(canon);
-    include_stack.push_back(canon_s);
-
-    std::string text;
-    try {
-        text = read_file_text(canon);
-    } catch (const std::exception& e) {
-        throw AsmError(std::string("Failed to read include file: ") + e.what(), canon_s, 0, "", include_stack);
-    }
-
-    std::istringstream iss(text);
-    std::string line;
-    int line_no = 0;
-    while (std::getline(iss, line)) {
-        line_no++;
-        SrcLine sl{line, canon_s, line_no, include_stack};
-
-        // Strip comments for directive detection, but preserve original line for errors
-        std::string code = trim(line.substr(0, line.find(';')));
-        if (code.empty()) {
-            out.push_back(sl);
-            continue;
-        }
-
-        // Allow label: .include "x"
-        // We'll look for ".include" after removing a leading label if present.
-        std::string scan = code;
-        while (true) {
-            auto pos = scan.find(':');
-            if (pos == std::string::npos) break;
-            std::string lab = trim(scan.substr(0, pos));
-            if (!is_ident(lab)) break;
-            scan = trim(scan.substr(pos+1));
-            // only peel one label; if multiple labels chained, peel again
-            if (scan.empty()) break;
-        }
-
-        if (starts_with(scan, ".include")) {
-            // format: .include "file.s8"
-            std::string rest = trim(scan.substr(std::strlen(".include")));
-            if (rest.size() < 2 || rest.front() != '"' || rest.back() != '"') {
-                throw AsmError(R"(Invalid .include syntax. Expected: .include "file.s8")",
-                               canon_s, line_no, line, include_stack);
-            }
-            std::string inc = rest.substr(1, rest.size()-2);
-            fs::path inc_path = resolve_include(canon, entry_file, inc, sl);
-            preprocess_file(inc_path, entry_file, out, stack_paths, included_set, include_stack);
-            // Do not emit the .include line itself (textual include replaces it)
-            continue;
-        }
-
-        out.push_back(sl);
-    }
-
-    stack_paths.pop_back();
-    // include_stack is by value, no pop needed
-}
-
-// ===========================
-// Assembler passes
-// ===========================
-
-static std::vector<uint8_t> decode_c_string(const std::string& quoted, const SrcLine& sl) {
-    // quoted must be a full quoted string: "...." with no surrounding whitespace.
-    if (quoted.size() < 2 || quoted.front() != '"' || quoted.back() != '"') {
-        throw AsmError(R"(Invalid .string syntax. Expected: .string "text")", sl.file, sl.line_no, sl.text, sl.include_stack);
-    }
-    std::vector<uint8_t> out;
-    for (size_t i = 1; i + 1 < quoted.size(); ++i) {
-        unsigned char c = (unsigned char)quoted[i];
-        if (c == '\\') {
-            if (i + 1 >= quoted.size() - 1) {
-                throw AsmError("Invalid escape at end of string", sl.file, sl.line_no, sl.text, sl.include_stack);
-            }
-            char n = quoted[++i];
-            switch (n) {
-                case '\\': out.push_back((uint8_t)'\\'); break;
-                case '"':  out.push_back((uint8_t)'"'); break;
-                case 'n':  out.push_back((uint8_t)0x0A); break;
-                case 'r':  out.push_back((uint8_t)0x0D); break;
-                case 't':  out.push_back((uint8_t)0x09); break;
-                case '0':  out.push_back((uint8_t)0x00); break;
-                case 'x': {
-                    // require exactly two hex digits
-                    if (i + 2 >= quoted.size() - 1) {
-                        throw AsmError("Invalid \\xNN escape (needs two hex digits)", sl.file, sl.line_no, sl.text, sl.include_stack);
-                    }
-                    char h1 = quoted[i+1];
-                    char h2 = quoted[i+2];
-                    if (!is_hex_digit(h1) || !is_hex_digit(h2)) {
-                        throw AsmError("Invalid \\xNN escape (non-hex digit)", sl.file, sl.line_no, sl.text, sl.include_stack);
-                    }
-                    uint8_t v = (uint8_t)((hex_val(h1) << 4) | hex_val(h2));
-                    out.push_back(v);
-                    i += 2;
-                    break;
-                }
-                default:
-                    throw AsmError(std::string("Unknown escape sequence: \\") + n, sl.file, sl.line_no, sl.text, sl.include_stack);
-            }
-        } else {
-            if (c > 0x7F) {
-                throw AsmError("Non-ASCII character in .string (only 7-bit ASCII allowed)", sl.file, sl.line_no, sl.text, sl.include_stack);
-            }
-            out.push_back((uint8_t)c);
-        }
-    }
-    for (uint8_t b : out) {
-        if (b > 0x7F) {
-            throw AsmError("Non-ASCII byte in .string (value > 0x7F). Use only 7-bit ASCII.", sl.file, sl.line_no, sl.text, sl.include_stack);
-        }
-    }
-    return out;
-}
-
-struct Item {
-    enum class Kind { Dir, Ins } kind;
-    std::string name;
-    std::vector<std::string> ops;
-    uint32_t addr = 0;
-    int size = 0;
-    SrcLine src;
-};
-
-static void throw_here(const std::string& msg, const SrcLine& sl) {
-    throw AsmError(msg, sl.file, sl.line_no, sl.text, sl.include_stack);
-}
-
-static inline void require(bool cond, const std::string& msg, const SrcLine& sl) {
-    if (!cond) throw_here(msg, sl);
-}
-
-static inline void emit_byte(std::vector<uint8_t>& img,
-                             std::vector<uint8_t>& used,
-                             uint32_t addr,
-                             uint8_t val,
-                             const SrcLine& sl) {
-    require(addr < MEM_SIZE, "Emit address out of range: 0x" + ([](uint32_t a){std::ostringstream o;o<<std::hex<<std::uppercase<<a;return o.str();})(addr), sl);
-    require(used[addr] == 0, "Overlap at address 0x" + ([](uint32_t a){std::ostringstream o;o<<std::hex<<std::uppercase<<a;return o.str();})(addr), sl);
-    img[addr] = val;
-    used[addr] = 1;
-}
-
-// ===========================
-// Debug map (.deb)
-// ===========================
-
-struct DebRecord {
-    enum class Kind { Code, Data } kind;
-    uint32_t addr = 0;
-    std::vector<uint8_t> bytes;
-    // Source location and original line text.
-    // For implicit/stub emissions, file will be "<implicit>" and line_no=0.
-    std::string file;
-    int line_no = 0;
-    std::string text;
-};
-
-static inline void deb_push(std::vector<DebRecord>* deb,
-                            DebRecord::Kind kind,
-                            uint32_t addr,
-                            const std::vector<uint8_t>& bytes,
-                            const SrcLine& sl) {
-    if (!deb) return;
-    DebRecord r;
-    r.kind = kind;
-    r.addr = addr;
-    r.bytes = bytes;
-    r.file = sl.file;
-    r.line_no = sl.line_no;
-    r.text = sl.text;
-    deb->push_back(std::move(r));
-}
-
-static inline void deb_push_implicit(std::vector<DebRecord>* deb,
-                                     DebRecord::Kind kind,
-                                     uint32_t addr,
-                                     const std::vector<uint8_t>& bytes,
-                                     const std::string& text) {
-    if (!deb) return;
-    DebRecord r;
-    r.kind = kind;
-    r.addr = addr;
-    r.bytes = bytes;
-    r.file = "<implicit>";
-    r.line_no = 0;
-    r.text = text;
-    deb->push_back(std::move(r));
-}
-
-static inline uint32_t resolve_addr16(const std::string& tok,
-                                      const std::unordered_map<std::string, uint32_t>& sym,
-                                      const SrcLine& sl) {
-    require(!tok.empty(), "Empty address operand", sl);
-    require(tok[0] != '#', "Address operand must not start with '#'", sl);
-    if (is_ident(tok)) {
-        auto it = sym.find(tok);
-        require(it != sym.end(), "Undefined label '" + tok + "'", sl);
-        return it->second & 0xFFFF;
-    }
-    uint32_t v = 0;
-    try { v = parse_int_literal(tok); }
-    catch (...) { throw_here("Invalid address literal: " + tok, sl); }
-    require(v <= 0xFFFF, "Address literal out of 16-bit range: " + tok, sl);
-    return v;
-}
-
-static inline uint8_t resolve_imm8(const std::string& tok, const SrcLine& sl) {
-    require(!tok.empty(), "Empty immediate operand", sl);
-    require(tok[0] == '#', "Immediate operand must start with '#'", sl);
-    uint32_t v = 0;
-    try { v = parse_int_literal(tok.substr(1)); }
-    catch (...) { throw_here("Invalid immediate literal: " + tok, sl); }
-    require(v <= 0xFF, "Immediate out of 8-bit range: " + tok, sl);
-    return (uint8_t)v;
-}
-
-static inline uint8_t resolve_reg(const std::string& tok, OpKind kind, const SrcLine& sl) {
-    auto it = REGTOK.find(tok);
-    require(it != REGTOK.end(), "Invalid register '" + tok + "'", sl);
-    if (kind == OpKind::Gpr) {
-        require(is_gpr(tok), "Register '" + tok + "' not allowed here (must be R0..R7)", sl);
-    }
-    return it->second;
-}
-
-static inline void emit_u16be(std::vector<uint8_t>& img,
-                              std::vector<uint8_t>& used,
-                              uint32_t& addr,
-                              uint32_t v,
-                              const SrcLine& sl) {
-    emit_byte(img, used, addr++, (uint8_t)((v >> 8) & 0xFF), sl);
-    emit_byte(img, used, addr++, (uint8_t)(v & 0xFF), sl);
-}
-
-static std::vector<uint8_t> assemble(const std::vector<SrcLine>& src_lines,
-                                     std::vector<DebRecord>* deb_records = nullptr) {
-    std::unordered_map<std::string, uint32_t> sym;
-    std::vector<Item> items;
-
-    uint32_t lc = 0x0003;
-    bool any_org = false;
-    bool entry_mark_present = false;
-    std::optional<uint32_t> entry_mark_addr;
-    std::optional<uint32_t> first_org_addr;
-
-    // PASS 1: labels + layout
-    for (const auto& sl : src_lines) {
-        std::string raw = sl.text;
-        std::string code = trim(raw.substr(0, raw.find(';')));
-        if (code.empty()) continue;
-
-        // parse labels (possibly multiple chained)
-        while (true) {
-            auto pos = code.find(':');
-            if (pos == std::string::npos) break;
-            std::string lab = trim(code.substr(0, pos));
-            if (!is_ident(lab)) break;
-            require(sym.find(lab) == sym.end(), "Duplicate label '" + lab + "'", sl);
-            sym[lab] = lc;
-            code = trim(code.substr(pos+1));
-            if (code.empty()) break;
-        }
-        if (code.empty()) continue;
-
-        if (code[0] == '.') {
-            // directive
-            std::string dname;
-            std::string rest;
-            {
-                std::istringstream iss(code);
-                iss >> dname;
-                std::getline(iss, rest);
-                rest = trim(rest);
-            }
-            auto ops = split_operands(rest);
-
-            if (dname == ".org") {
-                any_org = true;
-                if (ops.empty()) {
-                    require(!entry_mark_present, ".org (no operand) may appear only once", sl);
-                    entry_mark_present = true;
-                    entry_mark_addr = lc; // does not move LC
-                    items.push_back(Item{Item::Kind::Dir, ".org", ops, lc, 0, sl});
-                } else {
-                    require(ops.size() == 1, ".org expects 0 or 1 operand", sl);
-                    require(ops[0].size() > 0 && ops[0][0] != '#', ".org operand must not use '#'", sl);
-                    require(!is_ident(ops[0]), ".org operand must be a numeric literal (labels not allowed)", sl);
-                    uint32_t addr = 0;
-                    try { addr = parse_int_literal(ops[0]); }
-                    catch (...) { throw_here("Invalid .org address literal: " + ops[0], sl); }
-                    require(addr <= 0xFFFF, ".org out of 16-bit range", sl);
-                    require(addr >= 0x0003, ".org must be >= 0x0003", sl);
-                    if (!first_org_addr.has_value()) first_org_addr = addr;
-                    lc = addr;
-                    items.push_back(Item{Item::Kind::Dir, ".org", ops, lc, 0, sl});
-                }
-            } else if (dname == ".string") {
-                require(!rest.empty(), R"(.string expects a quoted string operand)", sl);
-                auto bytes = decode_c_string(rest, sl);
-                items.push_back(Item{Item::Kind::Dir, ".string", {rest}, lc, (int)bytes.size() + 1, sl});
-                lc += (uint32_t)bytes.size() + 1;
-            } else if (dname == ".byte") {
-                require(!ops.empty(), ".byte requires at least 1 operand", sl);
-                items.push_back(Item{Item::Kind::Dir, ".byte", ops, lc, (int)ops.size(), sl});
-                lc += (uint32_t)ops.size();
-            } else if (dname == ".word") {
-                require(!ops.empty(), ".word requires at least 1 operand", sl);
-                items.push_back(Item{Item::Kind::Dir, ".word", ops, lc, (int)ops.size() * 2, sl});
-                lc += (uint32_t)ops.size() * 2;
-            } else if (dname == ".include") {
-                // Should have been expanded in preprocessing. If it remains, treat as error (strict).
-                throw_here("Unexpected .include after preprocessing (internal error or malformed input).", sl);
-            } else {
-                throw_here("Unknown directive '" + dname + "'", sl);
-            }
-
-        } else {
-            // instruction
-            std::string mnem;
-            std::string rest;
-            {
-                std::istringstream iss(code);
-                iss >> mnem;
-                std::getline(iss, rest);
-                rest = trim(rest);
-            }
-            auto it = SPECS.find(mnem);
-            require(it != SPECS.end(), "Unknown instruction '" + mnem + "'", sl);
-            auto ops = split_operands(rest);
-            require(ops.size() == it->second.size(),
-                    mnem + " expects " + std::to_string(it->second.size()) + " operand(s)", sl);
-
-            auto itlen = ILEN.find(mnem);
-            require(itlen != ILEN.end(), "No length for instruction '" + mnem + "'", sl);
-            int sz = itlen->second;
-
-            items.push_back(Item{Item::Kind::Ins, mnem, ops, lc, sz, sl});
-            lc += (uint32_t)sz;
-        }
-
-        require(lc <= MEM_SIZE, "Assembly exceeds MEM_SIZE (0xFFFF bytes)", sl);
-    }
-
-    require(any_org, "No .org found (mandatory; use .org <addr> and/or .org)", src_lines.empty() ? SrcLine{"","",0,{}} : src_lines.front());
-
-    // Determine entry
-    uint32_t entry = 0;
-    if (entry_mark_present) {
-        entry = entry_mark_addr.value();
-    } else {
-        require(first_org_addr.has_value(), "No .org <addr> found and no .org entry marker present", src_lines.empty() ? SrcLine{"","",0,{}} : src_lines.front());
-        entry = first_org_addr.value();
-    }
-
-    // PASS 2: emit
-    std::vector<uint8_t> img(MEM_SIZE, 0x00);
-    std::vector<uint8_t> used(MEM_SIZE, 0x00);
-    // reserve 0x0000..0x0002 for implicit entry stub
-    used[0] = used[1] = used[2] = 1;
-
-    for (const auto& it : items) {
-        if (it.kind == Item::Kind::Dir) {
-            if (it.name == ".org") continue;
-
-            uint32_t addr = it.addr;
-            if (it.name == ".byte") {
-                std::vector<uint8_t> span;
-                span.reserve(it.ops.size());
-                for (const auto& op : it.ops) {
-                    require(!op.empty(), ".byte empty operand", it.src);
-                    require(op[0] != '#', ".byte elements must not use '#'", it.src);
-                    require(!is_ident(op), ".byte does not allow labels", it.src);
-                    uint32_t v = 0;
-                    try { v = parse_int_literal(op); }
-                    catch (...) { throw_here("Invalid .byte literal: " + op, it.src); }
-                    require(v <= 0xFF, ".byte value out of 8-bit range: " + op, it.src);
-                    span.push_back((uint8_t)v);
-                    emit_byte(img, used, addr++, (uint8_t)v, it.src);
-                }
-                deb_push(deb_records, DebRecord::Kind::Data, it.addr, span, it.src);
-            } else if (it.name == ".string") {
-                require(it.ops.size() == 1, ".string expects exactly 1 operand", it.src);
-                auto bytes = decode_c_string(it.ops[0], it.src);
-                std::vector<uint8_t> span;
-                span.reserve(bytes.size() + 1);
-                for (uint8_t b : bytes) {
-                    span.push_back(b);
-                    emit_byte(img, used, addr++, b, it.src);
-                }
-                span.push_back(0x00);
-                emit_byte(img, used, addr++, 0x00, it.src); // implicit terminator
-                deb_push(deb_records, DebRecord::Kind::Data, it.addr, span, it.src);
-            } else if (it.name == ".word") {
-                std::vector<uint8_t> span;
-                span.reserve(it.ops.size() * 2);
-                for (const auto& op : it.ops) {
-                    require(!op.empty(), ".word empty operand", it.src);
-                    require(op[0] != '#', ".word elements must not use '#'", it.src);
-                    uint32_t v = 0;
-                    if (is_ident(op)) {
-                        auto si = sym.find(op);
-                        require(si != sym.end(), "Undefined label '" + op + "'", it.src);
-                        v = si->second & 0xFFFF;
-                    } else {
-                        try { v = parse_int_literal(op); }
-                        catch (...) { throw_here("Invalid .word literal: " + op, it.src); }
-                        require(v <= 0xFFFF, ".word value out of 16-bit range: " + op, it.src);
-                    }
-                    span.push_back((uint8_t)((v >> 8) & 0xFF));
-                    span.push_back((uint8_t)(v & 0xFF));
-                    emit_u16be(img, used, addr, v, it.src);
-                }
-                deb_push(deb_records, DebRecord::Kind::Data, it.addr, span, it.src);
-            }
-            continue;
-        }
-
-        // instruction
-        auto opit = OPC.find(it.name);
-        require(opit != OPC.end(), "Unknown opcode for '" + it.name + "'", it.src);
-        uint8_t opc = opit->second;
-
-        uint32_t addr = it.addr;
-        std::vector<uint8_t> span;
-        span.reserve((size_t)it.size);
-        span.push_back(opc);
-        emit_byte(img, used, addr++, opc, it.src);
-
-        auto spec = SPECS.at(it.name);
-
-        auto get_addr = [&](const std::string& t)->uint32_t { return resolve_addr16(t, sym, it.src); };
-        auto get_imm  = [&](const std::string& t)->uint8_t  { return resolve_imm8(t, it.src); };
-        auto get_gpr  = [&](const std::string& t)->uint8_t  { return resolve_reg(t, OpKind::Gpr, it.src); };
-        auto get_anyr = [&](const std::string& t)->uint8_t  { return resolve_reg(t, OpKind::AnyReg, it.src); };
-
-        // Encode per mnemonic (fixed layouts)
-        const std::string& m = it.name;
-
-        if (m == "STORE") {
-            uint8_t r = get_gpr(it.ops[0]);
-            uint32_t a = get_addr(it.ops[1]);
-            span.push_back(r);
-            emit_byte(img, used, addr++, r, it.src);
-            span.push_back((uint8_t)((a >> 8) & 0xFF));
-            span.push_back((uint8_t)(a & 0xFF));
-            emit_u16be(img, used, addr, a, it.src);
-            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
-            continue;
-        }
-        if (m == "LOAD") {
-            uint32_t a = get_addr(it.ops[0]);
-            uint8_t r = get_gpr(it.ops[1]);
-            span.push_back((uint8_t)((a >> 8) & 0xFF));
-            span.push_back((uint8_t)(a & 0xFF));
-            emit_u16be(img, used, addr, a, it.src);
-            span.push_back(r);
-            emit_byte(img, used, addr++, r, it.src);
-            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
-            continue;
-        }
-        if (m == "JMP" || m == "CALL" || m == "JC" || m == "JNC") {
-            uint32_t a = get_addr(it.ops[0]);
-            span.push_back((uint8_t)((a >> 8) & 0xFF));
-            span.push_back((uint8_t)(a & 0xFF));
-            emit_u16be(img, used, addr, a, it.src);
-            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
-            continue;
-        }
-        if (m == "JZ" || m == "JNZ") {
-            uint8_t r = get_gpr(it.ops[0]);
-            uint32_t a = get_addr(it.ops[1]);
-            span.push_back(r);
-            emit_byte(img, used, addr++, r, it.src);
-            span.push_back((uint8_t)((a >> 8) & 0xFF));
-            span.push_back((uint8_t)(a & 0xFF));
-            emit_u16be(img, used, addr, a, it.src);
-            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
-            continue;
-        }
-        if (m == "SET" || m == "ADD" || m == "SUB" || m == "SHL" || m == "SHR") {
-            uint8_t imm = get_imm(it.ops[0]);
-            uint8_t r = get_gpr(it.ops[1]);
-            span.push_back(imm);
-            span.push_back(r);
-            emit_byte(img, used, addr++, imm, it.src);
-            emit_byte(img, used, addr++, r, it.src);
-            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
-            continue;
-        }
-        if (m == "CMP") {
-            uint8_t r = get_gpr(it.ops[0]);
-            uint8_t imm = get_imm(it.ops[1]);
-            span.push_back(r);
-            span.push_back(imm);
-            emit_byte(img, used, addr++, r, it.src);
-            emit_byte(img, used, addr++, imm, it.src);
-            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
-            continue;
-        }
-        if (m == "INC" || m == "DEC") {
-            uint8_t r = get_gpr(it.ops[0]);
-            span.push_back(r);
-            emit_byte(img, used, addr++, r, it.src);
-            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
-            continue;
-        }
-        if (m == "CMPR" || m == "ADDR" || m == "SUBR") {
-            uint8_t r0 = get_gpr(it.ops[0]);
-            uint8_t r1 = get_gpr(it.ops[1]);
-            span.push_back(r0);
-            span.push_back(r1);
-            emit_byte(img, used, addr++, r0, it.src);
-            emit_byte(img, used, addr++, r1, it.src);
-            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
-            continue;
-        }
-        if (m == "LOADR") {
-            uint8_t rdst = get_gpr(it.ops[0]);
-            uint8_t rhi  = get_gpr(it.ops[1]);
-            uint8_t rlo  = get_gpr(it.ops[2]);
-            span.push_back(rdst);
-            span.push_back(rhi);
-            span.push_back(rlo);
-            emit_byte(img, used, addr++, rdst, it.src);
-            emit_byte(img, used, addr++, rhi, it.src);
-            emit_byte(img, used, addr++, rlo, it.src);
-            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
-            continue;
-        }
-
-        if (m == "STORER") {
-            uint8_t rsrc = get_gpr(it.ops[0]);
-            uint8_t rhi = get_gpr(it.ops[1]);
-            uint8_t rlo = get_gpr(it.ops[2]);
-            span.push_back(rsrc);
-            span.push_back(rhi);
-            span.push_back(rlo);
-            emit_byte(img, used, addr++, rsrc, it.src);
-            emit_byte(img, used, addr++, rhi, it.src);
-            emit_byte(img, used, addr++, rlo, it.src);
-            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
-            continue;
-        }
-        if (m == "MUL" || m == "DIV") {
-            uint8_t imm = get_imm(it.ops[0]);
-            uint8_t r1 = get_gpr(it.ops[1]);
-            uint8_t r2 = get_gpr(it.ops[2]);
-            span.push_back(imm);
-            span.push_back(r1);
-            span.push_back(r2);
-            emit_byte(img, used, addr++, imm, it.src);
-            emit_byte(img, used, addr++, r1, it.src);
-            emit_byte(img, used, addr++, r2, it.src);
-            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
-            continue;
-        }
-        if (m == "MULR" || m == "DIVR") {
-            uint8_t rsrc = get_gpr(it.ops[0]);
-            uint8_t r1 = get_gpr(it.ops[1]);
-            uint8_t r2 = get_gpr(it.ops[2]);
-            span.push_back(rsrc);
-            span.push_back(r1);
-            span.push_back(r2);
-            emit_byte(img, used, addr++, rsrc, it.src);
-            emit_byte(img, used, addr++, r1, it.src);
-            emit_byte(img, used, addr++, r2, it.src);
-            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
-            continue;
-        }
-        if (m == "PUSH" || m == "POP") {
-            uint8_t r = get_anyr(it.ops[0]);
-            span.push_back(r);
-            emit_byte(img, used, addr++, r, it.src);
-            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
-            continue;
-        }
-        if (m == "NOP" || m == "HALT" || m == "RET") {
-            // opcode only
-            deb_push(deb_records, DebRecord::Kind::Code, it.addr, span, it.src);
-            continue;
-        }
-
-        throw_here("Encoding not implemented for " + m, it.src);
-    }
-
-    // Emit implicit entry JMP at 0x0000
-    img[0x0000] = OPC.at("JMP");
-    img[0x0001] = (uint8_t)((entry >> 8) & 0xFF);
-    img[0x0002] = (uint8_t)(entry & 0xFF);
-    deb_push_implicit(
-        deb_records,
-        DebRecord::Kind::Code,
-        0x0000,
-        std::vector<uint8_t>{OPC.at("JMP"), (uint8_t)((entry >> 8) & 0xFF), (uint8_t)(entry & 0xFF)},
-        "JMP <entry>"
-    );
-
-    return img;
-}
-
-// ===========================
-// CLI
-// ===========================
-
-static void write_bin(const fs::path& out, const std::vector<uint8_t>& img) {
-    std::ofstream f(out, std::ios::binary);
-    if (!f) throw std::runtime_error("Cannot open output: " + out.string());
-    f.write((const char*)img.data(), (std::streamsize)img.size());
-    if (!f) throw std::runtime_error("Write failed: " + out.string());
-}
-
-// Write the fully-preprocessed source (all .include expanded) to a sidecar file.
-// This is intended for debugging: it preserves original lines and adds only
-// comment markers that record the originating file and line.
-static void write_preprocessed(const fs::path& pre_out, const std::vector<SrcLine>& expanded) {
-    std::ofstream f(pre_out, std::ios::binary);
-    if (!f) throw std::runtime_error("Cannot open preprocessed output: " + pre_out.string());
-
-    f << "; s8asm preprocessed output (all .include expanded)\n";
-    f << "; This file is generated to aid debugging.\n\n";
-
-    std::string last_file;
-    for (const auto& sl : expanded) {
-        if (sl.file != last_file) {
-            f << "\n; ===== BEGIN FILE: " << sl.file << " =====\n";
-            last_file = sl.file;
-        }
-        // Record origin for every line (as a comment) while keeping the
-        // original line intact so the file can be re-assembled if needed.
-        f << ";@ " << sl.file << ":" << sl.line_no << "\n";
-        f << sl.text << "\n";
-    }
-
-    if (!f) throw std::runtime_error("Write failed: " + pre_out.string());
-}
-
-static fs::path default_debug_path(const fs::path& bin_out) {
-    fs::path p = bin_out;
-    // e.g. prog.bin -> prog.deb
-    p.replace_extension(".deb");
-    return p;
-}
-
-static std::string hex4(uint32_t v) {
-    std::ostringstream o;
-    o << std::hex << std::uppercase;
-    o.width(4);
-    o.fill('0');
-    o << (v & 0xFFFF);
-    return o.str();
-}
-
-static std::string hex2(uint32_t v) {
-    std::ostringstream o;
-    o << std::hex << std::uppercase;
-    o.width(2);
-    o.fill('0');
-    o << (v & 0xFF);
-    return o.str();
-}
-
-static void write_debug_map(const fs::path& deb_out,
-                            const std::vector<DebRecord>& recs,
-                            const fs::path& bin_out) {
-    std::ofstream f(deb_out, std::ios::binary);
-    if (!f) throw std::runtime_error("Cannot open debug output: " + deb_out.string());
-
-    f << "; s8asm debug map (.deb)\n";
-    f << "; This file is generated automatically and matches the emitted binary image exactly.\n";
-    f << "; Binary: " << bin_out.string() << "\n";
-    f << "; Format: AAAA  LEN  KIND  BYTES...  file:line: original source line\n\n";
-
-    // Sort by address so output is deterministic.
-    std::vector<DebRecord> sorted = recs;
-    std::sort(sorted.begin(), sorted.end(), [](const DebRecord& a, const DebRecord& b) {
-        if (a.addr != b.addr) return a.addr < b.addr;
-        // Keep CODE before DATA at same address (should not happen due to overlap rules).
-        return (int)a.kind < (int)b.kind;
-    });
-
-    for (const auto& r : sorted) {
-        f << hex4(r.addr) << "  ";
-        f.width(3);
-        f.fill(' ');
-        f << std::dec << (int)r.bytes.size() << "  ";
-        f << (r.kind == DebRecord::Kind::Code ? "CODE" : "DATA") << "  ";
-
-        for (size_t i = 0; i < r.bytes.size(); ++i) {
-            f << hex2(r.bytes[i]);
-            if (i + 1 < r.bytes.size()) f << ' ';
-        }
-        f << "  " << r.file << ":" << r.line_no << ": " << r.text << "\n";
-    }
-
-    if (!f) throw std::runtime_error("Write failed: " + deb_out.string());
-}
-
-static fs::path default_preprocessed_path(const fs::path& bin_out) {
-    fs::path p = bin_out;
-    // e.g. prog.bin -> prog.pre.s8
-    p.replace_extension(".pre.s8");
-    return p;
-}
-
-static void print_error(const AsmError& e) {
-    std::cerr << "ERROR: " << e.what() << "\n";
-    if (!e.file.empty()) {
-        std::cerr << "At: " << e.file;
-        if (e.line_no > 0) std::cerr << ":" << e.line_no;
-        std::cerr << "\n";
-    }
-    if (!e.line.empty()) {
-        std::cerr << ">> " << e.line << "\n";
-    }
-    if (!e.include_stack.empty()) {
-        std::cerr << "Include stack:\n" << join_stack(e.include_stack);
+    /* initialize registers */
+    ip = 0;
+    sp = MEM_SIZE;
+    bp = MEM_SIZE;
+    c = 0;
+
+    for (i = 0; i < 8; i++)
+    {
+        r[i] = 0;
     }
 }
 
-int main(int argc, char** argv) {
-    try {
-        if (argc >= 2) {
-            const std::string a1 = argv[1];
-            if (a1 == "-h" || a1 == "--help") {
-                print_help(argv[0]);
-                return 0;
-            }
+/**
+ * Processing a load instruction. This instruction loads data from a 16bit
+ * memory location and saves it to a defined register.
+ * 
+ * LOAD 0x1A2B, R0 -> 00 1A 2B 00
+ */
+void load_instruction()
+{
+    static uint16_t memory_source;
+    static uint8_t destination;
+    static uint8_t value;
+
+    memory_source = static_cast<uint16_t>(mem[ip + 1]);
+    memory_source <<= 8;
+    memory_source += static_cast<uint16_t>(mem[ip + 2]);
+
+    value = mem_read(memory_source);
+
+    destination = mem[ip + 3];
+
+    switch (destination) 
+    {
+        case IR0: r[0] = value; break;
+        case IR1: r[1] = value; break;
+        case IR2: r[2] = value; break;
+        case IR3: r[3] = value; break;
+        case IR4: r[4] = value; break;
+        case IR5: r[5] = value; break;
+        case IR6: r[6] = value; break;
+        case IR7: r[7] = value; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+
+    ip += 4;
+}
+
+/**
+ * Processing a store instruction. This instruction stores data from a specific
+ * register to a 16bit memory location.
+ * 
+ * STORE 0x1A2B, R0 -> 01 1A 2B 00
+ */
+void store_instruction()
+{
+    static uint16_t memory_destination;
+    static uint8_t source;
+    static uint8_t value;
+
+    source = mem[ip + 1]; 
+
+    memory_destination = static_cast<uint16_t>(mem[ip + 2]);
+    memory_destination <<= 8;
+    memory_destination += static_cast<uint16_t>(mem[ip + 3]);
+
+    switch (source) 
+    {
+        case IR0: value = r[0]; break;
+        case IR1: value = r[1]; break;
+        case IR2: value = r[2]; break;
+        case IR3: value = r[3]; break;
+        case IR4: value = r[4]; break;
+        case IR5: value = r[5]; break;
+        case IR6: value = r[6]; break;
+        case IR7: value = r[7]; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+    
+    mem_write(memory_destination, value);
+
+    ip += 4;
+}
+
+/**
+ * Processing a store instruction. This instruction stores data from a specific
+ * register to a 16bit memory location defined by two additional registers.
+ * 
+ * STORER R0, R1, R2 -> 02 00 01 02
+ */
+void storer_instruction()
+{
+    static uint8_t source_register;
+    static uint8_t destination_register_h;
+    static uint8_t destination_register_l;
+    
+    static uint8_t value;
+    static uint16_t destinationAddress;
+
+    source_register = mem[ip + 1];
+    destination_register_h = mem[ip + 2];
+    destination_register_l = mem[ip + 3];
+    
+    switch (source_register) 
+    {
+        case IR0: value = r[0]; break;
+        case IR1: value = r[1]; break;
+        case IR2: value = r[2]; break;
+        case IR3: value = r[3]; break;
+        case IR4: value = r[4]; break;
+        case IR5: value = r[5]; break;
+        case IR6: value = r[6]; break;
+        case IR7: value = r[7]; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+
+    switch (destination_register_h) 
+    {
+        case IR0: destinationAddress = static_cast<uint16_t>(r[0]) << 8; break;
+        case IR1: destinationAddress = static_cast<uint16_t>(r[1]) << 8; break;
+        case IR2: destinationAddress = static_cast<uint16_t>(r[2]) << 8; break;
+        case IR3: destinationAddress = static_cast<uint16_t>(r[3]) << 8; break;
+        case IR4: destinationAddress = static_cast<uint16_t>(r[4]) << 8; break;
+        case IR5: destinationAddress = static_cast<uint16_t>(r[5]) << 8; break;
+        case IR6: destinationAddress = static_cast<uint16_t>(r[6]) << 8; break;
+        case IR7: destinationAddress = static_cast<uint16_t>(r[7]) << 8; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+    
+    switch (destination_register_l) 
+    {
+        case IR0: destinationAddress += static_cast<uint16_t>(r[0]); break;
+        case IR1: destinationAddress += static_cast<uint16_t>(r[1]); break;
+        case IR2: destinationAddress += static_cast<uint16_t>(r[2]); break;
+        case IR3: destinationAddress += static_cast<uint16_t>(r[3]); break;
+        case IR4: destinationAddress += static_cast<uint16_t>(r[4]); break;
+        case IR5: destinationAddress += static_cast<uint16_t>(r[5]); break;
+        case IR6: destinationAddress += static_cast<uint16_t>(r[6]); break;
+        case IR7: destinationAddress += static_cast<uint16_t>(r[7]); break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+    
+    mem_write(destinationAddress, value);
+    
+    ip += 4;
+}
+
+/**
+ * Processing a load instruction via register-defined address. This instruction loads
+ * data from a 16bit memory location defined by two registers into a destination register.
+ *
+ * LOADR R0, R1, R2 -> 1C 00 01 02
+ */
+void loadr_instruction()
+{
+    static uint8_t destination_register;
+    static uint8_t source_register_h;
+    static uint8_t source_register_l;
+
+    static uint16_t source_address;
+    static uint8_t value;
+
+    destination_register = mem[ip + 1];
+    source_register_h    = mem[ip + 2];
+    source_register_l    = mem[ip + 3];
+
+    /* compute address from registers */
+    source_address = 0;
+    switch (source_register_h)
+    {
+        case IR0: source_address = static_cast<uint16_t>(r[0]) << 8; break;
+        case IR1: source_address = static_cast<uint16_t>(r[1]) << 8; break;
+        case IR2: source_address = static_cast<uint16_t>(r[2]) << 8; break;
+        case IR3: source_address = static_cast<uint16_t>(r[3]) << 8; break;
+        case IR4: source_address = static_cast<uint16_t>(r[4]) << 8; break;
+        case IR5: source_address = static_cast<uint16_t>(r[5]) << 8; break;
+        case IR6: source_address = static_cast<uint16_t>(r[6]) << 8; break;
+        case IR7: source_address = static_cast<uint16_t>(r[7]) << 8; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+
+    switch (source_register_l)
+    {
+        case IR0: source_address += static_cast<uint16_t>(r[0]); break;
+        case IR1: source_address += static_cast<uint16_t>(r[1]); break;
+        case IR2: source_address += static_cast<uint16_t>(r[2]); break;
+        case IR3: source_address += static_cast<uint16_t>(r[3]); break;
+        case IR4: source_address += static_cast<uint16_t>(r[4]); break;
+        case IR5: source_address += static_cast<uint16_t>(r[5]); break;
+        case IR6: source_address += static_cast<uint16_t>(r[6]); break;
+        case IR7: source_address += static_cast<uint16_t>(r[7]); break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+
+    value = mem_read(source_address);
+
+    switch (destination_register)
+    {
+        case IR0: r[0] = value; break;
+        case IR1: r[1] = value; break;
+        case IR2: r[2] = value; break;
+        case IR3: r[3] = value; break;
+        case IR4: r[4] = value; break;
+        case IR5: r[5] = value; break;
+        case IR6: r[6] = value; break;
+        case IR7: r[7] = value; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+
+    ip += 4;
+}
+
+/**
+ * Processing a set instruction. This instruction stores imidiate value to a
+ * specific register.
+ * 
+ * SET 0x1A, R0 -> 03 1A 00
+ */
+void set_instruction()
+{
+    static uint8_t destination;
+    static uint8_t value;
+
+    value = mem[ip + 1];
+    destination = mem[ip + 2];
+
+    switch (destination) 
+    {
+        case IR0: r[0] = value; break;
+        case IR1: r[1] = value; break;
+        case IR2: r[2] = value; break;
+        case IR3: r[3] = value; break;
+        case IR4: r[4] = value; break;
+        case IR5: r[5] = value; break;
+        case IR6: r[6] = value; break;
+        case IR7: r[7] = value; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+
+    ip += 3;
+}
+
+/**
+ * Processing a push instruction. This instruction stores a register value to
+ * a top of the stack.
+ *
+ * PUSH R0 -> 10 00
+ */
+void push_instruction()
+{
+    static uint8_t source;
+    static uint8_t value;
+
+    sp--;
+    value = 0;
+
+    source = mem[ip+1];
+
+    if (source == IIP)
+    {
+        value = static_cast<uint8_t>(ip & 0x00FF);
+        mem[sp] = value;
+        value = static_cast<uint8_t>((ip & 0xFF00) >> 8);
+        mem[sp-1] = value;
+        sp--;
+        ip += 2;
+        return;
+    }
+    
+    if (source == ISP)
+    {
+        value = static_cast<uint8_t>(sp & 0x00FF);
+        mem[sp] = value;
+        value = static_cast<uint8_t>((sp & 0xFF00) >> 8);
+        mem[sp-1] = value;
+        sp--;
+        ip += 2;
+        return;
+    }
+
+    if (source == IBP)
+    {
+        value = static_cast<uint8_t>(bp & 0x00FF);
+        mem[sp] = value;
+        value = static_cast<uint8_t>((bp & 0xFF00) >> 8);
+        mem[sp-1] = value;
+        sp--;
+        ip += 2;
+        return;
+    }
+
+    switch (source) 
+    {
+    case IR0: value = r[0]; break;
+    case IR1: value = r[1]; break;
+    case IR2: value = r[2]; break;
+    case IR3: value = r[3]; break;
+    case IR4: value = r[4]; break;
+    case IR5: value = r[5]; break;
+    case IR6: value = r[6]; break;
+    case IR7: value = r[7]; break;
+    default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+
+    mem[sp] = value;
+
+    ip+= 2;
+}
+
+/**
+ * Processing a pop instruction. This instruction stores value on top of the
+ * stack to a specific register.
+ *
+ * POP R0 -> 11 00
+ */
+void pop_instruction()
+{
+    static uint8_t source;
+    static uint16_t value;
+
+    value = 0;
+
+    source = mem[ip+1];
+
+    if (source == IIP)
+    {
+        value = (static_cast<uint16_t>(mem[sp]) << 8) + static_cast<uint16_t>(mem[sp + 1]);
+        ip = value;
+        sp += 2;
+        ip += 2;
+        return;
+    }
+    if (source == ISP)
+    {
+        value = (static_cast<uint16_t>(mem[sp]) << 8) + static_cast<uint16_t>(mem[sp + 1]);
+        sp = value;
+        sp += 2;
+        ip += 2;
+        return;
+    }
+    if (source == IBP)
+    {
+        value = (static_cast<uint16_t>(mem[sp]) << 8) + static_cast<uint16_t>(mem[sp + 1]);
+        bp = value;
+        sp += 2;
+        ip += 2;
+        return;
+    }
+    
+    value = static_cast<uint16_t>(mem[sp]);
+
+    switch (source) 
+    {
+    case IR0: r[0] = static_cast<uint8_t>(value); break;
+    case IR1: r[1] = static_cast<uint8_t>(value); break;
+    case IR2: r[2] = static_cast<uint8_t>(value); break;
+    case IR3: r[3] = static_cast<uint8_t>(value); break;
+    case IR4: r[4] = static_cast<uint8_t>(value); break;
+    case IR5: r[5] = static_cast<uint8_t>(value); break;
+    case IR6: r[6] = static_cast<uint8_t>(value); break;
+    case IR7: r[7] = static_cast<uint8_t>(value); break;
+    default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+
+    sp++;
+    ip+= 2;
+}
+
+/*
+ *
+ * Increase Instruction. Increases register value by 1.
+ *
+ */
+void inc_instruction()
+{
+    static uint8_t what;
+    
+    what = mem[ip + 1];
+
+    switch (what) 
+    {
+        case IR0: r[0]++; c = r[0] == 0x00 ? 1 : 0; break;
+        case IR1: r[1]++; c = r[1] == 0x00 ? 1 : 0; break;
+        case IR2: r[2]++; c = r[2] == 0x00 ? 1 : 0; break;
+        case IR3: r[3]++; c = r[3] == 0x00 ? 1 : 0; break;
+        case IR4: r[4]++; c = r[4] == 0x00 ? 1 : 0; break;
+        case IR5: r[5]++; c = r[5] == 0x00 ? 1 : 0; break;
+        case IR6: r[6]++; c = r[6] == 0x00 ? 1 : 0; break;
+        case IR7: r[7]++; c = r[7] == 0x00 ? 1 : 0; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+
+    ip += 2;
+}
+
+/*
+ *
+ * Decrease Instruction. Decreases register value by 1.
+ *
+ */
+void dec_instruction()
+{
+    static uint8_t what;
+    
+    what = mem[ip + 1];
+
+    switch (what) 
+    {
+        case IR0: r[0]--; c = r[0] == 0xFF ? 1 : 0; break;
+        case IR1: r[1]--; c = r[1] == 0xFF ? 1 : 0; break;
+        case IR2: r[2]--; c = r[2] == 0xFF ? 1 : 0; break;
+        case IR3: r[3]--; c = r[3] == 0xFF ? 1 : 0; break;
+        case IR4: r[4]--; c = r[4] == 0xFF ? 1 : 0; break;
+        case IR5: r[5]--; c = r[5] == 0xFF ? 1 : 0; break;
+        case IR6: r[6]--; c = r[6] == 0xFF ? 1 : 0; break;
+        case IR7: r[7]--; c = r[7] == 0xFF ? 1 : 0; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+
+    ip += 2;
+}
+
+/**
+ *
+ * JMP instruction. Jumps to a specific 16 bit address.
+ *
+ */
+void jmp_instruction()
+{
+    static uint16_t jump_address;
+
+    jump_address = static_cast<uint16_t>(mem[ip + 1]) << 8;
+    jump_address += static_cast<uint16_t>(mem[ip + 2]);
+
+    ip = jump_address;
+}
+
+/**
+ *
+ * compares register to a value. If register value is less than imediate value
+ * it sets the carry bit to true. Does subtraction on the backend. Subtracted
+ * value is set in the register that has been used for comparison.
+ *
+ */
+void cmp_instruction()
+{
+    static uint8_t source_register;
+    static uint8_t value;
+    
+    source_register = mem[ip + 1];
+    value = mem[ip + 2];
+    
+    switch (source_register) 
+    {
+        case IR0: c = r[0] >= value ? 0 : 1; r[0] -= value; break;
+        case IR1: c = r[1] >= value ? 0 : 1; r[1] -= value; break;
+        case IR2: c = r[2] >= value ? 0 : 1; r[2] -= value; break;
+        case IR3: c = r[3] >= value ? 0 : 1; r[3] -= value; break;
+        case IR4: c = r[4] >= value ? 0 : 1; r[4] -= value; break;
+        case IR5: c = r[5] >= value ? 0 : 1; r[5] -= value; break;
+        case IR6: c = r[6] >= value ? 0 : 1; r[6] -= value; break;
+        case IR7: c = r[7] >= value ? 0 : 1; r[7] -= value; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+    
+    ip += 3;
+}
+
+/**
+ *
+ * compares register to another register. If register value is less than
+ * imediate value it sets the carry bit to true. Does subtraction on the
+ * backend. Subtracted value is set in the register that has been used 
+ * for comparison.
+ *
+ */
+void cmpr_instruction()
+{
+    static uint8_t register0;
+    static uint8_t register1;
+    static uint8_t value;
+    
+    register0 = mem[ip + 1];
+    register1 = mem[ip + 2];
+    
+    switch (register1) 
+    {
+        case IR0: value = r[0]; break;
+        case IR1: value = r[1]; break;
+        case IR2: value = r[2]; break;
+        case IR3: value = r[3]; break;
+        case IR4: value = r[4]; break;
+        case IR5: value = r[5]; break;
+        case IR6: value = r[6]; break;
+        case IR7: value = r[7]; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+    
+    switch (register0) 
+    {
+        case IR0: c = r[0] >= value ? 0 : 1;  r[0] -= value; break;
+        case IR1: c = r[1] >= value ? 0 : 1;  r[1] -= value; break;
+        case IR2: c = r[2] >= value ? 0 : 1;  r[2] -= value; break;
+        case IR3: c = r[3] >= value ? 0 : 1;  r[3] -= value; break;
+        case IR4: c = r[4] >= value ? 0 : 1;  r[4] -= value; break;
+        case IR5: c = r[5] >= value ? 0 : 1;  r[5] -= value; break;
+        case IR6: c = r[6] >= value ? 0 : 1;  r[6] -= value; break;
+        case IR7: c = r[7] >= value ? 0 : 1;  r[7] -= value; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+    
+    ip += 3;
+}
+
+/**
+ *
+ * "Jump if zero" instruction. Jumps to a specific 16 bit address if selected
+ * register is set to zero.
+ *
+ */
+void jz_instruction()
+{
+    static uint8_t sourceRegister;
+    static uint16_t jumpAddress;
+    
+    sourceRegister = mem[ip + 1];
+    
+    jumpAddress = static_cast<uint16_t>(mem[ip + 2]) << 8;
+    jumpAddress += static_cast<uint16_t>(mem[ip + 3]);
+    
+    switch (sourceRegister) 
+    {
+        case IR0: if (r[0] == 0) {ip = jumpAddress; return;} break;
+        case IR1: if (r[1] == 0) {ip = jumpAddress; return;} break;
+        case IR2: if (r[2] == 0) {ip = jumpAddress; return;} break;
+        case IR3: if (r[3] == 0) {ip = jumpAddress; return;} break;
+        case IR4: if (r[4] == 0) {ip = jumpAddress; return;} break;
+        case IR5: if (r[5] == 0) {ip = jumpAddress; return;} break;
+        case IR6: if (r[6] == 0) {ip = jumpAddress; return;} break;
+        case IR7: if (r[7] == 0) {ip = jumpAddress; return;} break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+    
+    ip += 4;
+}
+
+/**
+ *
+ * "Jump if not zero" instruction. Jumps to a specific 16 bit address if
+ * selected register is not set to zero.
+ *
+ */
+void jnz_instruction()
+{
+    static uint8_t source_register;
+    static uint16_t jump_address;
+    
+    source_register = mem[ip + 1];
+    
+    jump_address = static_cast<uint16_t>(mem[ip + 2]) << 8;
+    jump_address += static_cast<uint16_t>(mem[ip + 3]);
+    
+    switch (source_register) 
+    {
+        case IR0: if (r[0] != 0) {ip = jump_address; return;} break;
+        case IR1: if (r[1] != 0) {ip = jump_address; return;} break;
+        case IR2: if (r[2] != 0) {ip = jump_address; return;} break;
+        case IR3: if (r[3] != 0) {ip = jump_address; return;} break;
+        case IR4: if (r[4] != 0) {ip = jump_address; return;} break;
+        case IR5: if (r[5] != 0) {ip = jump_address; return;} break;
+        case IR6: if (r[6] != 0) {ip = jump_address; return;} break;
+        case IR7: if (r[7] != 0) {ip = jump_address; return;} break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+    
+    ip += 4;
+}
+
+/**
+ *
+ * "Jump if carry set" instruction. Jumps to a specific 16 bit address if
+ * carry is set.
+ *
+ */
+void jc_instruction()
+{
+    static uint16_t jumpAddress;
+    
+    jumpAddress = static_cast<uint16_t>(mem[ip + 1]) << 8;
+    jumpAddress += static_cast<uint16_t>(mem[ip + 2]);
+    
+    if (c != 0)
+    {
+        ip = jumpAddress;
+        return;
+    }
+    
+    ip += 3;
+}
+
+/**
+ *
+ * "Jump if carry not set" instruction. Jumps to a specific 16 bit address if
+ * carry is not set.
+ *
+ */
+void jnc_instruction()
+{
+    static uint16_t jumpAddress;
+    
+    jumpAddress = static_cast<uint16_t>(mem[ip + 1]) << 8;
+    jumpAddress += static_cast<uint16_t>(mem[ip + 2]);
+    
+    if (c == 0)
+    {
+        ip = jumpAddress;
+        return;
+    }
+    
+    ip += 3;
+}
+
+/**
+ *
+ * Add instruction. Adds a value to a register.
+ *
+ */
+void add_instruction()
+{
+    static uint8_t dest_register;
+    static uint8_t value;
+    
+    value = mem[ip + 1];
+    dest_register = mem[ip + 2];
+    
+    switch (dest_register)
+    {
+        case IR0: c = static_cast<uint16_t>(r[0]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[0] += value; break;
+        case IR1: c = static_cast<uint16_t>(r[1]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[1] += value; break;
+        case IR2: c = static_cast<uint16_t>(r[2]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[2] += value; break;
+        case IR3: c = static_cast<uint16_t>(r[3]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[3] += value; break;
+        case IR4: c = static_cast<uint16_t>(r[4]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[4] += value; break;
+        case IR5: c = static_cast<uint16_t>(r[5]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[5] += value; break;
+        case IR6: c = static_cast<uint16_t>(r[6]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[6] += value; break;
+        case IR7: c = static_cast<uint16_t>(r[7]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[7] += value; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+    
+    ip += 3;
+}
+
+/**
+ *
+ * Addr instruction. Adds a value of a specific register to a value in destination register.
+ *
+ */
+void addr_instruction()
+{
+    static uint8_t destRegister;
+    static uint8_t sourceRegister;
+    static uint8_t value;
+    
+    sourceRegister = mem[ip + 1];
+    destRegister = mem[ip + 2];
+    
+    switch (sourceRegister)
+    {
+        case IR0: value = r[0]; break;
+        case IR1: value = r[1]; break;
+        case IR2: value = r[2]; break;
+        case IR3: value = r[3]; break;
+        case IR4: value = r[4]; break;
+        case IR5: value = r[5]; break;
+        case IR6: value = r[6]; break;
+        case IR7: value = r[7]; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+    
+    switch (destRegister)
+    {
+        case IR0: c = static_cast<uint16_t>(r[0]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[0] += value; break;
+        case IR1: c = static_cast<uint16_t>(r[1]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[1] += value; break;
+        case IR2: c = static_cast<uint16_t>(r[2]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[2] += value; break;
+        case IR3: c = static_cast<uint16_t>(r[3]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[3] += value; break;
+        case IR4: c = static_cast<uint16_t>(r[4]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[4] += value; break;
+        case IR5: c = static_cast<uint16_t>(r[5]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[5] += value; break;
+        case IR6: c = static_cast<uint16_t>(r[6]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[6] += value; break;
+        case IR7: c = static_cast<uint16_t>(r[7]) + static_cast<uint16_t>(value) > 0xFF ? 1 : 0; r[7] += value; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+    
+    ip += 3;
+}
+
+/**
+ *
+ * Call instruction. Jumps to a specified address and pushes return instruction
+ * address onto a stack.
+ *
+ */
+void call_instruction()
+{
+    static uint16_t callAddress;
+    static uint16_t returnAddress;
+    
+    callAddress = static_cast<uint16_t>(mem[ip + 1]) << 8;
+    callAddress += static_cast<uint16_t>(mem[ip + 2]);
+    
+    returnAddress = ip + 3;
+    
+    mem[sp - 2] = static_cast<uint8_t>((returnAddress & 0xFF00) >> 8);
+    mem[sp - 1] = static_cast<uint8_t>(returnAddress & 0x00FF);
+    sp -= 2;
+    
+    ip = callAddress;
+}
+
+/**
+ *
+ * Ret instruction. Returns from a procedure using the top of the stack as a
+ * return address.
+ *
+ */
+void ret_instruction()
+{
+    ip = static_cast<uint16_t>(mem[sp]) << 8;
+    ip += static_cast<uint16_t>(mem[sp + 1]);
+    sp += 2;
+}
+
+/**
+ *
+ * Sub instruction. Subtracts a value from a register.
+ *
+ */
+void sub_instruction()
+{
+    static uint8_t destRegister;
+    static uint8_t value;
+    
+    value = mem[ip + 1];
+    destRegister = mem[ip + 2];
+    
+    switch (destRegister)
+    {
+        case IR0: c = r[0] < value ? 1 : 0; r[0] -= value; break;
+        case IR1: c = r[1] < value ? 1 : 0; r[1] -= value; break;
+        case IR2: c = r[2] < value ? 1 : 0; r[2] -= value; break;
+        case IR3: c = r[3] < value ? 1 : 0; r[3] -= value; break;
+        case IR4: c = r[4] < value ? 1 : 0; r[4] -= value; break;
+        case IR5: c = r[5] < value ? 1 : 0; r[5] -= value; break;
+        case IR6: c = r[6] < value ? 1 : 0; r[6] -= value; break;
+        case IR7: c = r[7] < value ? 1 : 0; r[7] -= value; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+    
+    ip += 3;
+}
+
+/**
+ *
+ * Subr instruction. Subtracts a value of a specific register from a value in destination register.
+ *
+ */
+void subr_instruction()
+{
+    static uint8_t dest_register;
+    static uint8_t source_register;
+    static uint8_t value;
+    
+    source_register = mem[ip + 1];
+    dest_register = mem[ip + 2];
+    
+    switch (source_register)
+    {
+        case IR0: value = r[0]; break;
+        case IR1: value = r[1]; break;
+        case IR2: value = r[2]; break;
+        case IR3: value = r[3]; break;
+        case IR4: value = r[4]; break;
+        case IR5: value = r[5]; break;
+        case IR6: value = r[6]; break;
+        case IR7: value = r[7]; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+    
+    switch (dest_register)
+    {
+        case IR0: c = r[0] < value ? 1 : 0; r[0] -= value; break;
+        case IR1: c = r[1] < value ? 1 : 0; r[1] -= value; break;
+        case IR2: c = r[2] < value ? 1 : 0; r[2] -= value; break;
+        case IR3: c = r[3] < value ? 1 : 0; r[3] -= value; break;
+        case IR4: c = r[4] < value ? 1 : 0; r[4] -= value; break;
+        case IR5: c = r[5] < value ? 1 : 0; r[5] -= value; break;
+        case IR6: c = r[6] < value ? 1 : 0; r[6] -= value; break;
+        case IR7: c = r[7] < value ? 1 : 0; r[7] -= value; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+    
+    ip += 3;
+}
+
+/**
+ *
+ * Mul instruction. multiplies a register by value. Saves result into two
+ * registers.
+ *
+ */
+void mul_instruction()
+{
+    static uint8_t dest_register_l;
+    static uint8_t dest_register_h;
+    static uint16_t value;
+    static uint16_t result;
+    
+    value = static_cast<uint16_t>(mem[ip + 1]);
+    dest_register_h = mem[ip + 2];
+    dest_register_l = mem[ip + 3];
+    
+    switch (dest_register_l)
+    {
+        case IR0: 
+            result = static_cast<uint16_t>(r[0]) * value;
+            r[0] = static_cast<uint8_t>(result & 0x00FF); 
+            break;
+        case IR1: 
+            result = static_cast<uint16_t>(r[1]) * value; 
+            r[1] = static_cast<uint8_t>(result & 0x00FF); 
+            break;
+        case IR2: 
+            result = static_cast<uint16_t>(r[2]) * value; 
+            r[2] = static_cast<uint8_t>(result & 0x00FF); 
+            break;
+        case IR3: 
+            result = static_cast<uint16_t>(r[3]) * value; 
+            r[3] = static_cast<uint8_t>(result & 0x00FF); 
+            break;
+        case IR4: 
+            result = static_cast<uint16_t>(r[4]) * value; 
+            r[4] = static_cast<uint8_t>(result & 0x00FF); 
+            break;
+        case IR5: 
+            result = static_cast<uint16_t>(r[5]) * value; 
+            r[5] = static_cast<uint8_t>(result & 0x00FF); 
+            break;
+        case IR6: 
+            result = static_cast<uint16_t>(r[6]) * value; 
+            r[6] = static_cast<uint8_t>(result & 0x00FF); 
+            break;
+        case IR7: 
+            result = static_cast<uint16_t>(r[7]) * value; 
+            r[7] = static_cast<uint8_t>(result & 0x00FF); 
+            break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+    
+    c = result > 0xFF ? 1 : 0;
+    
+    switch (dest_register_h)
+    {
+        case IR0: r[0] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR1: r[1] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR2: r[2] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR3: r[3] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR4: r[4] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR5: r[5] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR6: r[6] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR7: r[7] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+    
+    ip += 4;
+}
+
+/**
+ *
+ * Mulr instruction. Multiplies register value by a register value. Saves 
+ * result into two registers.
+ *
+ */
+void mulr_instruction()
+{
+    static uint8_t srcRegister;
+    static uint8_t destRegisterL;
+    static uint8_t destRegisterH;
+    static uint16_t value;
+    static uint16_t result;
+    
+    srcRegister = mem[ip + 1];
+    destRegisterH = mem[ip + 2];
+    destRegisterL = mem[ip + 3];
+    
+    switch (srcRegister)
+    {
+        case IR0: value = static_cast<uint16_t>(r[0]); break;
+        case IR1: value = static_cast<uint16_t>(r[1]); break;
+        case IR2: value = static_cast<uint16_t>(r[2]); break;
+        case IR3: value = static_cast<uint16_t>(r[3]); break;
+        case IR4: value = static_cast<uint16_t>(r[4]); break;
+        case IR5: value = static_cast<uint16_t>(r[5]); break;
+        case IR6: value = static_cast<uint16_t>(r[6]); break;
+        case IR7: value = static_cast<uint16_t>(r[7]); break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+    
+    switch (destRegisterL)
+    {
+        case IR0: 
+            result = static_cast<uint16_t>(r[0]) * value;
+            r[0] = static_cast<uint8_t>(result & 0x00FF); 
+            break;
+        case IR1: 
+            result = static_cast<uint16_t>(r[1]) * value; 
+            r[1] = static_cast<uint8_t>(result & 0x00FF); 
+            break;
+        case IR2: 
+            result = static_cast<uint16_t>(r[2]) * value; 
+            r[2] = static_cast<uint8_t>(result & 0x00FF); 
+            break;
+        case IR3: 
+            result = static_cast<uint16_t>(r[3]) * value; 
+            r[3] = static_cast<uint8_t>(result & 0x00FF); 
+            break;
+        case IR4: 
+            result = static_cast<uint16_t>(r[4]) * value; 
+            r[4] = static_cast<uint8_t>(result & 0x00FF); 
+            break;
+        case IR5: 
+            result = static_cast<uint16_t>(r[5]) * value; 
+            r[5] = static_cast<uint8_t>(result & 0x00FF); 
+            break;
+        case IR6: 
+            result = static_cast<uint16_t>(r[6]) * value; 
+            r[6] = static_cast<uint8_t>(result & 0x00FF); 
+            break;
+        case IR7: 
+            result = static_cast<uint16_t>(r[7]) * value; 
+            r[7] = static_cast<uint8_t>(result & 0x00FF); 
+            break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+    
+    c = result > 0xFF ? 1 : 0;
+    
+    switch (destRegisterH)
+    {
+        case IR0: r[0] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR1: r[1] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR2: r[2] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR3: r[3] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR4: r[4] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR5: r[5] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR6: r[6] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        case IR7: r[7] = static_cast<uint8_t>((result & 0xFF00) >> 8); break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+    
+    ip += 4;
+}
+
+/**
+ *
+ * Div instruction. divides a register by value. Saves results into two
+ * registers. First register holds rusult of the dision, and the second
+ * the rest of the division.
+ *
+ */
+void divInstruction()
+{
+    static uint8_t dest_register_result;
+    static uint8_t dest_register_rest;
+    static uint8_t value;
+    static uint8_t result;
+    static uint8_t rest;
+    
+    value = mem[ip + 1];
+    dest_register_result = mem[ip + 2];
+    dest_register_rest = mem[ip + 3];
+    
+    switch (dest_register_result)
+    {
+        case IR0: result = r[0] / value; rest = r[0] % value; r[0] = result; break;
+        case IR1: result = r[1] / value; rest = r[1] % value; r[1] = result; break;
+        case IR2: result = r[2] / value; rest = r[2] % value; r[2] = result; break;
+        case IR3: result = r[3] / value; rest = r[3] % value; r[3] = result; break;
+        case IR4: result = r[4] / value; rest = r[4] % value; r[4] = result; break;
+        case IR5: result = r[5] / value; rest = r[5] % value; r[5] = result; break;
+        case IR6: result = r[6] / value; rest = r[6] % value; r[6] = result; break;
+        case IR7: result = r[7] / value; rest = r[7] % value; r[7] = result; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+    
+    switch (dest_register_rest)
+    {
+        case IR0: r[0] = rest; break;
+        case IR1: r[1] = rest; break;
+        case IR2: r[2] = rest; break;
+        case IR3: r[3] = rest; break;
+        case IR4: r[4] = rest; break;
+        case IR5: r[5] = rest; break;
+        case IR6: r[6] = rest; break;
+        case IR7: r[7] = rest; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+    
+    ip += 4;
+}
+
+/**
+ *
+ * Divr instruction. divides a register by another register. Saves results into
+ * two registers. First register holds rusult of the dision, and the second
+ * the rest of the division.
+ *
+ */
+void divr_instruction()
+{
+    static uint8_t src_register;
+    static uint8_t dest_register_result;
+    static uint8_t dest_register_rest;
+    static uint8_t value;
+    static uint8_t result;
+    static uint8_t rest;
+    
+    src_register = mem[ip + 1];
+    
+    switch (src_register)
+    {
+        case IR0: value = r[0]; break;
+        case IR1: value = r[1]; break;
+        case IR2: value = r[2]; break;
+        case IR3: value = r[3]; break;
+        case IR4: value = r[4]; break;
+        case IR5: value = r[5]; break;
+        case IR6: value = r[6]; break;
+        case IR7: value = r[7]; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+    
+    dest_register_result = mem[ip + 2];
+    dest_register_rest = mem[ip + 3];
+    
+    switch (dest_register_result)
+    {
+        case IR0: result = r[0] / value; rest = r[0] % value; r[0] = result; break;
+        case IR1: result = r[1] / value; rest = r[1] % value; r[1] = result; break;
+        case IR2: result = r[2] / value; rest = r[2] % value; r[2] = result; break;
+        case IR3: result = r[3] / value; rest = r[3] % value; r[3] = result; break;
+        case IR4: result = r[4] / value; rest = r[4] % value; r[4] = result; break;
+        case IR5: result = r[5] / value; rest = r[5] % value; r[5] = result; break;
+        case IR6: result = r[6] / value; rest = r[6] % value; r[6] = result; break;
+        case IR7: result = r[7] / value; rest = r[7] % value; r[7] = result; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+    
+    switch (dest_register_rest)
+    {
+        case IR0: r[0] = rest; break;
+        case IR1: r[1] = rest; break;
+        case IR2: r[2] = rest; break;
+        case IR3: r[3] = rest; break;
+        case IR4: r[4] = rest; break;
+        case IR5: r[5] = rest; break;
+        case IR6: r[6] = rest; break;
+        case IR7: r[7] = rest; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+    
+    ip += 4;
+}
+
+/*
+ *
+ * Shifts value to the right. If last shifted bit was 1, then sets carry to 1.
+ *
+ */
+void shrInstruction()
+{
+    static uint8_t what;
+    static uint8_t val;
+    
+    val = mem[ip + 1];
+    what = mem[ip + 2];
+
+    switch (what) 
+    {
+        case IR0: c = (r[0] >> (val - 1)) % 2; r[0] >>= val; break;
+        case IR1: c = (r[1] >> (val - 1)) % 2; r[1] >>= val; break;
+        case IR2: c = (r[2] >> (val - 1)) % 2; r[2] >>= val; break;
+        case IR3: c = (r[3] >> (val - 1)) % 2; r[3] >>= val; break;
+        case IR4: c = (r[4] >> (val - 1)) % 2; r[4] >>= val; break;
+        case IR5: c = (r[5] >> (val - 1)) % 2; r[5] >>= val; break;
+        case IR6: c = (r[6] >> (val - 1)) % 2; r[6] >>= val; break;
+        case IR7: c = (r[7] >> (val - 1)) % 2; r[7] >>= val; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+
+    ip += 3;
+}
+
+/*
+ *
+ * Shifts value to the left. If last shifted bit was 1, then sets carry to 1.
+ *
+ */
+void shl_instruction()
+{
+    static uint8_t what;
+    static uint8_t val;
+    
+    val = mem[ip + 1];
+    what = mem[ip + 2];
+
+    switch (what) 
+    {
+        case IR0: c = r[0] << (val - 1) > 127 ? 1 : 0; r[0] <<= val; break;
+        case IR1: c = r[1] << (val - 1) > 127 ? 1 : 0; r[1] <<= val; break;
+        case IR2: c = r[2] << (val - 1) > 127 ? 1 : 0; r[2] <<= val; break;
+        case IR3: c = r[3] << (val - 1) > 127 ? 1 : 0; r[3] <<= val; break;
+        case IR4: c = r[4] << (val - 1) > 127 ? 1 : 0; r[4] <<= val; break;
+        case IR5: c = r[5] << (val - 1) > 127 ? 1 : 0; r[5] <<= val; break;
+        case IR6: c = r[6] << (val - 1) > 127 ? 1 : 0; r[6] <<= val; break;
+        case IR7: c = r[7] << (val - 1) > 127 ? 1 : 0; r[7] <<= val; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+
+    ip += 3;
+}
+
+/**
+ *
+ * Processes instruction. If unknown instruction or halt, then the VM stops.
+ *
+ */
+void process_instruction()
+{
+    switch (mem[ip])
+    {
+	        case LOADR: DBG_CMD("LOADR 0x%02X, 0x%02X, 0x%02X", mem[ip+1], mem[ip+2], mem[ip+3]); loadr_instruction(); break;
+        case LOAD: DBG_CMD("LOAD 0x%02X, 0x%04X", mem[ip+1], (uint16_t)(mem[ip+2]<<8)|mem[ip+3]); load_instruction(); break;
+        case STORE: DBG_CMD("STORE 0x%02X, 0x%04X", mem[ip+1], (uint16_t)(mem[ip+2]<<8)|mem[ip+3]); store_instruction(); break;
+        case STORER: DBG_CMD("STORER 0x%02X, 0x%02X, 0x%02X", mem[ip+1], mem[ip+2], mem[ip+3]); storer_instruction(); break;
+        case SET: DBG_CMD("SET 0x%02X, 0x%02X", mem[ip+1], mem[ip+2]); set_instruction(); break;
+        case PUSH: DBG_CMD("PUSH 0x%02X", mem[ip+1]); push_instruction(); break;
+        case POP: DBG_CMD("POP 0x%02X", mem[ip+1]); pop_instruction(); break;
+        case INC: DBG_CMD("INC 0x%02X", mem[ip+1]); inc_instruction(); break;
+        case DEC: DBG_CMD("DEC 0x%02X", mem[ip+1]); dec_instruction(); break;
+        case JMP: DBG_CMD("JMP 0x%04X", (uint16_t)(mem[ip+1]<<8)|mem[ip+2]); jmp_instruction(); break;
+        case CMP: DBG_CMD("CMP 0x%02X, 0x%02X", mem[ip+1], mem[ip+2]); cmp_instruction(); break;
+        case CMPR: DBG_CMD("CMPR 0x%02X, 0x%02X", mem[ip+1], mem[ip+2]); cmpr_instruction(); break;
+        case JZ: DBG_CMD("JZ 0x%02X, 0x%04X", mem[ip+1], (uint16_t)(mem[ip+2]<<8)|mem[ip+3]); jz_instruction(); break;
+        case JNZ: DBG_CMD("JNZ 0x%02X, 0x%04X", mem[ip+1], (uint16_t)(mem[ip+2]<<8)|mem[ip+3]); jnz_instruction(); break;
+        case JC: DBG_CMD("JC 0x%04X", (uint16_t)(mem[ip+1]<<8)|mem[ip+2]); jc_instruction(); break;
+        case JNC: DBG_CMD("JNC 0x%04X", (uint16_t)(mem[ip+1]<<8)|mem[ip+2]); jnc_instruction(); break;
+        case ADD: DBG_CMD("ADD 0x%02X, 0x%02X", mem[ip+1], mem[ip+2]); add_instruction(); break;
+        case ADDR: DBG_CMD("ADDR 0x%02X, 0x%02X", mem[ip+1], mem[ip+2]); addr_instruction(); break;
+        case CALL: DBG_CMD("CALL 0x%04X", (uint16_t)(mem[ip+1]<<8)|mem[ip+2]); call_instruction(); break;
+        case RET: DBG_CMD("RET"); ret_instruction(); break;
+        case SUB: DBG_CMD("SUB 0x%02X, 0x%02X", mem[ip+1], mem[ip+2]); sub_instruction(); break;
+        case SUBR: DBG_CMD("SUBR 0x%02X, 0x%02X", mem[ip+1], mem[ip+2]); subr_instruction(); break;
+        case MUL: DBG_CMD("MUL 0x%02X, 0x%02X, 0x%02X", mem[ip+1], mem[ip+2], mem[ip+3]); mul_instruction(); break;
+        case MULR: DBG_CMD("MULR 0x%02X, 0x%02X, 0x%02X", mem[ip+1], mem[ip+2], mem[ip+3]); mulr_instruction(); break;
+        case DIV: DBG_CMD("DIV 0x%02X, 0x%02X, 0x%02X", mem[ip+1], mem[ip+2], mem[ip+3]); divInstruction(); break;
+        case DIVR: DBG_CMD("DIVR 0x%02X, 0x%02X, 0x%02X", mem[ip+1], mem[ip+2], mem[ip+3]); divr_instruction(); break;
+        case SHL: DBG_CMD("SHL 0x%02X, 0x%02X", mem[ip+1], mem[ip+2]); shl_instruction(); break;
+        case SHR: DBG_CMD("SHR 0x%02X, 0x%02X", mem[ip+1], mem[ip+2]); shrInstruction(); break;
+        case NOP: DBG_CMD("NOP"); ip++; break;
+        case HALT: DBG_CMD("HALT"); STOP = 1; break;
+        default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+}
+
+/**
+ *
+ * Prints Memory
+ *
+ */
+void print_memory()
+{
+    for (uint16_t i = 0; i < MEM_SIZE; i++)
+    {
+        if (i % 64 == 0)
+        {
+            // ReSharper disable once CppPrintfRiskyFormat
+            printf("\n%#06x:", i);
         }
-        if (argc < 2) {
+
+        printf(" %02x", mem[i]);
+    }
+
+    printf("\n");
+}
+
+/**
+ *
+ * Print registers
+ *
+ */
+void print_registers()
+{
+    for (uint8_t i = 0; i < 8; i++)
+    {
+        printf("R%d = 0x%02x ", i, r[i]);
+    }
+
+    printf("IP = 0x%04x ", ip);
+    printf("SP = 0x%04x ", sp);
+    printf("BP = 0x%04x ", bp);
+    printf("C = %d\n", c ? 1 : 0);
+}
+
+void run(const bool break_enabled = false,
+         const uint16_t break_addr = 0,
+         const char* break_file = nullptr,
+         const int break_line = 0)
+{
+    while (!STOP)
+    {
+        if (break_enabled && ip == break_addr)
+        {
+            printf("BREAK at %s:%d (0x%04X)\n",
+                   break_file ? break_file : "<unknown>",
+                   break_line,
+                   static_cast<unsigned>(break_addr));
+            print_registers();
+            (void)save_debug_image("debug.img");
+            STOP = 1;
+            break;
+        }
+
+        process_instruction();
+    }
+
+    //print_memory();
+    //print_registers();
+}
+
+void load_test_code()
+{
+    uint8_t test_code[202] = {
+        SET,   0x0A,       IR0,        // 3
+        STORE, IR0,        0xFF, 0xC0, // 7
+        LOAD,  0xFF, 0xC0, IR1,        // 11
+        SET,   0x01,       IR0,        // 14
+        SET,   0x02,       IR1,        // 17
+        SET,   0x03,       IR2,        // 20
+        SET,   0x04,       IR3,        // 23
+        SET,   0x05,       IR4,        // 26
+        SET,   0x06,       IR5,        // 29
+        SET,   0x07,       IR6,        // 32
+        SET,   0x08,       IR7,        // 35
+        PUSH,  IR0,                    // 37
+        PUSH,  IR1,                    // 39
+        PUSH,  IR2,                    // 41
+        PUSH,  IR3,                    // 43
+        PUSH,  IR4,                    // 45
+        PUSH,  IR5,                    // 47
+        PUSH,  IR6,                    // 49
+        PUSH,  IR7,                    // 51
+        POP,   IR0,                    // 53
+        POP,   IR1,                    // 55
+        POP,   IR2,                    // 57
+        POP,   IR3,                    // 59
+        POP,   IR4,                    // 61
+        POP,   IR5,                    // 63
+        POP,   IR6,                    // 65
+        POP,   IR7,                    // 67
+        SET,   0x00,       IR7,        // 70
+        SET,   0xFF,       IR6,        // 73
+        DEC,   IR7,                    // 75
+        INC,   IR6,                    // 77
+        SET,   0xBB,       IR0,        // 80
+        SET,   0xFF,       IR1,        // 83
+        SET,   0xC1,       IR2,        // 86
+        STORER,IR0,        IR1, IR2,   // 90
+        CMP,   IR0,        0x10,       // 93
+        CMPR,  IR0,        IR1,        // 96
+        NOP,                           // 97
+        SET,   0xFF,       IR0,        // 100
+        SET,   0x0A,       IR1,        // 103
+        STORER,IR1,        IR0, IR1,   // 107
+        DEC,   IR1,                    // 109
+        JNZ,   IR1,        0x00, 0x67, // 113
+        SET,   0xAA,       IR0,        // 116
+        ADD,   0x01,       IR0,        // 119
+        ADD,   0xFF,       IR0,        // 122
+        SET,   0x00,       IR1,        // 125
+        ADDR,  IR0,        IR1,        // 128
+        CALL,  0x00, 0xC9,             // 131
+        SET,   0x09,       IR0,        // 134
+        SUB,   0x0A,       IR0,        // 137
+        SET,   0x09,       IR1,        // 140
+        SET,   0x0A,       IR2,        // 143
+        SUBR,  IR1,        IR2,        // 146
+        SET,   0xEE,       IR1,        // 149
+        MUL,   0xEE,       IR0, IR1,   // 153
+        SET,   0xEE,       IR0,        // 156
+        SET,   0xEE,       IR2,        // 159
+        MULR,  IR0,        IR1, IR2,   // 163
+        SET,   0x0A,       IR0,        // 166
+        DIV,   0x06,       IR0, IR1,   // 170
+        SET,   0x06,       IR0,        // 173
+        SET,   0x0A,       IR1,        // 176
+        DIVR,  IR0,        IR1, IR2,   // 180
+        SET,   0x01,       IR0,        // 183
+        SHL,   0x07,       IR0,        // 186
+        SHL,   0x01,       IR0,        // 189
+        SET,   0x80,       IR0,        // 192
+        SHR,   0x07,       IR0,        // 195
+        SHR,   0x01,       IR0,        // 198
+        JMP,   0xAB, 0xCD,             // 201
+        RET};                          // 202
+
+    for (uint16_t i = 0; i < 202; i++)
+    {
+        mem[i] = test_code[i];
+    }
+}
+
+/**
+ *
+ * Starts the code until it reaches halt instruction or end of code memory.
+ *
+ */
+/**
+ * Loads a full memory image from a raw binary file into mem[0..MEM_SIZE-1].
+ * Returns true on success, false otherwise.
+ */
+bool load_bin_file(const char* file_path)
+{
+    FILE* f = fopen(file_path, "rb");
+    if (!f)
+    {
+        printf("Failed to open bin file: %s\n", file_path);
+        return false;
+    }
+
+    (void)fread(mem, 1, MEM_SIZE, f);
+    fclose(f);
+    return true;
+}
+
+
+int main(int argc, char** argv)
+{
+    if (argc >= 2)
+    {
+        const std::string a1 = argv[1];
+        if (a1 == "-h" || a1 == "--help")
+        {
             print_help(argv[0]);
-            return 2;
+            return 0;
         }
-        fs::path input = argv[1];
-        fs::path output = "sophia8_image.bin";
-        for (int i=2;i<argc;i++) {
-            std::string a = argv[i];
-            if (a=="-h" || a=="--help") {
-                print_help(argv[0]);
-                return 0;
-            }
-            if ((a=="-o" || a=="--output") && i+1 < argc) {
-                output = argv[++i];
-            } else {
-                std::cerr << "Unknown argument: " << a << "\n";
-                return 2;
-            }
-        }
-
-        fs::path entry = canonical_or_absolute(input);
-        std::vector<SrcLine> expanded;
-        std::vector<fs::path> stack_paths;
-        std::unordered_set<std::string> included_set;
-        preprocess_file(entry, entry, expanded, stack_paths, included_set, {});
-
-        // Always dump the fully-preprocessed source next to the output binary.
-        // This helps debug issues that only show up after includes are expanded.
-        write_preprocessed(default_preprocessed_path(output), expanded);
-
-        std::vector<DebRecord> deb;
-        auto img = assemble(expanded, &deb);
-        write_bin(output, img);
-
-        // Always dump debug map next to the binary.
-        write_debug_map(default_debug_path(output), deb, output);
-        std::cout << "OK: wrote " << img.size() << " bytes to " << output.string() << "\n";
-        return 0;
-
-    } catch (const AsmError& e) {
-        print_error(e);
-        return 1;
-    } catch (const std::exception& e) {
-        std::cerr << "ERROR: " << e.what() << "\n";
-        return 1;
     }
+
+    init_machine();
+
+    /*
+     * Usage:
+     *   sophia8
+     *       runs built-in test program
+     *
+     *   sophia8 <image.bin>
+     *       loads and runs a raw memory image
+     *
+     *   sophia8 <program.deb> [<break_file> <break_line>]
+     *       loads .deb debug map (emitted by s8asm), loads the referenced .bin,
+     *       and optionally stops at the given source file/line.
+     *
+     *   sophia8 debug.img [<program.deb> <break_file> <break_line>]
+     *       resumes from a saved debug image (written on breakpoint) and may
+     *       still use a .deb + breakpoint.
+     */
+
+    std::string deb_bin_path;
+    std::vector<DebLine> deb_lines;
+    bool have_deb = false;
+    bool have_state = false;
+
+    int argi = 1;
+    if (argc >= 2)
+    {
+        // 1) Try to load a debug image first (resume).
+        if (load_debug_image(argv[argi]))
+        {
+            have_state = true;
+            argi++;
+        }
+    }
+
+    // Help may appear after a debug image too: `sophia8 debug.img --help`
+    if (argi < argc)
+    {
+        const std::string a = argv[argi];
+        if (a == "-h" || a == "--help")
+        {
+            print_help(argv[0]);
+            return 0;
+        }
+    }
+
+    if (!have_state)
+    {
+        if (argc <= 1)
+        {
+            load_test_code();
+        }
+        else
+        {
+            const std::string p = argv[argi];
+            if (ends_with(p, ".deb"))
+            {
+                have_deb = load_deb_map(argv[argi], deb_bin_path, deb_lines);
+                if (!have_deb) return 1;
+                if (!load_bin_file(deb_bin_path.c_str())) return 1;
+                argi++;
+            }
+            else
+            {
+                if (!load_bin_file(argv[argi])) return 1;
+                argi++;
+            }
+        }
+    }
+    else
+    {
+        // Resumed state: optionally load a .deb for breakpoint mapping.
+        if (argi < argc)
+        {
+            const std::string p = argv[argi];
+            if (ends_with(p, ".deb"))
+            {
+                have_deb = load_deb_map(argv[argi], deb_bin_path, deb_lines);
+                if (!have_deb) return 1;
+                argi++;
+            }
+        }
+    }
+
+    bool break_enabled = false;
+    uint16_t break_addr = 0;
+    const char* break_file = nullptr;
+    int break_line = 0;
+
+    if (argi + 1 < argc)
+    {
+        if (!have_deb)
+        {
+            printf("Breakpoint requires a .deb debug map.\n");
+            return 1;
+        }
+
+        break_file = argv[argi];
+        break_line = std::atoi(argv[argi + 1]);
+        if (break_line <= 0)
+        {
+            printf("Invalid breakpoint line: %s\n", argv[argi + 1]);
+            return 1;
+        }
+
+        if (!find_break_addr(deb_lines, break_file, break_line, break_addr))
+        {
+            // Distinguish between:
+            //  - file:line exists in the debug map but only as DATA (or otherwise non-executable)
+            //  - file:line does not exist in the debug map at all
+            if (has_any_mapping_for_line(deb_lines, break_file, break_line))
+            {
+                printf("No executable code on this line.\n");
+            }
+            else
+            {
+                printf("Breakpoint not found in .deb: %s:%d\n", break_file, break_line);
+            }
+            return 1;
+        }
+
+        // Even if the debug map reports CODE for this line, prevent setting a breakpoint
+        // on lines that do not actually emit executable bytes (most commonly label-only
+        // lines which share an address with the following instruction).
+        if (!is_executable_line_at_addr(deb_lines, break_file, break_line, break_addr))
+        {
+            printf("No executable code on this line.\n");
+            return 1;
+        }
+
+        break_enabled = true;
+    }
+
+    run(break_enabled, break_addr, break_file, break_line);
+    return 0;
 }

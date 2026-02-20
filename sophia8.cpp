@@ -27,8 +27,10 @@
 #include <vector>
 #include <fstream>
 #include <sstream>
+#include <iomanip>
 #include <filesystem>
 #include <algorithm>
+#include <unordered_map>
 
 #include "definitions.h"
 
@@ -104,6 +106,11 @@ static void print_help(const char* prog)
     printf("Options:\n");
     printf("  -h, --help\n");
     printf("      Show this help.\n");
+    printf("  -v\n");
+    printf("      Enable verbose per-instruction logging to verbose.log (append+flush each instruction).\n");
+    printf("      Requires a .deb debug map (via --deb or a positional .deb).\n");
+    printf("  --deb <file.deb>\n");
+    printf("      Specify the .deb debug map explicitly (used for -v logging and/or breakpoints).\n");
 }
 
 /* Memory-mapped I/O implementation ******************************************/
@@ -260,16 +267,41 @@ static inline uint8_t mem_read(const uint16_t address)
     return mem[address];
 }
 
+
+/* VERBOSE TRACE SUPPORT *****************************************************/
+
+struct MemWriteEvent {
+    uint16_t addr;
+    uint8_t oldv;
+    uint8_t newv;
+};
+
+static bool g_verbose = false;
+static std::ofstream g_vlog;
+static uint64_t g_step_counter = 0;
+static std::vector<MemWriteEvent> g_mem_writes;
+
 static inline void mem_write(const uint16_t address, const uint8_t value)
 {
     if (address >= 0xFF00 && address <= 0xFF03) { mmio_write(address, value); return; }
     if (address >= MEM_SIZE) return;
+
+    if (g_verbose)
+    {
+        const uint8_t oldv = mem[address];
+        if (oldv != value)
+        {
+            g_mem_writes.push_back(MemWriteEvent{address, oldv, value});
+        }
+    }
+
     mem[address] = value;
 }
 
 /* SPECIAL TRIGGERS **********************************************************/
 
 static uint8_t  STOP = 0x00;    /* should stop the machine?                  */
+
 
 /* DEBUG / BREAKPOINT SUPPORT ************************************************/
 
@@ -281,6 +313,9 @@ struct DebLine {
     std::string file;
     int line_no = 0;
 };
+
+static std::unordered_map<uint16_t, const DebLine*> g_code_by_addr;
+
 
 static bool ends_with(const std::string& s, const std::string& suf) {
     return s.size() >= suf.size() && s.compare(s.size() - suf.size(), suf.size(), suf) == 0;
@@ -808,9 +843,9 @@ void push_instruction()
     if (source == IIP)
     {
         value = static_cast<uint8_t>(ip & 0x00FF);
-        mem[sp] = value;
+        mem_write(sp, value);
         value = static_cast<uint8_t>((ip & 0xFF00) >> 8);
-        mem[sp-1] = value;
+        mem_write(static_cast<uint16_t>(sp - 1), value);
         sp--;
         ip += 2;
         return;
@@ -819,9 +854,9 @@ void push_instruction()
     if (source == ISP)
     {
         value = static_cast<uint8_t>(sp & 0x00FF);
-        mem[sp] = value;
+        mem_write(sp, value);
         value = static_cast<uint8_t>((sp & 0xFF00) >> 8);
-        mem[sp-1] = value;
+        mem_write(static_cast<uint16_t>(sp - 1), value);
         sp--;
         ip += 2;
         return;
@@ -830,9 +865,9 @@ void push_instruction()
     if (source == IBP)
     {
         value = static_cast<uint8_t>(bp & 0x00FF);
-        mem[sp] = value;
+        mem_write(sp, value);
         value = static_cast<uint8_t>((bp & 0xFF00) >> 8);
-        mem[sp-1] = value;
+        mem_write(static_cast<uint16_t>(sp - 1), value);
         sp--;
         ip += 2;
         return;
@@ -851,7 +886,7 @@ void push_instruction()
     default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
 
-    mem[sp] = value;
+    mem_write(sp, value);
 
     ip+= 2;
 }
@@ -1257,8 +1292,8 @@ void call_instruction()
     
     returnAddress = ip + 3;
     
-    mem[sp - 2] = static_cast<uint8_t>((returnAddress & 0xFF00) >> 8);
-    mem[sp - 1] = static_cast<uint8_t>(returnAddress & 0x00FF);
+    mem_write(static_cast<uint16_t>(sp - 2), static_cast<uint8_t>((returnAddress & 0xFF00) >> 8));
+    mem_write(static_cast<uint16_t>(sp - 1), static_cast<uint8_t>(returnAddress & 0x00FF));
     sp -= 2;
     
     ip = callAddress;
@@ -1681,8 +1716,239 @@ void shl_instruction()
  * Processes instruction. If unknown instruction or halt, then the VM stops.
  *
  */
+/* VERBOSE TRACE HELPERS *****************************************************/
+
+static const DebLine* deb_lookup_by_addr(const std::unordered_map<uint16_t, const DebLine*>& m, const uint16_t addr)
+{
+    const auto it = m.find(addr);
+    return (it == m.end()) ? nullptr : it->second;
+}
+
+static std::string reg_code_to_name(const uint8_t code)
+{
+    switch (code)
+    {
+        case IR0: return "R0";
+        case IR1: return "R1";
+        case IR2: return "R2";
+        case IR3: return "R3";
+        case IR4: return "R4";
+        case IR5: return "R5";
+        case IR6: return "R6";
+        case IR7: return "R7";
+        case IIP: return "IP";
+        case ISP: return "SP";
+        case IBP: return "BP";
+        case IC:  return "C";
+        default:  break;
+    }
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "0x%02X", static_cast<unsigned>(code));
+    return std::string(buf);
+}
+
+static std::string decode_instruction_at(const uint16_t addr)
+{
+    const uint8_t op = mem_read(addr);
+    char buf[128];
+
+    switch (op)
+    {
+        case LOAD:
+            std::snprintf(buf, sizeof(buf), "LOAD [0x%02X%02X], %s",
+                          mem_read(static_cast<uint16_t>(addr + 1)),
+                          mem_read(static_cast<uint16_t>(addr + 2)),
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 3))).c_str());
+            return std::string(buf);
+        case STORE:
+            std::snprintf(buf, sizeof(buf), "STORE %s, [0x%02X%02X]",
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 1))).c_str(),
+                          mem_read(static_cast<uint16_t>(addr + 2)),
+                          mem_read(static_cast<uint16_t>(addr + 3)));
+            return std::string(buf);
+        case STORER:
+            std::snprintf(buf, sizeof(buf), "STORER %s, %s, %s",
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 1))).c_str(),
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 2))).c_str(),
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 3))).c_str());
+            return std::string(buf);
+        case LOADR:
+            std::snprintf(buf, sizeof(buf), "LOADR %s, %s, %s",
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 1))).c_str(),
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 2))).c_str(),
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 3))).c_str());
+            return std::string(buf);
+        case SET:
+            std::snprintf(buf, sizeof(buf), "SET 0x%02X, %s",
+                          mem_read(static_cast<uint16_t>(addr + 1)),
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 2))).c_str());
+            return std::string(buf);
+        case INC:
+            std::snprintf(buf, sizeof(buf), "INC %s",
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 1))).c_str());
+            return std::string(buf);
+        case DEC:
+            std::snprintf(buf, sizeof(buf), "DEC %s",
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 1))).c_str());
+            return std::string(buf);
+        case JMP:
+            std::snprintf(buf, sizeof(buf), "JMP 0x%02X%02X",
+                          mem_read(static_cast<uint16_t>(addr + 1)),
+                          mem_read(static_cast<uint16_t>(addr + 2)));
+            return std::string(buf);
+        case CMP:
+            std::snprintf(buf, sizeof(buf), "CMP %s, 0x%02X",
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 1))).c_str(),
+                          mem_read(static_cast<uint16_t>(addr + 2)));
+            return std::string(buf);
+        case CMPR:
+            std::snprintf(buf, sizeof(buf), "CMPR %s, %s",
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 1))).c_str(),
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 2))).c_str());
+            return std::string(buf);
+        case JZ:
+            std::snprintf(buf, sizeof(buf), "JZ %s, 0x%02X%02X",
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 1))).c_str(),
+                          mem_read(static_cast<uint16_t>(addr + 2)),
+                          mem_read(static_cast<uint16_t>(addr + 3)));
+            return std::string(buf);
+        case JNZ:
+            std::snprintf(buf, sizeof(buf), "JNZ %s, 0x%02X%02X",
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 1))).c_str(),
+                          mem_read(static_cast<uint16_t>(addr + 2)),
+                          mem_read(static_cast<uint16_t>(addr + 3)));
+            return std::string(buf);
+        case JC:
+            std::snprintf(buf, sizeof(buf), "JC 0x%02X%02X",
+                          mem_read(static_cast<uint16_t>(addr + 1)),
+                          mem_read(static_cast<uint16_t>(addr + 2)));
+            return std::string(buf);
+        case JNC:
+            std::snprintf(buf, sizeof(buf), "JNC 0x%02X%02X",
+                          mem_read(static_cast<uint16_t>(addr + 1)),
+                          mem_read(static_cast<uint16_t>(addr + 2)));
+            return std::string(buf);
+        case ADD:
+            std::snprintf(buf, sizeof(buf), "ADD 0x%02X, %s",
+                          mem_read(static_cast<uint16_t>(addr + 1)),
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 2))).c_str());
+            return std::string(buf);
+        case ADDR:
+            std::snprintf(buf, sizeof(buf), "ADDR %s, %s",
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 1))).c_str(),
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 2))).c_str());
+            return std::string(buf);
+        case PUSH:
+            std::snprintf(buf, sizeof(buf), "PUSH %s",
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 1))).c_str());
+            return std::string(buf);
+        case POP:
+            std::snprintf(buf, sizeof(buf), "POP %s",
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 1))).c_str());
+            return std::string(buf);
+        case CALL:
+            std::snprintf(buf, sizeof(buf), "CALL 0x%02X%02X",
+                          mem_read(static_cast<uint16_t>(addr + 1)),
+                          mem_read(static_cast<uint16_t>(addr + 2)));
+            return std::string(buf);
+        case RET:
+            return "RET";
+        case SUB:
+            std::snprintf(buf, sizeof(buf), "SUB 0x%02X, %s",
+                          mem_read(static_cast<uint16_t>(addr + 1)),
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 2))).c_str());
+            return std::string(buf);
+        case SUBR:
+            std::snprintf(buf, sizeof(buf), "SUBR %s, %s",
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 1))).c_str(),
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 2))).c_str());
+            return std::string(buf);
+        case MUL:
+            std::snprintf(buf, sizeof(buf), "MUL 0x%02X, %s, %s",
+                          mem_read(static_cast<uint16_t>(addr + 1)),
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 2))).c_str(),
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 3))).c_str());
+            return std::string(buf);
+        case MULR:
+            std::snprintf(buf, sizeof(buf), "MULR %s, %s, %s",
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 1))).c_str(),
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 2))).c_str(),
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 3))).c_str());
+            return std::string(buf);
+        case DIV:
+            std::snprintf(buf, sizeof(buf), "DIV 0x%02X, %s, %s",
+                          mem_read(static_cast<uint16_t>(addr + 1)),
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 2))).c_str(),
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 3))).c_str());
+            return std::string(buf);
+        case DIVR:
+            std::snprintf(buf, sizeof(buf), "DIVR %s, %s, %s",
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 1))).c_str(),
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 2))).c_str(),
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 3))).c_str());
+            return std::string(buf);
+        case SHL:
+            std::snprintf(buf, sizeof(buf), "SHL 0x%02X, %s",
+                          mem_read(static_cast<uint16_t>(addr + 1)),
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 2))).c_str());
+            return std::string(buf);
+        case SHR:
+            std::snprintf(buf, sizeof(buf), "SHR 0x%02X, %s",
+                          mem_read(static_cast<uint16_t>(addr + 1)),
+                          reg_code_to_name(mem_read(static_cast<uint16_t>(addr + 2))).c_str());
+            return std::string(buf);
+        case NOP:
+            return "NOP";
+        case HALT:
+            return "HALT";
+        default:
+            std::snprintf(buf, sizeof(buf), "UNKNOWN 0x%02X", static_cast<unsigned>(op));
+            return std::string(buf);
+    }
+}
+
+static void vlog_append_line(const std::string& s)
+{
+    if (!g_verbose) return;
+    if (!g_vlog.is_open()) return;
+    g_vlog << s << "\n";
+    g_vlog.flush();
+}
+
+static std::string format_regs()
+{
+    char buf[256];
+    std::snprintf(buf, sizeof(buf),
+                  "R0=%02X R1=%02X R2=%02X R3=%02X R4=%02X R5=%02X R6=%02X R7=%02X IP=%04X SP=%04X BP=%04X C=%d",
+                  r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7],
+                  static_cast<unsigned>(ip), static_cast<unsigned>(sp), static_cast<unsigned>(bp), c ? 1 : 0);
+    return std::string(buf);
+}
+
+static std::string format_mem_writes()
+{
+    if (g_mem_writes.empty()) return "";
+    std::ostringstream oss;
+    oss << " MEM{";
+    for (size_t i = 0; i < g_mem_writes.size(); i++)
+    {
+        const auto& w = g_mem_writes[i];
+        if (i) oss << ", ";
+        oss << std::hex << std::uppercase
+            << "0x" << std::setw(4) << std::setfill('0') << static_cast<unsigned>(w.addr)
+            << ":" << std::setw(2) << static_cast<unsigned>(w.oldv)
+            << "->" << std::setw(2) << static_cast<unsigned>(w.newv);
+    }
+    oss << "}";
+    return oss.str();
+}
+
 void process_instruction()
 {
+    const uint16_t orig_ip = ip;
+    const std::string decoded = (g_verbose ? decode_instruction_at(orig_ip) : std::string());
+    if (g_verbose) { g_mem_writes.clear(); }
+
     switch (mem[ip])
     {
 	        case LOADR: DBG_CMD("LOADR 0x%02X, 0x%02X, 0x%02X", mem[ip+1], mem[ip+2], mem[ip+3]); loadr_instruction(); break;
@@ -1717,6 +1983,25 @@ void process_instruction()
         case HALT: DBG_CMD("HALT"); STOP = 1; break;
         default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
+
+    if (g_verbose)
+    {
+        std::string src_loc = "<unknown>:0";
+        if (const DebLine* dl = deb_lookup_by_addr(g_code_by_addr, orig_ip))
+        {
+            src_loc = dl->file + ":" + std::to_string(dl->line_no);
+        }
+
+        std::ostringstream oss;
+        oss << std::dec << g_step_counter++ << " PC=0x"
+            << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << static_cast<unsigned>(orig_ip)
+            << " SRC=" << src_loc
+            << " INST=\"" << decoded << "\""
+            << format_mem_writes()
+            << " REGS{" << format_regs() << "}";
+        vlog_append_line(oss.str());
+    }
+
 }
 
 /**
@@ -1890,108 +2175,147 @@ bool load_bin_file(const char* file_path)
 }
 
 
+
+
 int main(int argc, char** argv)
 {
-    if (argc >= 2)
+    // Option parsing (keep the positional CLI from earlier versions).
+    // Supported options:
+    //   -h / --help
+    //   -v                 verbose per-instruction logging (requires a .deb map)
+    //   --deb <file.deb>   explicit .deb map (used for -v and/or breakpoints)
+    bool opt_verbose = false;
+    std::string opt_deb_path;
+
+    std::vector<std::string> positional;
+    positional.reserve(static_cast<size_t>(argc > 0 ? argc : 0));
+
+    for (int i = 1; i < argc; i++)
     {
-        const std::string a1 = argv[1];
-        if (a1 == "-h" || a1 == "--help")
+        const std::string a = argv[i];
+        if (a == "-h" || a == "--help")
         {
             print_help(argv[0]);
             return 0;
         }
+        if (a == "-v")
+        {
+            opt_verbose = true;
+            continue;
+        }
+        if (a == "--deb")
+        {
+            if (i + 1 >= argc)
+            {
+                printf("No debug file specified\n");
+                return 1;
+            }
+            opt_deb_path = argv[i + 1];
+            i++;
+            continue;
+        }
+
+        positional.push_back(a);
     }
 
     init_machine();
+    g_verbose = opt_verbose;
 
-    /*
-     * Usage:
-     *   sophia8
-     *       runs built-in test program
-     *
-     *   sophia8 <image.bin>
-     *       loads and runs a raw memory image
-     *
-     *   sophia8 <program.deb> [<break_file> <break_line>]
-     *       loads .deb debug map (emitted by s8asm), loads the referenced .bin,
-     *       and optionally stops at the given source file/line.
-     *
-     *   sophia8 debug.img [<program.deb> <break_file> <break_line>]
-     *       resumes from a saved debug image (written on breakpoint) and may
-     *       still use a .deb + breakpoint.
-     */
+    // Open verbose log early (append mode) so we can flush per instruction.
+    if (g_verbose)
+    {
+        g_vlog.open("verbose.log", std::ios::out | std::ios::app);
+        if (!g_vlog)
+        {
+            printf("Failed to open verbose.log\n");
+            return 1;
+        }
+    }
 
     std::string deb_bin_path;
     std::vector<DebLine> deb_lines;
     bool have_deb = false;
     bool have_state = false;
 
-    int argi = 1;
-    if (argc >= 2)
+    int argi = 0;
+
+    // 1) Try to load a debug image first (resume).
+    if (argi < static_cast<int>(positional.size()))
     {
-        // 1) Try to load a debug image first (resume).
-        if (load_debug_image(argv[argi]))
+        if (load_debug_image(positional[argi].c_str()))
         {
             have_state = true;
             argi++;
         }
     }
 
-    // Help may appear after a debug image too: `sophia8 debug.img --help`
-    if (argi < argc)
+    // 2) If next positional arg is a .deb, load it (it also provides the .bin path).
+    if (argi < static_cast<int>(positional.size()))
     {
-        const std::string a = argv[argi];
-        if (a == "-h" || a == "--help")
+        const std::string p = positional[argi];
+        if (ends_with(p, ".deb"))
         {
-            print_help(argv[0]);
-            return 0;
+            have_deb = load_deb_map(p.c_str(), deb_bin_path, deb_lines);
+            if (!have_deb) return 1;
+
+            // Only load the referenced .bin if we did not already load a debug snapshot.
+            if (!have_state)
+            {
+                if (!load_bin_file(deb_bin_path.c_str())) return 1;
+            }
+            argi++;
         }
     }
 
+    // 3) If we still don't have program state loaded, load either built-in test code or a raw bin.
     if (!have_state)
     {
-        if (argc <= 1)
+        if (positional.empty())
         {
             load_test_code();
         }
-        else
+        else if (!have_deb)
         {
-            const std::string p = argv[argi];
-            if (ends_with(p, ".deb"))
-            {
-                have_deb = load_deb_map(argv[argi], deb_bin_path, deb_lines);
-                if (!have_deb) return 1;
-                if (!load_bin_file(deb_bin_path.c_str())) return 1;
-                argi++;
-            }
-            else
-            {
-                if (!load_bin_file(argv[argi])) return 1;
-                argi++;
-            }
+            // Load the first positional as raw bin (it wasn't a debug image or a .deb).
+            if (!load_bin_file(positional[0].c_str())) return 1;
+            if (argi == 0) argi = 1;
         }
     }
-    else
+
+    // If user provided --deb explicitly, load it (for verbose and/or breakpoints) when not already loaded.
+    if (!have_deb && !opt_deb_path.empty())
     {
-        // Resumed state: optionally load a .deb for breakpoint mapping.
-        if (argi < argc)
+        have_deb = load_deb_map(opt_deb_path.c_str(), deb_bin_path, deb_lines);
+        if (!have_deb) return 1;
+    }
+
+    // If verbose logging is enabled, require a .deb debug map for file:line mapping.
+    if (g_verbose && !have_deb)
+    {
+        printf("No debug file specified\n");
+        return 1;
+    }
+
+    // Build CODE address -> DebLine map for fast ip->source resolution (used by -v).
+    if (have_deb)
+    {
+        g_code_by_addr.clear();
+        for (const auto& dl : deb_lines)
         {
-            const std::string p = argv[argi];
-            if (ends_with(p, ".deb"))
+            if (dl.is_code)
             {
-                have_deb = load_deb_map(argv[argi], deb_bin_path, deb_lines);
-                if (!have_deb) return 1;
-                argi++;
+                g_code_by_addr[dl.addr] = &dl;
             }
         }
     }
 
+    // Optional breakpoint: <break_file> <break_line> remaining.
     bool break_enabled = false;
     uint16_t break_addr = 0;
     const char* break_file = nullptr;
     int break_line = 0;
 
-    if (argi + 1 < argc)
+    if (argi + 1 < static_cast<int>(positional.size()))
     {
         if (!have_deb)
         {
@@ -1999,19 +2323,16 @@ int main(int argc, char** argv)
             return 1;
         }
 
-        break_file = argv[argi];
-        break_line = std::atoi(argv[argi + 1]);
+        break_file = positional[argi].c_str();
+        break_line = std::atoi(positional[argi + 1].c_str());
         if (break_line <= 0)
         {
-            printf("Invalid breakpoint line: %s\n", argv[argi + 1]);
+            printf("Invalid breakpoint line: %s\n", positional[argi + 1].c_str());
             return 1;
         }
 
         if (!find_break_addr(deb_lines, break_file, break_line, break_addr))
         {
-            // Distinguish between:
-            //  - file:line exists in the debug map but only as DATA (or otherwise non-executable)
-            //  - file:line does not exist in the debug map at all
             if (has_any_mapping_for_line(deb_lines, break_file, break_line))
             {
                 printf("No executable code on this line.\n");
@@ -2029,3 +2350,4 @@ int main(int argc, char** argv)
     run(break_enabled, break_addr, break_file, break_line);
     return 0;
 }
+

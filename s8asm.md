@@ -522,6 +522,37 @@ sophia8 debug.img prog.deb path/to/file.s8 200
 - If something “mysteriously” changes after adding an `.include`, inspect the generated `*.pre.s8` first.
 - If you can’t find a breakpoint location, check the `.deb` lines for the **exact** file path or filename used by the assembler.
 
+### 14.6 Verbose execution logging: `-v`
+
+For instruction-by-instruction debugging, the VM can produce an **append-only** trace log.
+
+```bash
+# Verbose trace using a .deb (also loads the referenced .bin)
+sophia8 -v prog.deb
+
+# Verbose trace for a raw .bin image (use .deb only for source mapping)
+sophia8 -v --deb prog.deb prog.bin
+
+# Verbose trace while resuming from a snapshot (use .deb only for source mapping)
+sophia8 -v debug.img prog.deb
+```
+
+Rules:
+
+- Verbose logging is enabled **only** when `-v` is present.
+- When `-v` is used, a `.deb` debug map is **required** (either positional `prog.deb` or `--deb prog.deb`).
+  - If no `.deb` is specified, the VM exits with: `No debug file specified`
+- The VM writes to `verbose.log` in the current directory using **append mode** and **flushes after each executed instruction**
+  (so partial logs survive process termination/timeouts).
+
+Each executed instruction appends one log entry that includes:
+
+- `file:line` resolved from the `.deb` for the current `IP` (when available)
+- decoded instruction mnemonic + operands
+- memory writes performed by the instruction (if any): address, old byte, new byte
+- register dump: `R0..R7`, `IP`, `SP`, `BP`, `C`
+
+
 Assembler lessons learned (design + debugging)
 --------------------------------------------
 

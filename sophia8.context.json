@@ -1,6 +1,6 @@
 {
   "context_pack_name": "Sophia8 Assembler + ISA + Standard Libraries Context Pack",
-  "version": "1.3",
+  "version": "1.4",
   "intent": [
     "Authoritative, implementation-accurate reference for Sophia8 assembly as accepted by s8asm and executed by the sophia8 VM.",
     "All tokens are case sensitive.",
@@ -1094,6 +1094,18 @@
       {
         "pattern": "sophia8 debug.img <program.deb> <break_file> <break_line>",
         "meaning": "Resumes from snapshot and can still use .deb mapping for a new breakpoint."
+      },
+      {
+        "pattern": "sophia8 -v <program.deb>",
+        "meaning": "Runs using the .deb debug map and appends a per-instruction trace to verbose.log (flush after each instruction)."
+      },
+      {
+        "pattern": "sophia8 -v --deb <program.deb> <image.bin>",
+        "meaning": "Loads a raw .bin image, uses <program.deb> only for source mapping, and writes verbose.log."
+      },
+      {
+        "pattern": "sophia8 -v debug.img <program.deb>",
+        "meaning": "Resumes from debug.img, uses <program.deb> for source mapping, and writes verbose.log."
       }
     ],
     "debug_snapshot": {
@@ -1104,6 +1116,21 @@
       "On breakpoint hit, VM prints BREAK <file>:<line> (0xADDR).",
       "Then prints registers (R0..R7, IP, SP, BP, C).",
       "Then saves debug.img and stops."
-    ]
+    ],
+    "verbose_logging": {
+      "enabled_by": "-v",
+      "requires_deb": true,
+      "missing_deb_error": "No debug file specified",
+      "log_file": "verbose.log",
+      "mode": "append",
+      "flush_policy": "flush after each executed instruction",
+      "per_instruction_fields": [
+        "IP (before execution)",
+        "source location resolved from .deb (file:line) for the IP when available",
+        "decoded instruction mnemonic + operands",
+        "memory writes performed by the instruction (addr, old byte, new byte) when any",
+        "register dump after execution: R0..R7, IP, SP, BP, C"
+      ]
+    }
   }
 }
