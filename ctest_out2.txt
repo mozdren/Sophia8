@@ -1,0 +1,11 @@
+Test project /mnt/data/s8proj/sophia8_work/build
+    Start 1: test_graphics_c64
+1/3 Test #1: test_graphics_c64 ................   Passed    0.01 sec
+    Start 2: test_libs_s8
+2/3 Test #2: test_libs_s8 .....................   Passed    0.16 sec
+    Start 3: test_basic_auto
+3/3 Test #3: test_basic_auto ..................   Passed    2.22 sec
+
+100% tests passed, 0 tests failed out of 3
+
+Total Test time (real) =   2.41 sec

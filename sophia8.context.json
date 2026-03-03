@@ -659,11 +659,12 @@
   },
   "libraries": {
     "basic_strfn.s8": {
-      "purpose": "BASIC string functions: LEN, LEFT$, RIGHT$, MID$, ASC, CHR$, INSTR; plus parsing helpers.",
+      "purpose": "BASIC string functions: LEN, LEFT$, RIGHT$, MID$, ASC, CHR$, INSTR, VAL; plus parsing helpers.",
       "org": "0x7000",
       "notes": [
         "Placed at 0x7000 to avoid overlapping the main BASIC code region (which grows beyond 0x5200).",
         "INSTR(hay$, needle$) returns 1-based position; returns 0 if not found; returns 1 if needle is empty.",
+        "VAL(s$) parses the signed decimal prefix of the string (leading spaces allowed); returns 0 if no digits.",
         "Ensure test programs do not POKE into 0x7000..(end of basic_strfn) to avoid self-corruption."
       ]
     }

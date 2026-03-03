@@ -8,6 +8,7 @@
 ;   RIGHT$(s$|"...", n) -> string
 ;   MID$(s$|"...", start, n) -> string   (start is 1-based)
 ;   INSTR(s$|"...", sub$|"...") -> integer (1-based position, 0 if not found)
+;   VAL(s$|"...") -> integer (parse signed decimal prefix, 0 if none)
 ;
 ; Parsing uses CURPTR_H/CURPTR_L and helpers from sophia_basic_v1.s8:
 ;   SKIPSP_CUR, PEEKCHAR_CUR, GETCHAR_CUR, PARSE_IDENT, VAR_FIND, EVAL_EXPR,
@@ -188,6 +189,25 @@ MATCH_KW_INSTR:
     CMP R0, #0x52 ; R
     JNZ R0, MK_NO
     SET #5, R0
+    STORE R0, IDLEN
+    SET #1, R0
+    RET
+
+MATCH_KW_VAL:
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    LOADR R0, R1, R2
+    CMP R0, #0x56 ; V
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x41 ; A
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x4C ; L
+    JNZ R0, MK_NO
+    SET #3, R0
     STORE R0, IDLEN
     SET #1, R0
     RET
@@ -775,6 +795,139 @@ SIN_FOUND:
     SET #0x00, R6
     SET #0x00, R7
     ADDR R4, R7          ; return position in low byte
+    RET
+
+; ---------------------------------------------------------------------------
+; VAL(s$|"...") -> integer
+; Parse signed decimal prefix of string.
+;   - Leading spaces are ignored.
+;   - Optional leading '+' or '-'.
+;   - Parses consecutive digits; stops on first non-digit.
+;   - If no digits are found, returns 0.
+; Result returned as numeric in R6:R7.
+; ---------------------------------------------------------------------------
+STRFN_VAL:
+    CALL CONSUME_KW
+    CALL SKIPSP_CUR
+    CALL GETCHAR_CUR       ; '('
+    CALL STR_PARSE_ARG
+    CMP R0, #0x01
+    JNZ R0, SPA_FAIL
+
+    ; close ')'
+    CALL SKIPSP_CUR
+    CALL GETCHAR_CUR
+
+    ; setup pointer (R1:R2) and remaining length (R3)
+    SET #0x00, R3
+    ADDR R5, R3
+    SET #0x00, R1
+    ADDR R6, R1
+    SET #0x00, R2
+    ADDR R7, R2
+
+    ; skip leading spaces
+SV_SKIPSP:
+    JZ R3, SV_INIT
+    LOADR R0, R1, R2
+    CMP R0, #0x20
+    JNZ R0, SV_CHKSIGN
+    INC R2
+    JNZ R2, SV_SPS1
+    INC R1
+SV_SPS1:
+    DEC R3
+    JMP SV_SKIPSP
+
+SV_CHKSIGN:
+    ; sign flag in INT_SIGN (0=pos,1=neg)
+    SET #0x00, R4
+    STORE R4, INT_SIGN
+    JZ R3, SV_INIT
+    LOADR R0, R1, R2
+    CMP R0, #0x2D      ; '-'
+    JNZ R0, SV_CHKPLUS
+    SET #0x01, R4
+    STORE R4, INT_SIGN
+    INC R2
+    JNZ R2, SV_SG1
+    INC R1
+SV_SG1:
+    DEC R3
+    JMP SV_INIT
+SV_CHKPLUS:
+    CMP R0, #0x2B      ; '+'
+    JNZ R0, SV_INIT
+    INC R2
+    JNZ R2, SV_SG2
+    INC R1
+SV_SG2:
+    DEC R3
+
+SV_INIT:
+    ; value = 0
+    SET #0x00, R6
+    SET #0x00, R7
+    ; digit_found flag in R4 (0=no digits yet, 1=at least one digit)
+    SET #0x00, R4
+
+SV_LOOP:
+    JZ R3, SV_DONE
+    ; check digit
+    CALL ISDIGIT
+    JZ R0, SV_DONE
+    LOADR R0, R1, R2
+    SUB #0x30, R0
+
+    ; mark digit found
+    SET #0x01, R4
+
+    ; value = value*10 + digit
+    PUSH R1
+    PUSH R2
+    PUSH R3
+    PUSH R0
+    SET #0x00, R4
+    ADDR R6, R4
+    SET #0x00, R5
+    ADDR R7, R5
+    SET #0x00, R6
+    SET #10, R7
+    CALL MUL16U
+    POP R0
+    POP R3
+    POP R2
+    POP R1
+    ADDR R0, R7
+    JNC SV_A1
+    INC R6
+SV_A1:
+
+    ; keep digit_found = 1 (MUL16U clobbers R4)
+    SET #0x01, R4
+
+    ; advance
+    INC R2
+    JNZ R2, SV_NH
+    INC R1
+SV_NH:
+    DEC R3
+    JMP SV_LOOP
+
+SV_DONE:
+    ; if no digits => return 0
+    CMP R4, #0x01
+    JZ R4, SV_APPLYSIGN
+    SET #0x00, R6
+    SET #0x00, R7
+    RET
+
+SV_APPLYSIGN:
+    LOAD INT_SIGN, R0
+    CMP R0, #0x01
+    JNZ R0, SV_RET
+    CALL NEG16
+SV_RET:
     RET
 
 SIN_RET1:
