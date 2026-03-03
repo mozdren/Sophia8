@@ -705,3 +705,80 @@ JMP loop        ; address via label
 - **Two-pass assembly expectations**: Pass 1 builds layout and label addresses; pass 2 emits. Forward references are fine for instructions and .word, but not allowed where the assembler requires literal-only operands (e.g., .org operand, .byte).
   - Prevention: When in doubt, choose .word for label-bearing data and keep control directives literal.
 - **Error reporting**: Preserve the original line (before comment stripping) for diagnostics, and report file/line plus include stack. Good errors reduce debugging time more than any other feature.
+---
+
+## 15. Graphics (C64-style cell renderer)
+
+Sophia8 supports a simple **cell-based bitmap** display inspired by the Commodore 64:
+
+- **Resolution:** 320×200
+- **Cell grid:** 40×25 cells
+- **Cell size:** 8×8 pixels
+- **Per-cell colors:** 2 colors per cell (foreground/background), selected from a 16-color palette
+
+### 15.1 VRAM layout (fixed base 0x8000)
+
+Graphics memory is read from a **fixed base address**:
+
+- **GFX_BASE:** `0x8000`
+- **Total bytes:** `40 * 25 * 9 = 9000`
+- **Address range:** `0x8000 .. 0xA327` (inclusive)
+
+Each cell consumes **9 bytes**:
+
+- `byte[0..7]`: 8 bitmap rows (MSB = leftmost pixel)
+  - bit `1` → foreground
+  - bit `0` → background
+- `byte[8]`: color byte
+  - high nibble (bits 7..4) → **foreground color index** `0..15`
+  - low nibble  (bits 3..0) → **background color index** `0..15`
+
+Cell ordering is row-major:
+
+- `cell_index = cy*40 + cx`
+- `cell_addr  = 0x8000 + cell_index*9`
+
+### 15.2 VM usage
+
+Enable graphics rendering when running a raw image:
+
+```bash
+sophia8 program.bin --gfx
+```
+
+Optional output filename (default is `frame.ppm`):
+
+```bash
+sophia8 program.bin --gfx --gfx-out frame.ppm
+```
+
+Rendering behavior:
+
+- While the VM runs, the renderer refreshes **best-effort ~60 Hz**
+- When the VM stops (`HALT`), the VM always writes a **final frame**
+
+Current backend writes a binary **PPM (P6)** file (dependency-free).
+
+### 15.3 Producing graphics from assembly
+
+A typical “image viewer” style program places graphics data at `.org 0x8000`
+and halts:
+
+```asm
+.org 0x0200
+START:
+    HALT
+
+.org 0x8000
+GFX_DATA:
+    ; 9000 bytes total (40*25 cells * 9 bytes per cell)
+    ; .byte ...
+```
+
+### 15.4 Tooling (optional, external)
+
+Common helper scripts used during development:
+
+- `img_to_s8gfx.py`: converts an input image into a `.s8` file that emits VRAM bytes at `.org 0x8000`
+- `ppm_to_png.py`: converts a PPM (P6/P3) file (e.g., `frame.ppm`) into PNG (requires Pillow)
+

@@ -1766,6 +1766,14 @@
       {
         "meaning": "Resumes from debug.img, uses <program.deb> for source mapping, and writes verbose.log.",
         "pattern": "sophia8 -v debug.img <program.deb>"
+      },
+      {
+        "meaning": "Loads and runs a raw memory image with graphics rendering enabled (reads VRAM at 0x8000).",
+        "pattern": "sophia8 <image.bin> --gfx"
+      },
+      {
+        "meaning": "Runs with graphics enabled and writes rendered frame to the specified PPM output file.",
+        "pattern": "sophia8 <image.bin> --gfx --gfx-out <frame.ppm>"
       }
     ],
     "verbose_logging": {
@@ -1782,6 +1790,36 @@
         "register dump after execution: R0..R7, IP, SP, BP, C"
       ],
       "requires_deb": true
+    },
+    "graphics": {
+      "enabled_flag": "--gfx",
+      "output_flag": "--gfx-out",
+      "output_default": "frame.ppm",
+      "scale_flag": "--gfx-scale",
+      "fullscreen_flag": "--gfx-fullscreen",
+      "refresh": "best-effort ~60 Hz while running; always writes a final frame on VM stop",
+      "memory_layout": {
+        "base": "0x8000",
+        "cell_grid": "40x25",
+        "cell_size_pixels": "8x8",
+        "bytes_per_cell": 9,
+        "total_bytes": 9000,
+        "address_range": "0x8000..0xA327",
+        "cell_format": [
+          "byte[0..7]: bitmap rows (MSB=left). bit 1=FG, bit 0=BG",
+          "byte[8]: color (hi nibble FG 0..15, lo nibble BG 0..15)"
+        ],
+        "cell_order": "row-major: cell_index = cy*40+cx; cell_addr = base + cell_index*9"
+      },
+      "renderer": {
+        "current_backend": "PPM (P6) file writer (dependency-free)",
+        "window_backend_note": "A future SDL (or similar) window backend can scale to fit (optional fullscreen) while preserving 320x200 aspect ratio (letterbox/pillarbox)."
+      },
+      "palette": {
+        "indexes": "0..15",
+        "source": "graphics_c64.cpp palette table (must match converters)"
+      }
     }
+
   }
 }
