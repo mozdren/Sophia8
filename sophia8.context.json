@@ -184,70 +184,12 @@
     "tool_name": "s8asm"
   },
   "basic": {
-    "design_notes": [
-      "Plain-text program storage (no tokenization).",
-      "Numeric model: signed 16-bit integers for numeric variables and expressions.",
-      "String variables supported via a simple bump-allocator string heap.",
-      "BASIC runtime is split into focused include files: basic_strings.s8 (fixed strings + keyword strings at stable addresses), basic_errors.s8 (shared error printing helpers), text.s8 and basic_helpers.s8 (parsing/token helpers), basic_state.s8 (runtime state + scratch buffers), basic_rng.s8 (BASIC seed wrapper over rng.s8), basic_init.s8 (initialization/reset routines), basic_progstore.s8 (program line storage, delete, find, list), basic_vars.s8 (variable table helpers), basic_expr.s8 (expression engine + identifier/number parsing + boolean ops), basic_io.s8 (PRINT/INPUT and DO_PRINT), basic_flow.s8 (flow control), basic_stmt.s8 (statement dispatcher + built-in command handlers), and basic_repl.s8 (REPL + RUN loop). This keeps sophia_basic_v1.s8 as a composition file (includes + entry marker)."
-    ],
-    "keywords": [
-      "NEW",
-      "LIST",
-      "RUN",
-      "PRINT",
-      "GOTO",
-      "IF",
-      "THEN",
-      "ELSE",
-      "END",
-      "STOP",
-      "LET",
-      "DIM",
-      "GOSUB",
-      "RETURN",
-      "FOR",
-      "TO",
-      "STEP",
-      "NEXT",
-      "INPUT",
-      "POKE",
-      "PEEK",
-      "RANDOMIZE",
-      "RND",
-      "REM"
-    ],
-    "memory_map": {
-      "arrays": {
-        "allocation": "(max_index+1)*2 bytes from STRFREE bump heap (shared with strings)",
-        "entry_fields": {
-          "+10..11": "data pointer (H,L)",
-          "+12..13": "max index (H,L)"
-        },
-        "var_entry_type": "IDTYPE=2 for integer arrays"
-      },
-      "cli_input_buffer": "0x6C00 (READLINE_ECHO destination)",
-      "identifier_buffer": "0x68A0 (IDBUF, 8 bytes)",
-      "parser_stable_copy": "0x6D00 (uppercase parsing buffer)",
-      "runtime_state": "0x6800.. (BASIC runtime variables; see labels in basic_state.s8)",
-      "string_heap": "0xA000..0xBFFF (bump allocator)",
-      "strings": "0x0200..0x03FF (fixed-address keyword and message strings)",
-      "token_buffer": "0x6880 (TOKENBUF, 24 bytes including NUL)",
-      "var_table": "0x6000..0x63FF (64 entries * 16 bytes)"
-    },
-    "name": "Sophia Basic v.1",
-    "source_file": "sophia_basic_v1.s8",
-    "statements": {
-      "DIM_ARRAYS": "DIM allocates 1D integer arrays: DIM A(n) allocates elements 0..n (16-bit signed). Array access uses A(i) in expressions and assignments. Arrays share the STRFREE bump heap with strings.",
-      "FOR_NEXT": "FOR <var>=<start> TO <end> [STEP <step>], terminated by NEXT <var>.",
-      "GOSUB_RETURN": "GOSUB <line> pushes return location, RETURN continues after the call.",
-      "IF_THEN_ELSE": "Supports single-line IF <expr> THEN <stmt|line> [ELSE <stmt|line>].",
-      "POKE_PEEK": "POKE <addr>, <byte> writes memory; PEEK(<addr>) reads memory as a number.",
-      "RANDOMIZE_RND": "RANDOMIZE <seed> sets RNG seed; RND(<n>) returns 0..n-1.",
-      "REM": "Comment. Ignores the rest of the current line (including any \":\" that would otherwise separate statements)."
-    },
-    "tests": {
-      "auto_program": "sophia_basic_test_auto.bas (assembled image is driven via stdin and validated in CTest)"
-    }
+    "features": [
+      "LEN(string)",
+      "LEFT$(string,n)",
+      "RIGHT$(string,n)",
+      "MID$(string,start,n)"
+    ]
   },
   "binary_image": {
     "entry_stub": {
@@ -350,18 +292,6 @@
       "growth": "downward",
       "safety": "No overflow/underflow protection.",
       "width": "Byte-addressed; PUSH/POP of IP/SP/BP move 2 bytes; CALL/RET move 2 bytes."
-    }
-  },
-  "graphics": {
-    "c64": {
-      "library_files": [
-        "graphics_c64.h",
-        "graphics_c64.cpp"
-      ],
-      "notes": [
-        "C64-style 320x200 bitmap helpers used by test_graphics_c64.",
-        "For Sophia8 assembly, bitmap data can be embedded via generated .s8gfx assets (see img_to_s8gfx.py)."
-      ]
     }
   },
   "intent": [
@@ -727,6 +657,16 @@
       ]
     }
   },
+  "libraries": {
+    "basic_strfn.s8": {
+      "purpose": "BASIC string functions: LEN, LEFT$, RIGHT$, MID$; plus parsing helpers.",
+      "org": "0x7000",
+      "notes": [
+        "Placed at 0x7000 to avoid overlapping the main BASIC code region (which grows beyond 0x5200).",
+        "Ensure test programs do not POKE into 0x7000..(end of basic_strfn) to avoid self-corruption."
+      ]
+    }
+  },
   "mmio": {
     "map": [
       {
@@ -757,119 +697,6 @@
     "range": "0xFF00..0xFF03"
   },
   "standard_libraries": {
-    "basic_array.s8": {
-      "depends_on": [
-        "basic_state.s8",
-        "basic_expr.s8",
-        "basic_vars.s8",
-        "basic_errors.s8"
-      ],
-      "notes": "Array entries use IDTYPE=2. Entry+10..11=data ptr (H,L). Entry+12..13=max index (H,L). DIM allocates (max+1)*2 bytes.",
-      "provides": [
-        "CMD_DIM",
-        "ARRAY_LOAD_INT_ELEM",
-        "ARRAY_STORE_INT_ELEM"
-      ],
-      "purpose": "DIM and 1D integer arrays for Sophia BASIC (array metadata in var table, data allocated from STRFREE)."
-    },
-    "basic_assign.s8": {
-      "depends_on": [
-        "kernel.s8",
-        "text.s8",
-        "basic_state.s8",
-        "basic_expr.s8",
-        "basic_vars.s8",
-        "basic_errors.s8"
-      ],
-      "purpose": "LET statement and implicit assignment parsing extracted from basic_stmt.s8.",
-      "routines": [
-        {
-          "args": {},
-          "behavior": "Implements LET <var>=... by skipping spaces, then delegating to CMD_ASSIGN. Prints ?SYNTAX ERROR on failure.",
-          "clobbers": [
-            "R0",
-            "R1",
-            "R2",
-            "R3",
-            "R4",
-            "R5",
-            "R6",
-            "R7"
-          ],
-          "name": "CMD_LET",
-          "returns": {}
-        },
-        {
-          "args": {},
-          "behavior": "Restores CURPTR from TOKSTART and attempts CMD_ASSIGN for implicit assignment lines (no keyword). Prints ?SYNTAX ERROR on failure.",
-          "clobbers": [
-            "R0",
-            "R1",
-            "R2",
-            "R3",
-            "R4",
-            "R5",
-            "R6",
-            "R7"
-          ],
-          "name": "CMD_ASSIGN_DISPATCH",
-          "returns": {}
-        },
-        {
-          "args": {},
-          "behavior": "Parses <ident>=<expr> for numeric variables or <ident$>=\"...\" for string variables and stores the result.",
-          "clobbers": [
-            "R0",
-            "R1",
-            "R2",
-            "R3",
-            "R4",
-            "R5",
-            "R6",
-            "R7"
-          ],
-          "name": "CMD_ASSIGN",
-          "returns": {
-            "R0": "1 if assignment parsed and stored, else 0"
-          }
-        }
-      ]
-    },
-    "basic_errors.s8": {
-      "depends_on": [
-        "basic_strings.s8",
-        "kernel.s8",
-        "cli.s8"
-      ],
-      "labels": [
-        "PRINT_SYNTAX_ERROR",
-        "PRINT_NO_PROGRAM",
-        "PRINT_UNDEF_LINE"
-      ],
-      "notes": [
-        "These helpers preserve all registers except R1/R2 which are used internally to point PUTS at fixed-address strings."
-      ],
-      "purpose": "Common BASIC error printing helpers to avoid repeating fixed-address PUTS sequences."
-    },
-    "basic_flow.s8": {
-      "depends_on": [
-        "basic_state.s8",
-        "basic_vars.s8",
-        "basic_expr.s8",
-        "basic_errors.s8"
-      ],
-      "notes": [
-        "Only valid while RUNNING=1; prints BASIC errors on misuse or syntax issues.",
-        "FOR stack records stored at 0x6A20 + idx*8; GOSUB return stack at 0x6A00 + idx."
-      ],
-      "provides": [
-        "CMD_GOSUB",
-        "CMD_RETURN",
-        "CMD_FOR",
-        "CMD_NEXT"
-      ],
-      "summary": "BASIC flow-control statements and loop stack handling (GOSUB/RETURN, FOR/NEXT)."
-    },
     "basic_helpers.s8": {
       "depends_on": [
         "text.s8",
@@ -958,151 +785,6 @@
           }
         }
       ]
-    },
-    "basic_init.s8": {
-      "depends_on": [
-        "basic_state.s8",
-        "rng.s8"
-      ],
-      "purpose": "BASIC initialization/reset routines extracted from sophia_basic_v1.s8.",
-      "routines": [
-        {
-          "args": {},
-          "behavior": "Resets variable table (types to 0xFF), sets STRFREE to 0xA000, applies default RNG seed 0x1234, and resets FOR/GOSUB stacks.",
-          "clobbers": [
-            "R0",
-            "R1",
-            "R2",
-            "R3"
-          ],
-          "name": "INIT_VARS",
-          "returns": {}
-        }
-      ]
-    },
-    "basic_io.s8": {
-      "depends_on": [
-        "basic_state.s8",
-        "basic_expr.s8",
-        "basic_vars.s8",
-        "basic_errors.s8",
-        "kernel.s8",
-        "cli.s8"
-      ],
-      "notes": [
-        "CMD_INPUT reads numeric input into 0x6E00 and uses PARSE_INT16, or stores string input into the BASIC string heap at STRFREE.",
-        "DO_PRINT prints: string literal, string variable, or numeric expression (via PUTDEC16S)."
-      ],
-      "provides": [
-        "CMD_PRINT",
-        "CMD_INPUT",
-        "DO_PRINT"
-      ],
-      "summary": "BASIC PRINT/INPUT commands and the DO_PRINT helper extracted from basic_stmt.s8."
-    },
-    "basic_repl.s8": {
-      "depends_on": [
-        "cli.s8",
-        "kernel.s8",
-        "text.s8",
-        "basic_helpers.s8",
-        "basic_state.s8",
-        "basic_init.s8",
-        "basic_progstore.s8",
-        "basic_assign.s8",
-        "basic_stmt.s8"
-      ],
-      "purpose": "BASIC REPL (interactive loop) and the RUN program execution loop extracted from sophia_basic_v1.s8.",
-      "routines": [
-        {
-          "args": {},
-          "behavior": "Program entry. Initializes BASIC state (calls INIT_VARS), prints the banner, then enters REPL.",
-          "clobbers": [
-            "R0",
-            "R1",
-            "R2",
-            "R3",
-            "R4",
-            "R5",
-            "R6",
-            "R7"
-          ],
-          "name": "START",
-          "returns": {}
-        },
-        {
-          "args": {},
-          "behavior": "Interactive loop. Prompts, reads a line into 0x6C00, copies to 0x6D00, uppercases it, then either stores a program line (HANDLE_PROGLINE) or executes an immediate statement (EXEC_STMT).",
-          "clobbers": [
-            "R0",
-            "R1",
-            "R2",
-            "R3",
-            "R4"
-          ],
-          "name": "REPL",
-          "returns": {}
-        },
-        {
-          "args": {},
-          "behavior": "Executes stored program lines from program memory using RUN_INDEX and RUN_LC. Uses ADD_ENTRY_OFFSET to locate each line and calls EXEC_STMT for each non-empty statement.",
-          "clobbers": [
-            "R0",
-            "R1",
-            "R2",
-            "R4",
-            "R5",
-            "R6",
-            "R7"
-          ],
-          "name": "RUN_PROG",
-          "returns": {}
-        }
-      ]
-    },
-    "basic_strings.s8": {
-      "address_map": {
-        "Banner": "0x0200",
-        "ErrNoProg": "0x0260",
-        "ErrSyntax": "0x0248",
-        "ErrUndefLine": "0x026E",
-        "NL": "0x0244",
-        "Prompt": "0x0240",
-        "keywords_base": "0x0280"
-      },
-      "depends_on": [],
-      "labels": [
-        "Banner",
-        "Prompt",
-        "NL",
-        "ErrSyntax",
-        "ErrNoProg",
-        "ErrUndefLine",
-        "K_NEW",
-        "K_LIST",
-        "K_RUN",
-        "K_PRINT",
-        "K_GOTO",
-        "K_IF",
-        "K_THEN",
-        "K_END",
-        "K_STOP",
-        "K_LET",
-        "K_GOSUB",
-        "K_RETURN",
-        "K_FOR",
-        "K_TO",
-        "K_STEP",
-        "K_NEXT",
-        "K_INPUT",
-        "K_POKE",
-        "K_RANDOMIZE",
-        "K_PEEK",
-        "K_RND",
-        "K_ELSE",
-        "K_REM"
-      ],
-      "purpose": "Fixed-address BASIC strings (banner, prompt, errors) and keyword strings extracted from sophia_basic_v1.s8."
     },
     "cli.s8": {
       "depends_on": [

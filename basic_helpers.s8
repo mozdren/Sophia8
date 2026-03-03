@@ -9,7 +9,9 @@
 ; - GETTOKEN
 ; - PARSE_INT16
 ; - ADD_ENTRY_OFFSET
-; 
+; - RNG_NEXT (wrapper around RNG_NEXT16 from rng.s8)
+
+; NOTE: SKIPSP / ISDIGIT / PARSE_UINT8 / TOUPPER_Z were moved to text.s8.
 
 ; ---------------------------------------------------------------------------
 ; COPY_INBUF_6C00_TO_6D00
@@ -194,4 +196,9 @@ AEO_RET:
 ;
 ;   Requires: rng.s8 (RNG_NEXT16)
 ; ---------------------------------------------------------------------------
-; [RNG_NEXT moved back into sophia_basic_v1.s8]
+RNG_NEXT:
+    ; load pointer to the seed (R1:R2)
+    LOAD RNG_SEED_PTR, R1
+    LOAD RNG_SEED_PTR+1, R2
+    CALL RNG_NEXT16
+    RET
