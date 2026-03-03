@@ -194,6 +194,15 @@ JZ R0, CMD_REM
     CMP R0, #0x01
     JZ R0, CMD_LET
 
+    ; DIM
+    SET #0x68, R1
+    SET #0x80, R2
+    SET #0x03, R3
+    SET #0x40, R4
+    CALL STREQ
+    CMP R0, #0x01
+    JZ R0, CMD_DIM
+
     ; not a keyword: try assignment
     JMP CMD_ASSIGN_DISPATCH
 

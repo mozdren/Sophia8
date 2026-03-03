@@ -202,6 +202,7 @@
       "END",
       "STOP",
       "LET",
+      "DIM",
       "GOSUB",
       "RETURN",
       "FOR",
@@ -216,6 +217,14 @@
       "REM"
     ],
     "memory_map": {
+      "arrays": {
+        "allocation": "(max_index+1)*2 bytes from STRFREE bump heap (shared with strings)",
+        "entry_fields": {
+          "+10..11": "data pointer (H,L)",
+          "+12..13": "max index (H,L)"
+        },
+        "var_entry_type": "IDTYPE=2 for integer arrays"
+      },
       "cli_input_buffer": "0x6C00 (READLINE_ECHO destination)",
       "identifier_buffer": "0x68A0 (IDBUF, 8 bytes)",
       "parser_stable_copy": "0x6D00 (uppercase parsing buffer)",
@@ -228,6 +237,7 @@
     "name": "Sophia Basic v.1",
     "source_file": "sophia_basic_v1.s8",
     "statements": {
+      "DIM_ARRAYS": "DIM allocates 1D integer arrays: DIM A(n) allocates elements 0..n (16-bit signed). Array access uses A(i) in expressions and assignments. Arrays share the STRFREE bump heap with strings.",
       "FOR_NEXT": "FOR <var>=<start> TO <end> [STEP <step>], terminated by NEXT <var>.",
       "GOSUB_RETURN": "GOSUB <line> pushes return location, RETURN continues after the call.",
       "IF_THEN_ELSE": "Supports single-line IF <expr> THEN <stmt|line> [ELSE <stmt|line>].",
@@ -747,6 +757,21 @@
     "range": "0xFF00..0xFF03"
   },
   "standard_libraries": {
+    "basic_array.s8": {
+      "depends_on": [
+        "basic_state.s8",
+        "basic_expr.s8",
+        "basic_vars.s8",
+        "basic_errors.s8"
+      ],
+      "notes": "Array entries use IDTYPE=2. Entry+10..11=data ptr (H,L). Entry+12..13=max index (H,L). DIM allocates (max+1)*2 bytes.",
+      "provides": [
+        "CMD_DIM",
+        "ARRAY_LOAD_INT_ELEM",
+        "ARRAY_STORE_INT_ELEM"
+      ],
+      "purpose": "DIM and 1D integer arrays for Sophia BASIC (array metadata in var table, data allocated from STRFREE)."
+    },
     "basic_assign.s8": {
       "depends_on": [
         "kernel.s8",

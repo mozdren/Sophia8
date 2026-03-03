@@ -11,6 +11,7 @@ The BASIC implementation is intentionally split into focused include files to ke
 - `basic_errors.s8` – error printing helpers (PRINT_SYNTAX_ERROR, PRINT_NO_PROGRAM, PRINT_UNDEF_LINE)
 - `basic_progstore.s8` – program line storage helpers (store/delete/find/list)
 - `basic_vars.s8` – variable table helpers (lookup/create, load/store 16-bit values)
+- `basic_array.s8` – DIM + 1D integer arrays (array metadata in var table, data allocated from STRFREE)
 - `basic_expr.s8` – expression engine (ident/number parsing, boolean ops, precedence parser, PEEK/RND)
 - `basic_io.s8` – PRINT/INPUT commands and output helper (DO_PRINT)
 - `basic_assign.s8` – LET and implicit assignment parsing (numeric + string assignment)

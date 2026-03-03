@@ -84,3 +84,7 @@ K_ELSE:  .string "ELSE"
 ; Phase 7 keyword
 .org 0x0338
 K_REM:   .string "REM"
+
+; Phase 13 keyword (arrays)
+.org 0x0340
+K_DIM:   .string "DIM"

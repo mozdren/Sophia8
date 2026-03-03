@@ -60,5 +60,7 @@ add_test(
          echo \"$out\" | grep -q $\'\\n8\\n\'; \
          # POKE/PEEK outputs (exact lines)\
          printf \"%s\\n\" \"$out\" | grep -qx \"65\"; \
-         printf \"%s\\n\" \"$out\" | grep -qx \"25\""
+         printf \"%s\\n\" \"$out\" | grep -qx \"25\"; \
+         # DIM + array write/read\
+         printf \"%s\\n\" \"$out\" | grep -qx \"10\""
 )

@@ -64,6 +64,7 @@
 ; NOTE: included BEFORE basic_stmt.s8 to avoid forward-reference issues.
 ; ---------------------------------------------------------------------------
 .include "basic_vars.s8"
+.include "basic_array.s8"
 .include "basic_expr.s8"
 
 ; PRINT / INPUT plumbing

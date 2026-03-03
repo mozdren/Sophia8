@@ -1412,6 +1412,23 @@ JZ R0, PF2_RND
     LOAD IDTYPE, R0
     CMP R0, #0x01
     JZ R0, PF2_ZERO
+
+    ; array reference: <ident>(<expr>)
+    CALL SKIPSP_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x28
+    JNZ R0, PF2_SCALAR
+    CALL GETCHAR_CUR
+    CALL EVAL_EXPR              ; index in R6:R7
+    CALL SKIPSP_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x29
+    JNZ R0, PF2_ZERO
+    CALL GETCHAR_CUR
+    CALL ARRAY_LOAD_INT_ELEM    ; loads into R6:R7
+    RET
+
+PF2_SCALAR:
     CALL VAR_FIND
     CMP R0, #0x01
     JNZ R0, PF2_ZERO

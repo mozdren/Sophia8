@@ -68,6 +68,11 @@ CMD_ASSIGN:
 
     CALL SKIPSP_CUR
     CALL PEEKCHAR_CUR
+    CMP R0, #0x28
+    JZ R0, CA_ARRAY
+
+    ; scalar assignment: expect '='
+    CALL PEEKCHAR_CUR
     CMP R0, #0x3D
     JNZ R0, CA_FAIL
     CALL GETCHAR_CUR
@@ -90,6 +95,73 @@ CMD_ASSIGN:
     LOAD TMP_PTR_H, R1
     LOAD TMP_PTR_L, R2
     CALL STORE_VAR_INT
+    SET #0x01, R0
+    RET
+
+CA_ARRAY:
+    ; integer array assignment: <ident>(<idx>)=<expr>
+    ; only int arrays supported
+    LOAD IDTYPE, R0
+    CMP R0, #0x01
+    JZ R0, CA_FAIL
+
+    ; consume '(' and parse index
+    CALL GETCHAR_CUR
+    CALL EVAL_EXPR              ; index in R6:R7
+    STORE R7, TMPH
+    STORE R6, TMPL
+    CALL SKIPSP_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x29
+    JNZ R0, CA_FAIL
+    CALL GETCHAR_CUR
+    CALL SKIPSP_CUR
+
+    ; expect '='
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x3D
+    JNZ R0, CA_FAIL
+    CALL GETCHAR_CUR
+    CALL SKIPSP_CUR
+
+    ; lookup existing array entry (IDTYPE=2)
+    LOAD IDTYPE, R3
+    SET #0x02, R0
+    STORE R0, IDTYPE
+    CALL VAR_FIND
+    STORE R3, IDTYPE
+    CMP R0, #0x01
+    JNZ R0, CA_FAIL
+    ; entry ptr in R1:R2
+
+    ; load array meta (base ptr + max)
+    CALL ARRAY_META_LOAD         ; R3:R4 base, R5:R0 max
+    STORE R3, TMP_PTR_H
+    STORE R4, TMP_PTR_L
+    STORE R5, DIVH               ; reuse as maxH
+    STORE R0, DIVL               ; reuse as maxL
+
+    ; bounds check: index <= max
+    LOAD TMPH, R1
+    LOAD DIVH, R2
+    CMPR R1, R2                  ; idxH - maxH
+    JNZ R1, CA_AH
+    LOAD TMPL, R1
+    LOAD DIVL, R2
+    CMPR R1, R2                  ; idxL - maxL
+    JNC CA_ABOK
+    JMP CA_FAIL
+CA_AH:
+    JNC CA_ABOK
+    JMP CA_FAIL
+CA_ABOK:
+    ; eval RHS value
+    CALL EVAL_EXPR               ; value in R6:R7
+
+    ; store element using helper (index in TMPH/TMPL)
+    CALL ARRAY_STORE_INT_ELEM
+    CMP R0, #0x01
+    JNZ R0, CA_FAIL
     SET #0x01, R0
     RET
 
