@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="Windows-1252" ?>
+<NotepadPlus>
+  <UserLang name="Sophia8 Assembly" ext="s8" udlVersion="2.1">
+    <Settings>
+      <Global caseIgnored="no" allowFoldOfComments="no" foldCompact="no" forcePureLC="0" decimalSeparator="0" />
+      <Prefix Keywords1="no" Keywords2="no" Keywords3="no" Keywords4="no" Keywords5="no" Keywords6="no" Keywords7="no" Keywords8="no" />
+    </Settings>
+
+    <KeywordLists>
+      <!-- Comments: semicolon to end-of-line -->
+      <Keywords name="Comments">00; 01 02 03 04</Keywords>
+
+      <!-- Numbers / operators / delimiters (keep simple) -->
+      <Keywords name="Operators1">, : ( ) [ ]</Keywords>
+      <Keywords name="Operators2">+ - * / =</Keywords>
+
+      <!-- Instructions (mnemonics) -->
+      <Keywords name="Keywords1">
+        SET LOAD STORE STORER LOADR
+        PUSH POP CALL RET
+        ADD ADDR SUB SUBR
+        MUL MULR DIV DIVR
+        INC DEC SHL SHR
+        CMP CMPR
+        JMP JZ JNZ JC JNC
+        NOP HALT
+      </Keywords>
+
+      <!-- Directives -->
+      <Keywords name="Keywords2">.org .include .byte .word .string</Keywords>
+
+      <!-- Registers -->
+      <Keywords name="Keywords3">R0 R1 R2 R3 R4 R5 R6 R7 IP SP BP</Keywords>
+
+      <!-- (Unused lists) -->
+      <Keywords name="Keywords4"></Keywords>
+      <Keywords name="Keywords5"></Keywords>
+      <Keywords name="Keywords6"></Keywords>
+      <Keywords name="Keywords7"></Keywords>
+      <Keywords name="Keywords8"></Keywords>
+    </KeywordLists>
+
+    <Styles>
+      <!-- Default -->
+      <WordsStyle name="DEFAULT" fgColor="000000" bgColor="FFFFFF" fontName="" fontStyle="0" fontSize="" />
+      <!-- Comments -->
+      <WordsStyle name="COMMENTS" fgColor="008000" bgColor="FFFFFF" fontName="" fontStyle="0" fontSize="" />
+      <!-- Numbers -->
+      <WordsStyle name="NUMBER" fgColor="800000" bgColor="FFFFFF" fontName="" fontStyle="0" fontSize="" />
+      <!-- Keywords -->
+      <WordsStyle name="KEYWORDS1" fgColor="0000FF" bgColor="FFFFFF" fontName="" fontStyle="1" fontSize="" />
+      <WordsStyle name="KEYWORDS2" fgColor="7A2E8E" bgColor="FFFFFF" fontName="" fontStyle="1" fontSize="" />
+      <WordsStyle name="KEYWORDS3" fgColor="B000B0" bgColor="FFFFFF" fontName="" fontStyle="1" fontSize="" />
+      <!-- Strings -->
+      <WordsStyle name="STRING" fgColor="A31515" bgColor="FFFFFF" fontName="" fontStyle="0" fontSize="" />
+      <!-- Operators -->
+      <WordsStyle name="OPERATORS" fgColor="000000" bgColor="FFFFFF" fontName="" fontStyle="0" fontSize="" />
+    </Styles>
+
+    <!-- Delimiters: strings and numbers -->
+    <Delimiters>
+      <!-- Strings: double quotes -->
+      <Delimiter begin="&quot;" end="&quot;" escape="\" type="0" />
+      <!-- Numbers: we approximate by coloring digits + hex/bin prefixes via Notepad++ built-in number style -->
+      <!-- Notepad++ UDL doesn’t do full regex for numbers like TextMate; this is the closest portable setup. -->
+    </Delimiters>
+  </UserLang>
+</NotepadPlus>
