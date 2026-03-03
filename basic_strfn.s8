@@ -7,6 +7,7 @@
 ;   LEFT$(s$|"...", n)  -> string
 ;   RIGHT$(s$|"...", n) -> string
 ;   MID$(s$|"...", start, n) -> string   (start is 1-based)
+;   INSTR(s$|"...", sub$|"...") -> integer (1-based position, 0 if not found)
 ;
 ; Parsing uses CURPTR_H/CURPTR_L and helpers from sophia_basic_v1.s8:
 ;   SKIPSP_CUR, PEEKCHAR_CUR, GETCHAR_CUR, PARSE_IDENT, VAR_FIND, EVAL_EXPR,
@@ -160,6 +161,33 @@ MATCH_KW_CHR:
     LOADR R0, R1, R2
     CMP R0, #0x24 ; n    JNZ R0, MK_NO
     SET #4, R0
+    STORE R0, IDLEN
+    SET #1, R0
+    RET
+
+MATCH_KW_INSTR:
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    LOADR R0, R1, R2
+    CMP R0, #0x49 ; I
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x4E ; N
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x53 ; S
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x54 ; T
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x52 ; R
+    JNZ R0, MK_NO
+    SET #5, R0
     STORE R0, IDLEN
     SET #1, R0
     RET
@@ -606,4 +634,156 @@ SC_NOH:
 
     CALL SKIPSP_CUR
     CALL GETCHAR_CUR       ; ')'
+    RET
+
+; ---------------------------------------------------------------------------
+; INSTR(s$, sub$) -> integer (1-based), 0 if not found
+; Semantics:
+;   - If sub$ is empty, returns 1.
+;   - Search is case-sensitive.
+; Result returned as numeric in R6:R7.
+; ---------------------------------------------------------------------------
+STRFN_INSTR:
+    CALL CONSUME_KW
+    CALL SKIPSP_CUR
+    CALL GETCHAR_CUR       ; '('
+
+    ; parse haystack
+    CALL STR_PARSE_ARG
+    CMP R0, #0x01
+    JNZ R0, SPA_FAIL
+
+    ; preserve haystack ptr/len
+    PUSH R5
+    PUSH R6
+    PUSH R7
+
+    ; comma
+    CALL SKIPSP_CUR
+    CALL GETCHAR_CUR
+    CMP R0, #0x2C
+    JNZ R0, SPA_FAIL
+
+    ; parse needle
+    CALL STR_PARSE_ARG
+    CMP R0, #0x01
+    JNZ R0, SPA_FAIL
+
+    ; close ')'
+    CALL SKIPSP_CUR
+    CALL GETCHAR_CUR
+
+    ; needle ptr/len currently in R6:R7, R5
+    ; restore haystack into R1:R2 (ptr) and R0 (len)
+    POP R2
+    POP R1
+    POP R0
+
+    ; if needle len == 0 => return 1
+    JZ R5, SIN_RET1
+
+    ; if haystack len == 0 => return 0
+    JZ R0, SIN_RET0
+
+    ; if needle len > haystack len => return 0
+    ; Determine diff = hay_len - needle_len using countdown loops.
+    ; R3 = diff countdown base
+    SET #0x00, R3
+    ADDR R0, R3          ; R3 = hay_len
+    SET #0x00, R4
+    ADDR R5, R4          ; R4 = needle_len
+SIN_LEN_SUB:
+    JZ R4, SIN_HAVE_DIFF
+    JZ R3, SIN_RET0
+    DEC R3
+    DEC R4
+    JMP SIN_LEN_SUB
+SIN_HAVE_DIFF:
+    ; positions = diff + 1
+    INC R3
+
+    ; current position (1-based) in R4
+    SET #0x01, R4
+
+    ; current hay pointer in R1:R2
+SIN_OUTER:
+    JZ R3, SIN_RET0
+
+    ; save candidate start
+    STORE R1, TMP_PTR_H
+    STORE R2, TMP_PTR_L
+
+    ; preserve outer counters across inner loop (inner uses R3/R4)
+    PUSH R3
+    PUSH R4
+
+    ; save needle base (inner advances R6:R7)
+    PUSH R6
+    PUSH R7
+
+    ; inner compare: counter in R0 (needle length)
+    SET #0x00, R0
+    ADDR R5, R0
+SIN_INNER:
+    JZ R0, SIN_FOUND
+    ; load bytes (use R4/R3 as byte temps)
+    LOADR R4, R1, R2     ; hay byte -> R4
+    LOADR R3, R6, R7     ; needle byte -> R3
+    CMPR R4, R3          ; R4 := hay - needle
+    JNZ R4, SIN_MISMATCH
+
+    ; advance hay pointer
+    INC R2
+    JNZ R2, SIN_HOK
+    INC R1
+SIN_HOK:
+    ; advance needle pointer
+    INC R7
+    JNZ R7, SIN_NOK
+    INC R6
+SIN_NOK:
+    DEC R0
+    JMP SIN_INNER
+
+SIN_MISMATCH:
+    ; restore needle base
+    POP R7
+    POP R6
+    ; restore position and remaining
+    POP R4
+    POP R3
+
+    ; move to next candidate: hay = saved_start + 1
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+    INC R2
+    JNZ R2, SIN_NEXT_OK
+    INC R1
+SIN_NEXT_OK:
+
+    DEC R3              ; one less position remaining
+    INC R4              ; next 1-based position
+    JMP SIN_OUTER
+
+SIN_FOUND:
+    ; restore needle base + outer counters to keep stack balanced
+    POP R7
+    POP R6
+    POP R4
+    POP R3
+
+    SET #0x00, R6
+    SET #0x00, R7
+    ADDR R4, R7          ; return position in low byte
+    RET
+
+SIN_RET1:
+    SET #0x00, R6
+    SET #0x00, R7
+    ADD #1, R7
+    RET
+
+SIN_RET0:
+    SET #0x00, R6
+    SET #0x00, R7
     RET
