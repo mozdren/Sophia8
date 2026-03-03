@@ -11,15 +11,30 @@
 ;   Clobbers: R5
 ; ---------------------------------------------------------------------------
 U16_ADD:
+    ; We must preserve an overflow out of bit15 even when the high-byte
+    ; addition operand is 0x00 (e.g. 0xFFFF + 0x0001). If we only look at
+    ; the carry flag after the final ADDR, that overflow would be lost.
+    ;
+    ; Strategy:
+    ;   1) Add low byte.
+    ;   2) If there was a carry from low->high, add 1 to high and record
+    ;      if that increment overflowed.
+    ;   3) Add high byte and record if that overflows.
+
+    SET #0x00, R4        ; carry-out (bit16)
+
     ; low
     ADDR R3, R1
     JNC U16_ADD_NO_C1
-    INC R0
+    ; carry into high
+    ADD #0x01, R0
+    JNC U16_ADD_NO_OV_C1
+    SET #0x01, R4        ; overflow due to carry-in
+U16_ADD_NO_OV_C1:
 U16_ADD_NO_C1:
+
     ; high
     ADDR R2, R0
-    ; capture carry
-    SET #0x00, R4
     JNC U16_ADD_DONE
     SET #0x01, R4
 U16_ADD_DONE:
@@ -61,7 +76,9 @@ U16_CMP:
     ADDR R0, R5
     SET #0x00, R6
     ADDR R2, R6
-    CMPR R6, R5          ; R5 -= R6, carry=1 if borrow => R5 < R6
+    ; CMPR is destructive on its first operand: CMPR A, B => A = A - B.
+    ; We keep A in R5 and B in R6 so we can test A-B.
+    CMPR R5, R6          ; R5 = A_hi - B_hi, carry=1 if borrow => A_hi < B_hi
     JC U16_CMP_LT
     JZ R5, U16_CMP_HI_EQ
     JMP U16_CMP_GT
@@ -71,7 +88,7 @@ U16_CMP_HI_EQ:
     ADDR R1, R5
     SET #0x00, R6
     ADDR R3, R6
-    CMPR R6, R5
+    CMPR R5, R6          ; R5 = A_lo - B_lo
     JC U16_CMP_LT
     JZ R5, U16_CMP_EQ
     JMP U16_CMP_GT
@@ -217,26 +234,40 @@ U16_DIV_U8:
 
 U16_DIV_LOOP:
     ; --- shift dividend left by 1 ---
-    ; shift low, capture carry_from_low in R4
+    ; We need two bits:
+    ;   - carry_from_low (R1 bit7 -> R0 bit0)
+    ;   - bit_out (original R0 bit7) which becomes the next dividend bit
+    ;     shifted into the remainder.
+    ;
+    ; The SHL instruction overwrites the carry flag, so we can't rely on it
+    ; across multiple shifts. We therefore stash the loop counter R7 on the
+    ; stack and reuse R7 temporarily to hold carry_from_low.
+    PUSH R7
+
+    ; shift low, capture carry_from_low in R7 (0/1)
     SHL #1, R1
-    SET #0x00, R4
+    SET #0x00, R7
     JNC U16_DIV_D_CLOW0
-    SET #0x01, R4
+    SET #0x01, R7
 U16_DIV_D_CLOW0:
 
-    ; shift high; carry flag now holds bit_out (original bit15)
+    ; shift high, capture bit_out in R4 (0/1)
     SHL #1, R0
+    SET #0x00, R4
+    JNC U16_DIV_D_COUT0
+    SET #0x01, R4
+U16_DIV_D_COUT0:
 
-    ; rem = (rem<<1) | bit_out (use carry flag from SHL high)
-    SHL #1, R3
-    JNC U16_DIV_REM_BITDONE
-    ADD #0x01, R3
-U16_DIV_REM_BITDONE:
-
-    ; inject carry_from_low into high bit0 (do AFTER using carry for remainder)
-    JZ R4, U16_DIV_D_INJ_DONE
+    ; inject carry_from_low into high bit0
+    JZ R7, U16_DIV_D_INJ_DONE
     ADD #0x01, R0
 U16_DIV_D_INJ_DONE:
+
+    ; rem = (rem<<1) | bit_out
+    SHL #1, R3
+    JZ R4, U16_DIV_REM_BITDONE
+    ADD #0x01, R3
+U16_DIV_REM_BITDONE:
 
     ; --- Q <<= 1 ---
     SHL #1, R6
@@ -252,7 +283,9 @@ U16_DIV_Q_INJ_DONE:
     ; if rem >= divisor then rem -= divisor; Q |= 1
     SET #0x00, R4
     ADDR R3, R4
-    CMPR R2, R4          ; R4 -= R2, carry=1 if borrow => rem < divisor
+    ; Compare rem (R3) with divisor (R2) without destroying R2.
+    ; CMPR is destructive on its first operand, so subtract into R4.
+    CMPR R4, R2          ; R4 = rem - divisor, carry=1 if borrow => rem < divisor
     JC U16_DIV_NO_SUB
 
     SUBR R2, R3
@@ -261,6 +294,7 @@ U16_DIV_Q_INJ_DONE:
     INC R5
 
 U16_DIV_NO_SUB:
+    POP R7
     DEC R7
     JNZ R7, U16_DIV_LOOP
 
