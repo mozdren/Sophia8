@@ -123,6 +123,47 @@ MATCH_KW_MID:
     SET #1, R0
     RET
 
+MATCH_KW_ASC:
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    LOADR R0, R1, R2
+    CMP R0, #0x41 ; A
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x53 ; S
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x43 ; C
+    JNZ R0, MK_NO
+    SET #3, R0
+    STORE R0, IDLEN
+    SET #1, R0
+    RET
+
+MATCH_KW_CHR:
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    LOADR R0, R1, R2
+    CMP R0, #0x43 ; C
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x48 ; H
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x52 ; R
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x24 ; n    JNZ R0, MK_NO
+    SET #4, R0
+    STORE R0, IDLEN
+    SET #1, R0
+    RET
+
 ; ---------------------------------------------------------------------------
 ; STR_PARSE_ARG
 ; Parse string literal or string variable.
@@ -494,6 +535,74 @@ SM_SOK:
     POP R5
 
     CALL STR_ALLOC_AND_COPY
+
+    CALL SKIPSP_CUR
+    CALL GETCHAR_CUR       ; ')'
+    RET
+
+; ---------------------------------------------------------------------------
+; ASC(s$|"...") -> integer (first character code, 0 if empty)
+; Result returned as numeric in R6:R7 (signed 16-bit compatible)
+; ---------------------------------------------------------------------------
+STRFN_ASC:
+    CALL CONSUME_KW
+    CALL SKIPSP_CUR
+    CALL GETCHAR_CUR       ; '('
+    CALL STR_PARSE_ARG
+    CMP R0, #0x01
+    JNZ R0, SPA_FAIL
+
+    ; if empty => 0
+    JZ R5, SA_ZERO
+
+    ; load first byte from src pointer R6:R7
+    LOADR R0, R6, R7
+    SET #0x00, R6
+    SET #0x00, R7
+    ADDR R0, R7
+    JMP SA_CLOSE
+
+SA_ZERO:
+    SET #0x00, R6
+    SET #0x00, R7
+
+SA_CLOSE:
+    CALL SKIPSP_CUR
+    CALL GETCHAR_CUR       ; ')'
+    RET
+
+; ---------------------------------------------------------------------------
+; CHR$(n) -> string with one character
+; Result: R6:R7 pointer, R5 length (=1)
+; ---------------------------------------------------------------------------
+STRFN_CHR:
+    CALL CONSUME_KW
+    CALL SKIPSP_CUR
+    CALL GETCHAR_CUR       ; '('
+    CALL EVAL_EXPR
+    ; character code in low byte R7
+    SET #0x00, R0
+    ADDR R7, R0
+
+    ; allocate 1 byte at STRFREE
+    LOAD STRFREE_H, R6
+    LOAD STRFREE_L, R7
+
+    ; store char
+    STORER R0, R6, R7
+
+    ; advance STRFREE by 1
+    LOAD STRFREE_L, R0
+    INC R0
+    STORE R0, STRFREE_L
+    JNZ R0, SC_NOH
+    LOAD STRFREE_H, R0
+    INC R0
+    STORE R0, STRFREE_H
+SC_NOH:
+
+    ; result length
+    SET #0x01, R5
 
     CALL SKIPSP_CUR
     CALL GETCHAR_CUR       ; ')'

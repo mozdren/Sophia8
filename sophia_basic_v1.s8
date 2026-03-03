@@ -824,6 +824,9 @@ CA_STR:
     CALL MATCH_KW_MID
     CMP R0, #0x01
     JZ R0, CA_SF_MID
+    CALL MATCH_KW_CHR
+    CMP R0, #0x01
+    JZ R0, CA_SF_CHR
 
     ; plain string literal or string variable
     CALL STR_PARSE_ARG
@@ -844,6 +847,9 @@ CA_SF_RIGHT:
     JMP CA_SSTORE
 CA_SF_MID:
     CALL STRFN_MID
+    JMP CA_SSTORE
+CA_SF_CHR:
+    CALL STRFN_CHR
 
 CA_SSTORE:
     ; store ptr+len into entry (offset 12..14)
@@ -1701,6 +1707,9 @@ DP_EXPR2:
     CALL MATCH_KW_MID
     CMP R0, #0x01
     JZ R0, DP_SF_MID
+    CALL MATCH_KW_CHR
+    CMP R0, #0x01
+    JZ R0, DP_SF_CHR
 
     ; numeric expression
     STORE R1, CURPTR_H
@@ -1717,6 +1726,9 @@ DP_SF_RIGHT:
     JMP DP_SF_PRINT
 DP_SF_MID:
     CALL STRFN_MID
+    JMP DP_SF_PRINT
+DP_SF_CHR:
+    CALL STRFN_CHR
     ; fallthrough
 DP_SF_PRINT:
     ; result: ptr R6:R7, len R5
@@ -3409,6 +3421,11 @@ CALL MATCH_KW_LEN
 CMP R0, #0x01
 JZ R0, PF2_LEN
 
+; ASC(...)
+CALL MATCH_KW_ASC
+CMP R0, #0x01
+JZ R0, PF2_ASC
+
 ; PEEK(...)
 CALL MATCH_KW_PEEK
 CMP R0, #0x01
@@ -3464,6 +3481,10 @@ PF2_DEC:
 
 PF2_LEN:
     CALL STRFN_LEN
+    RET
+
+PF2_ASC:
+    CALL STRFN_ASC
     RET
 
 PF2_PEEK:
