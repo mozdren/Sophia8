@@ -32,6 +32,11 @@
 #include <algorithm>
 #include <unordered_map>
 
+#include <chrono>
+#include <thread>
+
+#include "graphics_c64.h"
+
 #include "definitions.h"
 
 #ifndef LOADR
@@ -86,6 +91,13 @@ static uint8_t  c;              /* carry flag                                */
 
 static uint8_t  mem[MEM_SIZE];  /* random access memory                      */
 
+
+
+/* Graphics (C64-style) ********************************************************/
+static bool g_gfx_enabled = false;
+static std::string g_gfx_out_path = "frame.ppm";
+static int g_gfx_scale = 3;          /* reserved for future SDL backend */
+static bool g_gfx_fullscreen = false;/* reserved for future SDL backend */
 static void print_help(const char* prog)
 {
     printf("Sophia8 VM (sophia8)\n\n");
@@ -111,6 +123,15 @@ static void print_help(const char* prog)
     printf("      Requires a .deb debug map (via --deb or a positional .deb).\n");
     printf("  --deb <file.deb>\n");
     printf("      Specify the .deb debug map explicitly (used for -v logging and/or breakpoints).\n");
+    printf("  --gfx\n");
+    printf("      Enable C64-style graphics rendering from fixed base 0x8000 (9000 bytes).\n");
+    printf("      Output is written as PPM image (P6).\n");
+    printf("  --gfx-out <file.ppm>\n");
+    printf("      Output file path for graphics frames (default: frame.ppm).\n");
+    printf("  --gfx-scale <n>\n");
+    printf("      Reserved for future window backend. Intended to scale 320x200 by n.\n");
+    printf("  --gfx-fullscreen\n");
+    printf("      Reserved for future window backend. Intended fullscreen with aspect ratio.\n");
 }
 
 /* Memory-mapped I/O implementation ******************************************/
@@ -1996,7 +2017,7 @@ void process_instruction()
         oss << std::dec << g_step_counter++ << " PC=0x"
             << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << static_cast<unsigned>(orig_ip)
             << " SRC=" << src_loc
-            << " INST=\"" << decoded << "\""
+            << " INST="" << decoded << """
             << format_mem_writes()
             << " REGS{" << format_regs() << "}";
         vlog_append_line(oss.str());
@@ -2048,6 +2069,9 @@ void run(const bool break_enabled = false,
          const char* break_file = nullptr,
          const int break_line = 0)
 {
+    using clock_t = std::chrono::steady_clock;
+    auto last_gfx = clock_t::now();
+    const auto gfx_period = std::chrono::milliseconds(16); // ~60Hz
     while (!STOP)
     {
         if (break_enabled && ip == break_addr)
@@ -2063,6 +2087,22 @@ void run(const bool break_enabled = false,
         }
 
         process_instruction();
+
+        if (g_gfx_enabled)
+        {
+            const auto now = clock_t::now();
+            if (now - last_gfx >= gfx_period)
+            {
+                graphics_c64_draw_ppm(&mem[GraphicsC64::kGfxBase], g_gfx_out_path.c_str());
+                last_gfx = now;
+            }
+        }
+    }
+
+    // Final graphics frame (useful for programs that HALT immediately)
+    if (g_gfx_enabled)
+    {
+        graphics_c64_draw_ppm(&mem[GraphicsC64::kGfxBase], g_gfx_out_path.c_str());
     }
 
     //print_memory();
@@ -2187,6 +2227,11 @@ int main(int argc, char** argv)
     bool opt_verbose = false;
     std::string opt_deb_path;
 
+    bool opt_gfx = false;
+    std::string opt_gfx_out = "frame.ppm";
+    int opt_gfx_scale = 3;
+    bool opt_gfx_fullscreen = false;
+
     std::vector<std::string> positional;
     positional.reserve(static_cast<size_t>(argc > 0 ? argc : 0));
 
@@ -2215,11 +2260,56 @@ int main(int argc, char** argv)
             continue;
         }
 
+        if (a == "--gfx")
+        {
+            opt_gfx = true;
+            continue;
+        }
+        if (a == "--gfx-out")
+        {
+            if (i + 1 >= argc)
+            {
+                printf("Missing value for --gfx-out\n");
+                return 1;
+            }
+            opt_gfx_out = argv[i + 1];
+            i++;
+            continue;
+        }
+        if (a == "--gfx-scale")
+        {
+            if (i + 1 >= argc)
+            {
+                printf("Missing value for --gfx-scale\n");
+                return 1;
+            }
+            opt_gfx_scale = std::atoi(argv[i + 1]);
+            if (opt_gfx_scale < 1 || opt_gfx_scale > 20)
+            {
+                printf("Invalid --gfx-scale (1..20): %s\n", argv[i + 1]);
+                return 1;
+            }
+            i++;
+            continue;
+        }
+        if (a == "--gfx-fullscreen")
+        {
+            opt_gfx_fullscreen = true;
+            continue;
+        }
+
         positional.push_back(a);
     }
 
     init_machine();
     g_verbose = opt_verbose;
+
+
+    // Graphics configuration
+    g_gfx_enabled = opt_gfx;
+    g_gfx_out_path = opt_gfx_out;
+    g_gfx_scale = opt_gfx_scale;
+    g_gfx_fullscreen = opt_gfx_fullscreen;
 
     // Open verbose log early (append mode) so we can flush per instruction.
     if (g_verbose)
