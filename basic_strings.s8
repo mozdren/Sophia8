@@ -1,0 +1,86 @@
+; ---------------------------------------------------------------------------
+; Sophia BASIC: fixed-address strings + keyword strings
+;
+; Purpose:
+;   Keep all user-visible messages and keyword text in one place.
+;   These strings intentionally live at stable, fixed addresses so the BASIC
+;   runtime can reference them cheaply (direct address constants) and so that
+;   debug tooling can rely on deterministic layouts.
+;
+; Notes:
+;   - Do NOT change the .org addresses unless you also update all call sites.
+;   - Strings use the assembler's .string directive (NUL-terminated).
+; ---------------------------------------------------------------------------
+
+; ---------------------------------------------------------------------------
+; Fixed-address strings
+; ---------------------------------------------------------------------------
+.org 0x0200
+Banner: .string "Sophia Basic v.1 (2026) by Karel Mozdren\nREADY.\n"
+.org 0x0240
+Prompt: .string "> "
+.org 0x0244
+NL: .string "\n"
+.org 0x0248
+ErrSyntax: .string "?SYNTAX ERROR\n"
+.org 0x0260
+ErrNoProg: .string "?NO PROGRAM\n"
+.org 0x026E
+ErrUndefLine: .string "?UNDEFINED LINE\n"
+
+; ---------------------------------------------------------------------------
+; Keywords at stable addresses
+; ---------------------------------------------------------------------------
+.org 0x0280
+K_NEW:   .string "NEW"
+.org 0x0288
+K_LIST:  .string "LIST"
+.org 0x0290
+K_RUN:   .string "RUN"
+.org 0x0298
+K_PRINT: .string "PRINT"
+.org 0x02A0
+K_GOTO:  .string "GOTO"
+.org 0x02A8
+K_IF:    .string "IF"
+.org 0x02B0
+K_THEN:  .string "THEN"
+.org 0x02B8
+K_END:   .string "END"
+.org 0x02C0
+K_STOP:  .string "STOP"
+
+.org 0x02C8
+K_LET:   .string "LET"
+
+; Phase 5 keywords
+.org 0x02D0
+K_GOSUB: .string "GOSUB"
+.org 0x02D8
+K_RETURN:.string "RETURN"
+.org 0x02E0
+K_FOR:   .string "FOR"
+.org 0x02E8
+K_TO:    .string "TO"
+.org 0x02F0
+K_STEP:  .string "STEP"
+.org 0x02F8
+K_NEXT:  .string "NEXT"
+.org 0x0300
+K_INPUT: .string "INPUT"
+.org 0x0308
+K_POKE:  .string "POKE"
+.org 0x0310
+K_RANDOMIZE: .string "RANDOMIZE"
+.org 0x0320
+K_PEEK:  .string "PEEK"
+.org 0x0328
+K_RND:   .string "RND"
+
+; Phase 6 keyword
+.org 0x0330
+K_ELSE:  .string "ELSE"
+
+; Phase 7 keyword
+.org 0x0338
+K_REM:   .string "REM"

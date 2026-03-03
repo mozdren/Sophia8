@@ -1,0 +1,221 @@
+; ---------------------------------------------------------------------------
+; basic_vars.s8
+; Variable table helpers for Sophia BASIC.
+;
+; Extracted from the BASIC core to keep sophia_basic_v1.s8 small and focused.
+;
+; Provides:
+;   VAR_FIND            - locate existing variable matching IDBUF+IDTYPE
+;   VAR_FIND_OR_CREATE  - locate or allocate a new variable slot
+;   LOAD_VAR_INT        - read 16-bit value (R6:R7) from current var entry
+;   STORE_VAR_INT       - write 16-bit value (R6:R7) to current var entry
+;
+; Depends on:
+;   - basic_state.s8
+;       IDTYPE at 0x6820
+;       IDBUF  at 0x68A0 (8-byte padded, uppercase)
+;
+; Variable table layout (fixed):
+;   Base 0x6000, 64 entries x 16 bytes
+;     +0..+7   name (8 bytes)
+;     +8       type (0xFF means free)
+;     +9..+15  reserved / value storage
+;     +10      value lo
+;     +11      value hi
+;
+; Calling convention:
+;   VAR_FIND / VAR_FIND_OR_CREATE:
+;     OUT R0 = 1 if found/created, 0 if not
+;     OUT R1:R2 = base address of the entry (points to name[0])
+; ---------------------------------------------------------------------------
+
+; ----------------------
+; Variable lookup/create
+; ----------------------
+VAR_FIND:
+    SET #0x60, R1
+    SET #0x00, R2
+    SET #64, R7
+VF_LOOP:
+    ; read type at base+8
+    PUSH R1
+    PUSH R2
+    ADD #8, R2
+    JNC VF_T1
+    INC R1
+VF_T1:
+    LOADR R0, R1, R2
+    POP R2
+    POP R1
+
+    CMP R0, #0xFF
+    JZ R0, VF_NEXT
+
+    ; compare names
+    PUSH R1
+    PUSH R2
+    SET #0x68, R5
+    SET #0xA0, R6
+    SET #8, R4
+VF_CMP:
+    LOADR R0, R1, R2
+    LOADR R3, R5, R6
+    CMPR R0, R3
+    JNZ R0, VF_BAD
+    INC R2
+    JNZ R2, VF_C1
+    INC R1
+VF_C1:
+    INC R6
+    JNZ R6, VF_C2
+    INC R5
+VF_C2:
+    DEC R4
+    JNZ R4, VF_CMP
+
+    POP R2
+    POP R1
+
+    ; name match: check type
+    PUSH R1
+    PUSH R2
+    ADD #8, R2
+    JNC VF_T2
+    INC R1
+VF_T2:
+    LOADR R0, R1, R2
+    POP R2
+    POP R1
+
+    LOAD IDTYPE, R3
+    CMPR R0, R3
+    JZ R0, VF_FOUND
+    JMP VF_NEXT
+VF_BAD:
+    POP R2
+    POP R1
+
+VF_NEXT:
+    ADD #16, R2
+    JNC VF_NC
+    INC R1
+VF_NC:
+    DEC R7
+    JNZ R7, VF_LOOP
+    SET #0x00, R0
+    RET
+VF_FOUND:
+    SET #0x01, R0
+    RET
+
+VAR_FIND_OR_CREATE:
+    CALL VAR_FIND
+    CMP R0, #0x01
+    JZ R0, VFC_OK
+
+    ; find empty slot
+    SET #0x60, R1
+    SET #0x00, R2
+    SET #64, R7
+VFC_LOOP:
+    PUSH R1
+    PUSH R2
+    ADD #8, R2
+    JNC VFC_T1
+    INC R1
+VFC_T1:
+    LOADR R0, R1, R2
+    POP R2
+    POP R1
+    CMP R0, #0xFF
+    JZ R0, VFC_USE
+
+    ADD #16, R2
+    JNC VFC_NC
+    INC R1
+VFC_NC:
+    DEC R7
+    JNZ R7, VFC_LOOP
+
+    SET #0x00, R0
+    RET
+
+VFC_USE:
+    ; copy name[8]
+    SET #0x68, R5
+    SET #0xA0, R6
+    SET #8, R7
+VFC_CPY:
+    LOADR R0, R5, R6
+    STORER R0, R1, R2
+    INC R2
+    JNZ R2, VFC_C1
+    INC R1
+VFC_C1:
+    INC R6
+    JNZ R6, VFC_C2
+    INC R5
+VFC_C2:
+    DEC R7
+    JNZ R7, VFC_CPY
+
+    ; type
+    LOAD IDTYPE, R0
+    STORER R0, R1, R2
+
+    ; clear rest fields (bytes 9..15)
+    SET #7, R7
+VFC_CLR:
+    INC R2
+    JNZ R2, VFC_K
+    INC R1
+VFC_K:
+    SET #0x00, R0
+    STORER R0, R1, R2
+    DEC R7
+    JNZ R7, VFC_CLR
+
+    ; rewind entry pointer to base (we are at base+15)
+    SUB #15, R2
+    JNC VFC_OK
+    DEC R1
+VFC_OK:
+    SET #0x01, R0
+    RET
+
+; ----------------------
+; 16-bit value helpers
+; ----------------------
+LOAD_VAR_INT:
+    PUSH R1
+    PUSH R2
+    ADD #10, R2
+    JNC LVI1
+    INC R1
+LVI1:
+    LOADR R6, R1, R2
+    INC R2
+    JNZ R2, LVI2
+    INC R1
+LVI2:
+    LOADR R7, R1, R2
+    POP R2
+    POP R1
+    RET
+
+STORE_VAR_INT:
+    PUSH R1
+    PUSH R2
+    ADD #10, R2
+    JNC SVI1
+    INC R1
+SVI1:
+    STORER R6, R1, R2
+    INC R2
+    JNZ R2, SVI2
+    INC R1
+SVI2:
+    STORER R7, R1, R2
+    POP R2
+    POP R1
+    RET
