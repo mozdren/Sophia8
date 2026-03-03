@@ -66,7 +66,11 @@
 .include "basic_vars.s8"
 .include "basic_expr.s8"
 
+; PRINT / INPUT plumbing
+.include "basic_io.s8"
+
 .include "basic_flow.s8"
+.include "basic_assign.s8"
 .include "basic_stmt.s8"
 
 ; ---------------------------------------------------------------------------

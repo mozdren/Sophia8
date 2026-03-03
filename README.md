@@ -12,8 +12,10 @@ The BASIC implementation is intentionally split into focused include files to ke
 - `basic_progstore.s8` – program line storage helpers (store/delete/find/list)
 - `basic_vars.s8` – variable table helpers (lookup/create, load/store 16-bit values)
 - `basic_expr.s8` – expression engine (ident/number parsing, boolean ops, precedence parser, PEEK/RND)
+- `basic_io.s8` – PRINT/INPUT commands and output helper (DO_PRINT)
+- `basic_assign.s8` – LET and implicit assignment parsing (numeric + string assignment)
 - `basic_flow.s8` – flow-control statements (GOSUB/RETURN, FOR/NEXT) and loop stack logic
-- `basic_stmt.s8` – statement dispatcher + built-in command handlers + print helper
+- `basic_stmt.s8` – statement dispatcher + built-in command handlers
 - `basic_repl.s8` – REPL loop and program execution loop (RUN)
 - `basic_helpers.s8` – shared helpers used by BASIC (token/parse helpers, address helpers)
 

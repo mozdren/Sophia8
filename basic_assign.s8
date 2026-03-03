@@ -1,0 +1,176 @@
+; ---------------------------------------------------------------------------
+; basic_assign.s8
+;
+; Sophia BASIC v1 - assignment handling (LET + implicit assignment).
+;
+; Purpose:
+;   Keeps statement dispatch focused by moving assignment parsing and string/
+;   numeric variable updates into a dedicated module.
+;
+; Provides:
+;   CMD_LET
+;   CMD_ASSIGN_DISPATCH
+;   CMD_ASSIGN
+;
+; Dependencies:
+;   - basic_state.s8 (CURPTR_*, TOKSTART_*, IDBUF/IDTYPE, STRFREE, temporaries)
+;   - basic_expr.s8  (PARSE_IDENT, EVAL_EXPR, SKIPSP_CUR/PEEKCHAR_CUR/GETCHAR_CUR)
+;   - basic_vars.s8  (VAR_FIND_OR_CREATE, STORE_VAR_INT)
+;   - basic_errors.s8 (PRINT_SYNTAX_ERROR)
+;
+; Notes:
+;   This is a direct extraction from basic_stmt.s8 to reduce churn.
+;   No functional changes intended.
+; ---------------------------------------------------------------------------
+
+CMD_LET:
+    ; LET <var>=...
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    CALL SKIPSP
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    CALL CMD_ASSIGN
+    CMP R0, #0x01
+    JZ R0, CL_OK
+    ; failed assignment => syntax
+    CALL PRINT_SYNTAX_ERROR
+CL_OK:
+    RET
+
+CMD_ASSIGN_DISPATCH:
+    ; restore pointer to token start, attempt assignment
+    LOAD TOKSTART_H, R1
+    LOAD TOKSTART_L, R2
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    CALL CMD_ASSIGN
+    CMP R0, #0x01
+    JZ R0, CAD_OK
+    CALL PRINT_SYNTAX_ERROR
+    RET
+CAD_OK:
+    RET
+
+; CMD_ASSIGN (routine)
+;   Parses <ident>=<expr> or <ident$>="..."
+;   Returns R0=1 on success, R0=0 if not an assignment
+CMD_ASSIGN:
+    ; parse identifier from CURPTR
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    CALL PARSE_IDENT
+    CMP R0, #0x01
+    JNZ R0, CA_FAIL
+    ; save updated ptr
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+
+    CALL SKIPSP_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x3D
+    JNZ R0, CA_FAIL
+    CALL GETCHAR_CUR
+    CALL SKIPSP_CUR
+
+    ; find or create variable (uses IDBUF/IDTYPE)
+    CALL VAR_FIND_OR_CREATE
+    CMP R0, #0x01
+    JNZ R0, CA_FAIL
+    ; entry ptr in R1:R2
+
+    LOAD IDTYPE, R0
+    CMP R0, #0x01
+    JZ R0, CA_STR
+
+    ; numeric: eval expression
+    STORE R1, TMP_PTR_H
+    STORE R2, TMP_PTR_L
+    CALL EVAL_EXPR
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+    CALL STORE_VAR_INT
+    SET #0x01, R0
+    RET
+
+CA_STR:
+    ; Preserve variable entry pointer (R1:R2) across CURPTR helper calls.
+    STORE R1, TMP_ENTRY_H
+    STORE R2, TMP_ENTRY_L
+
+    ; string: expect opening quote
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x22
+    JNZ R0, CA_FAIL
+    CALL GETCHAR_CUR
+
+    ; allocate at STRFREE
+    LOAD STRFREE_H, R3
+    LOAD STRFREE_L, R4
+    STORE R3, TMP_PTR_H
+    STORE R4, TMP_PTR_L
+    SET #0x00, R5 ; len
+
+CA_SCOPY:
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x00
+    JZ R0, CA_SDONE
+    CMP R0, #0x22
+    JZ R0, CA_SDONE
+    CALL GETCHAR_CUR
+    STORER R0, R3, R4
+    INC R4
+    JNZ R4, CA_S1
+    INC R3
+CA_S1:
+    INC R5
+    JMP CA_SCOPY
+
+CA_SDONE:
+    ; consume closing quote if present
+    CMP R0, #0x22
+    JNZ R0, CA_SNZ
+    CALL GETCHAR_CUR
+CA_SNZ:
+    ; null terminate
+    SET #0x00, R0
+    STORER R0, R3, R4
+    INC R4
+    JNZ R4, CA_S2
+    INC R3
+CA_S2:
+    ; update STRFREE
+    STORE R3, STRFREE_H
+    STORE R4, STRFREE_L
+
+    ; store ptr+len into entry (offset 12..14)
+    LOAD TMP_ENTRY_H, R1
+    LOAD TMP_ENTRY_L, R2
+    PUSH R1
+    PUSH R2
+    ADD #12, R2
+    JNC CA_P1
+    INC R1
+CA_P1:
+    LOAD TMP_PTR_H, R0
+    STORER R0, R1, R2
+    INC R2
+    JNZ R2, CA_P2
+    INC R1
+CA_P2:
+    LOAD TMP_PTR_L, R0
+    STORER R0, R1, R2
+    INC R2
+    JNZ R2, CA_P3
+    INC R1
+CA_P3:
+    STORER R5, R1, R2
+    POP R2
+    POP R1
+
+    SET #0x01, R0
+    RET
+
+CA_FAIL:
+    SET #0x00, R0
+    RET

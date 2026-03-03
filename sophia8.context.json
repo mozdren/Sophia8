@@ -188,7 +188,7 @@
       "Plain-text program storage (no tokenization).",
       "Numeric model: signed 16-bit integers for numeric variables and expressions.",
       "String variables supported via a simple bump-allocator string heap.",
-      "BASIC runtime is split into focused include files: basic_strings.s8 (fixed strings + keyword strings at stable addresses), basic_errors.s8 (shared error printing helpers), text.s8 and basic_helpers.s8 (parsing/token helpers), basic_state.s8 (runtime state + scratch buffers), basic_rng.s8 (BASIC seed wrapper over rng.s8), basic_init.s8 (initialization/reset routines), basic_progstore.s8 (program line storage, delete, find, list), basic_vars.s8 (variable table helpers), basic_expr.s8 (expression engine + identifier/number parsing + boolean ops), basic_stmt.s8 (statement dispatcher + built-in command handlers + DO_PRINT), and basic_repl.s8 (REPL + RUN loop). This keeps sophia_basic_v1.s8 as a composition file (includes + entry marker)."
+      "BASIC runtime is split into focused include files: basic_strings.s8 (fixed strings + keyword strings at stable addresses), basic_errors.s8 (shared error printing helpers), text.s8 and basic_helpers.s8 (parsing/token helpers), basic_state.s8 (runtime state + scratch buffers), basic_rng.s8 (BASIC seed wrapper over rng.s8), basic_init.s8 (initialization/reset routines), basic_progstore.s8 (program line storage, delete, find, list), basic_vars.s8 (variable table helpers), basic_expr.s8 (expression engine + identifier/number parsing + boolean ops), basic_io.s8 (PRINT/INPUT and DO_PRINT), basic_flow.s8 (flow control), basic_stmt.s8 (statement dispatcher + built-in command handlers), and basic_repl.s8 (REPL + RUN loop). This keeps sophia_basic_v1.s8 as a composition file (includes + entry marker)."
     ],
     "keywords": [
       "NEW",
@@ -747,6 +747,69 @@
     "range": "0xFF00..0xFF03"
   },
   "standard_libraries": {
+    "basic_assign.s8": {
+      "depends_on": [
+        "kernel.s8",
+        "text.s8",
+        "basic_state.s8",
+        "basic_expr.s8",
+        "basic_vars.s8",
+        "basic_errors.s8"
+      ],
+      "purpose": "LET statement and implicit assignment parsing extracted from basic_stmt.s8.",
+      "routines": [
+        {
+          "args": {},
+          "behavior": "Implements LET <var>=... by skipping spaces, then delegating to CMD_ASSIGN. Prints ?SYNTAX ERROR on failure.",
+          "clobbers": [
+            "R0",
+            "R1",
+            "R2",
+            "R3",
+            "R4",
+            "R5",
+            "R6",
+            "R7"
+          ],
+          "name": "CMD_LET",
+          "returns": {}
+        },
+        {
+          "args": {},
+          "behavior": "Restores CURPTR from TOKSTART and attempts CMD_ASSIGN for implicit assignment lines (no keyword). Prints ?SYNTAX ERROR on failure.",
+          "clobbers": [
+            "R0",
+            "R1",
+            "R2",
+            "R3",
+            "R4",
+            "R5",
+            "R6",
+            "R7"
+          ],
+          "name": "CMD_ASSIGN_DISPATCH",
+          "returns": {}
+        },
+        {
+          "args": {},
+          "behavior": "Parses <ident>=<expr> for numeric variables or <ident$>=\"...\" for string variables and stores the result.",
+          "clobbers": [
+            "R0",
+            "R1",
+            "R2",
+            "R3",
+            "R4",
+            "R5",
+            "R6",
+            "R7"
+          ],
+          "name": "CMD_ASSIGN",
+          "returns": {
+            "R0": "1 if assignment parsed and stored, else 0"
+          }
+        }
+      ]
+    },
     "basic_errors.s8": {
       "depends_on": [
         "basic_strings.s8",
@@ -892,6 +955,26 @@
         }
       ]
     },
+    "basic_io.s8": {
+      "depends_on": [
+        "basic_state.s8",
+        "basic_expr.s8",
+        "basic_vars.s8",
+        "basic_errors.s8",
+        "kernel.s8",
+        "cli.s8"
+      ],
+      "notes": [
+        "CMD_INPUT reads numeric input into 0x6E00 and uses PARSE_INT16, or stores string input into the BASIC string heap at STRFREE.",
+        "DO_PRINT prints: string literal, string variable, or numeric expression (via PUTDEC16S)."
+      ],
+      "provides": [
+        "CMD_PRINT",
+        "CMD_INPUT",
+        "DO_PRINT"
+      ],
+      "summary": "BASIC PRINT/INPUT commands and the DO_PRINT helper extracted from basic_stmt.s8."
+    },
     "basic_repl.s8": {
       "depends_on": [
         "cli.s8",
@@ -901,6 +984,7 @@
         "basic_state.s8",
         "basic_init.s8",
         "basic_progstore.s8",
+        "basic_assign.s8",
         "basic_stmt.s8"
       ],
       "purpose": "BASIC REPL (interactive loop) and the RUN program execution loop extracted from sophia_basic_v1.s8.",
