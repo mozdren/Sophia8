@@ -186,6 +186,7 @@
   "basic": {
     "features": [
       "GOSUB <line> / RETURN",
+      "REM comments and apostrophe (') comment shorthand",
       "LEN(string)",
       "String relational operators (=, <>, <, >, <=, >=)",
       "LEFT$(string,n)",

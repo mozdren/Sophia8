@@ -10,3 +10,6 @@ See basic_strfn.s8 and sophia_basic_test_auto.bas for examples.
 ## BASIC Flow Control
 BASIC supports subroutines using `GOSUB <line>` and `RETURN` during program execution (`RUN`).
 This enables reusable code blocks and is implemented in `basic_flow.s8`.
+
+## BASIC Comments
+BASIC supports `REM` comments and apostrophe (`'`) comment shorthand. Everything after `REM` or `'` on a line is ignored.

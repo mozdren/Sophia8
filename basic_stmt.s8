@@ -37,6 +37,17 @@ EXEC_STMT:
     CALL GETTOKEN
     POP R4
 
+    ; Apostrophe (') comment shorthand
+    ; If the first token is a single quote, treat it like REM and ignore
+    ; the rest of the current line.
+    SET #0x68, R1
+    SET #0x80, R2
+    LOADR R0, R1, R2
+    SET #0x00, R7
+    ADDR R0, R7
+    CMP R7, #0x27      ; '\''
+    JZ R7, CMD_REM
+
     ; NEW
     SET #0x68, R1
     SET #0x80, R2

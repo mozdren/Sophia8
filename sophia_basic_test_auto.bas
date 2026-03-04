@@ -53,7 +53,11 @@
 81 PRINT "GOSUB"
 82 GOSUB 100
 83 PRINT "AFTER"
-84 END
+84 REM this whole line is a comment and must be ignored
+85 PRINT "REMOK": REM inline comment after statement
+86 ' apostrophe comment line must be ignored
+87 PRINT "APOSOK"
+88 END
 100 PRINT "IN SUB"
 110 RETURN
 90 END
