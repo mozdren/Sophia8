@@ -9,6 +9,7 @@
 ;   MID$(s$|"...", start, n) -> string   (start is 1-based)
 ;   INSTR(s$|"...", sub$|"...") -> integer (1-based position, 0 if not found)
 ;   VAL(s$|"...") -> integer (parse signed decimal prefix, 0 if none)
+;   STR$(n) -> string (signed decimal)
 ;
 ; Parsing uses CURPTR_H/CURPTR_L and helpers from sophia_basic_v1.s8:
 ;   SKIPSP_CUR, PEEKCHAR_CUR, GETCHAR_CUR, PARSE_IDENT, VAR_FIND, EVAL_EXPR,
@@ -212,6 +213,30 @@ MATCH_KW_VAL:
     SET #1, R0
     RET
 
+MATCH_KW_STR:
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    LOADR R0, R1, R2
+    CMP R0, #0x53 ; S
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x54 ; T
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x52 ; R
+    JNZ R0, MK_NO
+    INC R2
+    LOADR R0, R1, R2
+    CMP R0, #0x24 ; $
+    JNZ R0, MK_NO
+    SET #4, R0
+    STORE R0, IDLEN
+    SET #1, R0
+    RET
+
+
 ; ---------------------------------------------------------------------------
 ; STR_PARSE_ARG
 ; Parse string literal or string variable.
@@ -301,6 +326,241 @@ SPA_LRET:
     RET
 
 SPA_FAIL:
+    SET #0x00, R0
+    RET
+
+; ---------------------------------------------------------------------------
+; String expression with concatenation using '+'
+;
+; STR_PARSE_ATOM_ANY:
+;   Parses one string atom:
+;     - string-returning functions: LEFT$, RIGHT$, MID$, CHR$, STR$
+;     - string literal ("...") or string variable (A$)
+;   Outputs:
+;     R6:R7 = pointer to bytes
+;     R5    = length
+;     R4    = 1 if result is heap-owned (allocated), 0 if it points to existing memory
+;     R0    = 1 on success, 0 on failure
+;
+; STR_PARSE_EXPR_CONCAT:
+;   Parses atom ('+' atom)* and returns the resulting (possibly concatenated) string.
+;   If concatenation happens, the result is allocated in the heap.
+;   Outputs: same as STR_PARSE_ATOM_ANY.
+; ---------------------------------------------------------------------------
+
+STR_PARSE_ATOM_ANY:
+    ; Try string-returning functions first (they allocate into heap).
+    CALL MATCH_KW_LEFT
+    CMP R0, #0x01
+    JZ R0, SPAA_LEFT
+    CALL MATCH_KW_RIGHT
+    CMP R0, #0x01
+    JZ R0, SPAA_RIGHT
+    CALL MATCH_KW_MID
+    CMP R0, #0x01
+    JZ R0, SPAA_MID
+    CALL MATCH_KW_CHR
+    CMP R0, #0x01
+    JZ R0, SPAA_CHR
+    CALL MATCH_KW_STR
+    CMP R0, #0x01
+    JZ R0, SPAA_STR
+
+    ; Fallback: literal or string variable (no allocation)
+    CALL STR_PARSE_ARG
+    CMP R0, #0x01
+    JNZ R0, SPAA_FAIL
+    SET #0x00, R4
+    SET #0x01, R0
+    RET
+
+SPAA_LEFT:
+    CALL STRFN_LEFT
+    SET #0x01, R4
+    SET #0x01, R0
+    RET
+SPAA_RIGHT:
+    CALL STRFN_RIGHT
+    SET #0x01, R4
+    SET #0x01, R0
+    RET
+SPAA_MID:
+    CALL STRFN_MID
+    SET #0x01, R4
+    SET #0x01, R0
+    RET
+SPAA_CHR:
+    CALL STRFN_CHR
+    SET #0x01, R4
+    SET #0x01, R0
+    RET
+SPAA_STR:
+    CALL STRFN_STR
+    SET #0x01, R4
+    SET #0x01, R0
+    RET
+
+SPAA_FAIL:
+    SET #0x00, R0
+    RET
+
+
+; ---------------------------------------------------------------------------
+; STR_ALLOC_CONCAT2
+; Allocate (len1 + len2) bytes in heap, copy s1 then s2, and terminate with NUL.
+;
+; Inputs:
+;   s1 ptr  R6:R7
+;   s1 len  R3
+;   s2 ptr  R1:R2
+;   s2 len  R0
+; Outputs:
+;   R6:R7 = heap pointer
+;   R5    = total length
+; ---------------------------------------------------------------------------
+STR_ALLOC_CONCAT2:
+    ; total len in R5
+    SET #0x00, R5
+    ADDR R3, R5
+    ADDR R0, R5
+
+    ; preserve total len across allocator/copy (we reuse R5 as dest low)
+    PUSH R5
+    ; preserve len2 so we can use R0 as temp during first copy
+    PUSH R0
+
+    ; dest = STRFREE
+    LOAD STRFREE_H, R4
+    LOAD STRFREE_L, R5
+    STORE R4, TMP_PTR_H
+    STORE R5, TMP_PTR_L
+
+    ; copy s1 (R3 bytes)
+SAC2_L1:
+    JZ R3, SAC2_L2_START
+    LOADR R0, R6, R7
+    STORER R0, R4, R5
+    INC R7
+    JNZ R7, SAC2_S1_OK
+    INC R6
+SAC2_S1_OK:
+    INC R5
+    JNZ R5, SAC2_D1_OK
+    INC R4
+SAC2_D1_OK:
+    DEC R3
+    JMP SAC2_L1
+
+SAC2_L2_START:
+    ; restore len2 into R0
+    POP R0
+
+    ; copy s2 (R0 bytes)
+SAC2_L2:
+    JZ R0, SAC2_TERM
+    LOADR R3, R1, R2      ; use R3 as temp byte
+    STORER R3, R4, R5
+    INC R2
+    JNZ R2, SAC2_S2_OK
+    INC R1
+SAC2_S2_OK:
+    INC R5
+    JNZ R5, SAC2_D2_OK
+    INC R4
+SAC2_D2_OK:
+    DEC R0
+    JMP SAC2_L2
+
+SAC2_TERM:
+    SET #0x00, R3
+    STORER R3, R4, R5
+    INC R5
+    JNZ R5, SAC2_A_OK
+    INC R4
+SAC2_A_OK:
+    STORE R4, STRFREE_H
+    STORE R5, STRFREE_L
+
+    ; restore total len into R5
+    POP R5
+    ; return pointer = TMP_PTR
+    LOAD TMP_PTR_H, R6
+    LOAD TMP_PTR_L, R7
+    RET
+
+
+; ---------------------------------------------------------------------------
+; STR_PARSE_EXPR_CONCAT
+; Parse: atom ('+' atom)*
+; Outputs:
+;   R6:R7 = ptr, R5 = len, R4 = heap-owned flag, R0 = 1/0
+; On failure, restores CURPTR to its original value.
+; ---------------------------------------------------------------------------
+STR_PARSE_EXPR_CONCAT:
+    ; save original CURPTR
+    LOAD CURPTR_H, R0
+    STORE R0, SAVCUR_H
+    LOAD CURPTR_L, R0
+    STORE R0, SAVCUR_L
+
+    CALL STR_PARSE_ATOM_ANY
+    CMP R0, #0x01
+    JNZ R0, SPEC_FAIL
+
+SPEC_LOOP:
+    CALL SKIPSP_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x2B          ; '+'
+    JNZ R0, SPEC_DONE
+
+    ; consume '+'
+    CALL GETCHAR_CUR
+    CALL SKIPSP_CUR
+
+    ; save current string (ptr+len) on stack
+    PUSH R6
+    PUSH R7
+    PUSH R5
+
+    ; parse next atom into R6:R7,R5 and flag in R4
+    CALL STR_PARSE_ATOM_ANY
+    CMP R0, #0x01
+    JNZ R0, SPEC_RESTORE_FAIL
+
+    ; move s2 to R1:R2 and len2 to R0
+    SET #0x00, R1
+    ADDR R6, R1
+    SET #0x00, R2
+    ADDR R7, R2
+    SET #0x00, R0
+    ADDR R5, R0
+
+    ; restore s1 into R6:R7 and len1 into R3
+    POP R3
+    POP R7
+    POP R6
+
+    CALL STR_ALLOC_CONCAT2
+    ; result is heap-owned
+    SET #0x01, R4
+    SET #0x01, R0
+    JMP SPEC_LOOP
+
+SPEC_DONE:
+    SET #0x01, R0
+    RET
+
+SPEC_RESTORE_FAIL:
+    ; pop saved s1 from stack (discard)
+    POP R5
+    POP R7
+    POP R6
+SPEC_FAIL:
+    ; restore CURPTR and fail
+    LOAD SAVCUR_H, R1
+    STORE R1, CURPTR_H
+    LOAD SAVCUR_L, R1
+    STORE R1, CURPTR_L
     SET #0x00, R0
     RET
 
@@ -928,6 +1188,222 @@ SV_APPLYSIGN:
     JNZ R0, SV_RET
     CALL NEG16
 SV_RET:
+    RET
+
+
+; ---------------------------------------------------------------------------
+; STR$(n) -> string
+; Converts a signed 16-bit integer expression into a freshly allocated
+; NUL-terminated decimal string on the heap (STRFREE).
+; Returns:
+;   R6:R7 = pointer
+;   R5    = length
+; ---------------------------------------------------------------------------
+STRFN_STR:
+    CALL CONSUME_KW
+    CALL SKIPSP_CUR
+    CALL GETCHAR_CUR       ; '('
+
+    ; evaluate numeric expression -> R6:R7
+    CALL EVAL_EXPR
+
+    CALL SKIPSP_CUR
+    CALL GETCHAR_CUR       ; ')'
+
+    ; sign flag stored in INT_SIGN (0=pos,1=neg)
+    SET #0x00, R4
+
+    ; check if negative by testing high byte >= 0x80
+    SET #0x00, R0
+    ADDR R6, R0
+    SUB #0x80, R0
+    JC STRS_POS
+    SET #0x01, R4
+    CALL NEG16
+STRS_POS:
+    STORE R4, INT_SIGN
+
+    ; dest pointer = STRFREE, save start in TMP_PTR
+    LOAD STRFREE_H, R1
+    LOAD STRFREE_L, R2
+    STORE R1, TMP_PTR_H
+    STORE R2, TMP_PTR_L
+
+    ; len counter in R3
+    SET #0x00, R3
+
+    ; if value == 0 => write '0'
+    SET #0x00, R0
+    ADDR R6, R0
+    JNZ R0, STRS_LOOP
+    SET #0x00, R0
+    ADDR R7, R0
+    JNZ R0, STRS_LOOP
+
+    SET #0x30, R0
+    STORER R0, R1, R2
+    INC R2
+    JNZ R2, STRS_Z1
+    INC R1
+STRS_Z1:
+    INC R3
+    JMP STRS_SIGN
+
+STRS_LOOP:
+    ; while value != 0: emit digits in reverse order
+    ; save original value
+    PUSH R6
+    PUSH R7
+
+    ; remainder = value % 10
+    SET #0x00, R4
+    ADDR R6, R4           ; dividend hi
+    SET #0x00, R5
+    ADDR R7, R5           ; dividend lo
+    SET #0x00, R6
+    SET #10, R7
+    ; preserve destination pointer across MOD16U (it may clobber R1)
+    PUSH R1
+    PUSH R2
+    CALL MOD16U           ; remainder -> R6:R7 (<=9)
+    POP R2
+    POP R1
+
+    ; digit char in R0 = remainder_lo + '0'
+    SET #0x00, R0
+    ADDR R7, R0
+    ADD #0x30, R0
+    STORER R0, R1, R2
+    INC R2
+    JNZ R2, STRS_D1
+    INC R1
+STRS_D1:
+    INC R3
+
+    ; restore original value for division
+    POP R7
+    POP R6
+
+    ; value = value / 10
+    SET #0x00, R4
+    ADDR R6, R4
+    SET #0x00, R5
+    ADDR R7, R5
+    SET #0x00, R6
+    SET #10, R7
+    ; preserve destination pointer across DIV16U (it clobbers R1)
+    PUSH R1
+    PUSH R2
+    CALL DIV16U           ; quotient -> R6:R7
+    POP R2
+    POP R1
+
+    ; loop condition
+    SET #0x00, R0
+    ADDR R6, R0
+    JNZ R0, STRS_LOOP
+    SET #0x00, R0
+    ADDR R7, R0
+    JNZ R0, STRS_LOOP
+
+STRS_SIGN:
+    ; append '-' if negative
+    LOAD INT_SIGN, R0
+    CMP R0, #0x01
+    JNZ R0, STRS_REV
+
+    SET #0x2D, R0          ; '-'
+    STORER R0, R1, R2
+    INC R2
+    JNZ R2, STRS_S1
+    INC R1
+STRS_S1:
+    INC R3
+
+STRS_REV:
+    ; preserve current write pointer (R1:R2) for terminator/STRFREE update
+    STORE R1, TMPH
+    STORE R2, TMPL
+
+    ; reverse in-place because digits were emitted least-significant first
+    ; start = TMP_PTR (R6:R7), end = start + len - 1 (R4:R5)
+    LOAD TMP_PTR_H, R6
+    LOAD TMP_PTR_L, R7
+    SET #0x00, R4
+    ADDR R6, R4
+    SET #0x00, R5
+    ADDR R7, R5
+
+    ; end += (len-1)
+    SET #0x00, R0
+    ADDR R3, R0
+    JZ R0, STRS_TERM
+    DEC R0
+    ADDR R0, R5
+    JNC STRS_EOK
+    INC R4
+STRS_EOK:
+
+STRS_SWAP_LOOP:
+    ; if start >= end => done
+    SET #0x00, R0
+    ADDR R6, R0
+    SET #0x00, R1
+    ADDR R4, R1
+    CMPR R0, R1
+    JC STRS_DO_SWAP
+    JNZ R0, STRS_TERM
+    ; highs equal, compare lows
+    SET #0x00, R0
+    ADDR R7, R0
+    SET #0x00, R1
+    ADDR R5, R1
+    CMPR R0, R1
+    JC STRS_DO_SWAP
+    JMP STRS_TERM
+
+STRS_DO_SWAP:
+    LOADR R0, R6, R7
+    LOADR R1, R4, R5
+    STORER R1, R6, R7
+    STORER R0, R4, R5
+
+    ; start++
+    INC R7
+    JNZ R7, STRS_ST1
+    INC R6
+STRS_ST1:
+
+    ; end--
+    CMP R5, #0x00
+    JNZ R5, STRS_ED1
+    DEC R4
+    SET #0xFF, R5
+    JMP STRS_SWAP_LOOP
+STRS_ED1:
+    DEC R5
+    JMP STRS_SWAP_LOOP
+
+STRS_TERM:
+    ; restore write pointer for terminator/STRFREE update
+    LOAD TMPH, R1
+    LOAD TMPL, R2
+
+    ; store NUL terminator at current end of write pointer (R1:R2)
+    SET #0x00, R0
+    STORER R0, R1, R2
+    INC R2
+    JNZ R2, STRS_A1
+    INC R1
+STRS_A1:
+    STORE R1, STRFREE_H
+    STORE R2, STRFREE_L
+
+    ; return pointer and length
+    LOAD TMP_PTR_H, R6
+    LOAD TMP_PTR_L, R7
+    SET #0x00, R5
+    ADDR R3, R5
     RET
 
 SIN_RET1:

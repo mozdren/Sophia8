@@ -188,7 +188,13 @@
       "LEN(string)",
       "LEFT$(string,n)",
       "RIGHT$(string,n)",
-      "MID$(string,start,n)"
+      "MID$(string,start,n)",
+      "INSTR(haystack$, needle$)",
+      "VAL(string)",
+      "STR$(number)",
+      "ASC(string)",
+      "CHR$(number)",
+      "String concatenation with '+' (PRINT and string assignment)"
     ]
   },
   "binary_image": {
@@ -1391,7 +1397,7 @@
       ]
     },
     "stdio_console.s8": {
-      "purpose": "Console-only stdio-like fa\u00e7ade",
+      "purpose": "Console-only stdio-like façade",
       "routines": [
         {
           "args": {

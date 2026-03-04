@@ -809,48 +809,24 @@ CMD_ASSIGN:
     RET
 
 CA_STR:
-    ; string assignment: support literal, var, LEFT$/RIGHT$/MID$
+    ; string assignment: support literal/var/functions and concatenation with '+'
     ; Preserve variable entry pointer (R1:R2)
     STORE R1, TMP_ENTRY_H
     STORE R2, TMP_ENTRY_L
 
-    ; function calls
-    CALL MATCH_KW_LEFT
-    CMP R0, #0x01
-    JZ R0, CA_SF_LEFT
-    CALL MATCH_KW_RIGHT
-    CMP R0, #0x01
-    JZ R0, CA_SF_RIGHT
-    CALL MATCH_KW_MID
-    CMP R0, #0x01
-    JZ R0, CA_SF_MID
-    CALL MATCH_KW_CHR
-    CMP R0, #0x01
-    JZ R0, CA_SF_CHR
-
-    ; plain string literal or string variable
-    CALL STR_PARSE_ARG
+    ; Parse string expression with optional concatenation.
+    ; Returns R6:R7=ptr, R5=len, R4=heap-owned flag
+    CALL STR_PARSE_EXPR_CONCAT
     CMP R0, #0x01
     JNZ R0, CA_FAIL
 
-    ; copy whole string to heap: start=0, requested=0
+    ; If not heap-owned (literal or existing var), copy into heap for stable storage.
+    CMP R4, #0x00
+    JNZ R0, CA_SSTORE
     SET #0x00, R0
     SET #0x00, R1
     CALL STR_ALLOC_AND_COPY
     JMP CA_SSTORE
-
-CA_SF_LEFT:
-    CALL STRFN_LEFT
-    JMP CA_SSTORE
-CA_SF_RIGHT:
-    CALL STRFN_RIGHT
-    JMP CA_SSTORE
-CA_SF_MID:
-    CALL STRFN_MID
-    JMP CA_SSTORE
-CA_SF_CHR:
-    CALL STRFN_CHR
-
 CA_SSTORE:
     ; store ptr+len into entry (offset 12..14)
     LOAD TMP_ENTRY_H, R1
@@ -1607,6 +1583,24 @@ CMD_END:
 ; DO_PRINT: prints string literal, string variable, or numeric expression
 ; ---------------------------------------------------------------------------
 DO_PRINT:
+    ; First try to parse a string expression with optional concatenation.
+    ; This enables PRINT "A"+"B" and PRINT A$+"X" while keeping numeric expressions intact.
+    PUSH R1
+    PUSH R2
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    CALL STR_PARSE_EXPR_CONCAT
+    CMP R0, #0x01
+    JNZ R0, DP_TRY_STR_FAIL
+    ; success: discard saved ptrs and print R6:R7 (len R5)
+    POP R2
+    POP R1
+    JMP DP_SF_PRINT
+DP_TRY_STR_FAIL:
+    ; restore ptrs and continue with legacy logic
+    POP R2
+    POP R1
+
     ; if starts with quote => literal
     LOADR R0, R1, R2
     CMP R0, #0x22
@@ -1710,6 +1704,9 @@ DP_EXPR2:
     CALL MATCH_KW_CHR
     CMP R0, #0x01
     JZ R0, DP_SF_CHR
+    CALL MATCH_KW_STR
+    CMP R0, #0x01
+    JZ R0, DP_SF_STR
 
     ; numeric expression
     STORE R1, CURPTR_H
@@ -1729,6 +1726,9 @@ DP_SF_MID:
     JMP DP_SF_PRINT
 DP_SF_CHR:
     CALL STRFN_CHR
+    JMP DP_SF_PRINT
+DP_SF_STR:
+    CALL STRFN_STR
     ; fallthrough
 DP_SF_PRINT:
     ; result: ptr R6:R7, len R5
