@@ -167,10 +167,36 @@ IN_SYNTAX:
 ; DO_PRINT: prints string literal, string variable, or numeric expression
 ; ---------------------------------------------------------------------------
 DO_PRINT:
-    ; if starts with quote => literal
-    LOADR R0, R1, R2
-    CMP R0, #0x22
-    JZ R0, DP_STR
+    ; Try full string expression (functions, literals, vars, concatenation).
+    ; STR_PARSE_EXPR_CONCAT operates on CURPTR_*.
+    PUSH R1
+    PUSH R2
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    CALL STR_PARSE_EXPR_CONCAT     ; R6:R7 ptr, R5 len, R0 success
+    CMP R0, #0x01
+    JNZ R0, DP_STR_EXPR_FAIL
+
+    ; discard saved original pointer (we keep CURPTR advanced by the parser)
+    POP R2
+    POP R1
+
+    ; success: print exactly R5 bytes from R6:R7
+DP_STR_EXPR_LOOP:
+    JZ R5, DP_NL
+    LOADR R0, R6, R7
+    CALL PUTC
+    INC R7
+    JNZ R7, DP_STR_EXPR_P
+    INC R6
+DP_STR_EXPR_P:
+    DEC R5
+    JMP DP_STR_EXPR_LOOP
+
+DP_STR_EXPR_FAIL:
+    ; restore original pointer
+    POP R2
+    POP R1
 
     ; if starts with identifier, try string var first
     PUSH R1
@@ -275,16 +301,32 @@ DS_LOOP:
     SET #0x00, R7
     ADDR R0, R7
     CMP R7, #0x00
-    JZ R7, DP_NL
+    JZ R7, DP_STR_DONE_NUL
     SET #0x00, R7
     ADDR R0, R7
     CMP R7, #0x22
-    JZ R7, DP_NL
+    JZ R7, DP_STR_DONE_QUOTE
     CALL PUTC
     INC R2
     JNZ R2, DS_LOOP
     INC R1
     JMP DS_LOOP
+
+DP_STR_DONE_NUL:
+    ; store updated CURPTR (at NUL) so the statement parser can continue
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    JMP DP_NL
+
+DP_STR_DONE_QUOTE:
+    ; consume closing quote and store CURPTR
+    INC R2
+    JNZ R2, DSQ1
+    INC R1
+DSQ1:
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    JMP DP_NL
 
 DP_NL:
     SET #0x0A, R0

@@ -56,7 +56,7 @@ STORE_LINE:
 
 SL_WRITE:
     ; dst = 0x3000 + index*84
-    SET #0x30, R1
+    SET #0x40, R1
     SET #0x00, R2
     SET #0x00, R6
     ADDR R4, R6
@@ -134,7 +134,7 @@ FL_LOOP:
     SUBR R6, R7
     JZ R7, FL_NO
 
-    SET #0x30, R1
+    SET #0x40, R1
     SET #0x00, R2
     SET #0x00, R6
     ADDR R4, R6
@@ -165,7 +165,7 @@ DELETE_BY_LINENO:
     CMP R0, #0x01
     JNZ R0, DB_DONE
 
-    SET #0x30, R1
+    SET #0x40, R1
     SET #0x00, R2
     SET #0x00, R6
     ADDR R4, R6
@@ -197,7 +197,7 @@ LA_LOOP:
     SUBR R6, R7
     JZ R7, LA_DONE
 
-    SET #0x30, R1
+    SET #0x40, R1
     SET #0x00, R2
     SET #0x00, R6
     ADDR R4, R6

@@ -15,6 +15,12 @@ SAVCUR_L: .byte 0
 TMP_PTR_H: .byte 0
 TMP_PTR_L: .byte 0
 ; Temporary storage for variable entry pointers (e.g. during string assignments).
+
+; Saved cursor for PARSE_REL string fallback (basic_expr.s8)
+REL_SAV_H:
+    .byte 0x00
+REL_SAV_L:
+    .byte 0x00
 TMP_ENTRY_H: .byte 0
 TMP_ENTRY_L: .byte 0
 INT_SIGN: .byte 0
@@ -39,6 +45,8 @@ TOKSTART_L: .byte 0
 ; Phase 5 additions
 RNG_SEED_H: .byte 0
 RNG_SEED_L: .byte 0
+RNG_SEED_PTR: .byte 0x68
+RNG_SEED_PTR_L: .byte 0x1F
 GOSUB_SP: .byte 0
 FOR_SP: .byte 0
 

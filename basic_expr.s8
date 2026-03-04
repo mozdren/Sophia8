@@ -1222,20 +1222,318 @@ PA_DONE:
 
 ; relational
 PARSE_REL:
+    ; -----------------------------------------------------------------------
+    ; Relational parsing.
+    ;
+    ; Enhancement: support string relational operators in IF and other boolean
+    ; expressions using the same syntax as numeric relations:
+    ;   =  <>  <  >  <=  >=
+    ;
+    ; Strategy:
+    ;   - First attempt to parse a string expression (incl. concatenation)
+    ;     using STR_PARSE_EXPR_CONCAT (from basic_strfn.s8).
+    ;   - Only if a relational operator follows, we treat it as string compare.
+    ;   - Otherwise we restore the cursor and fall back to numeric parsing.
+    ;
+    ; Result:
+    ;   R6:R7 = 0/1 (false/true)
+    ; -----------------------------------------------------------------------
+
+    ; Save cursor so we can safely fall back to numeric parsing.
+    LOAD CURPTR_H, R0
+    STORE R0, REL_SAV_H
+    LOAD CURPTR_L, R0
+    STORE R0, REL_SAV_L
+
+    ; Try parse left string expression.
+    CALL STR_PARSE_EXPR_CONCAT
+    CMP R0, #0x01
+    JNZ R0, PR_NUMERIC     ; not a string expr
+
+    ; Save left string (ptr+len) while we look for a relop.
+    PUSH R6
+    PUSH R7
+    PUSH R5
+
+    CALL SKIPSP_CUR
+
+    ; NOTE: program lines are tokenized. Relational operators can appear
+    ; either as ASCII ('<','=', '>') or as single-byte tokens:
+    ;   '<' => 0x1C, '=' => 0x1D, '>' => 0x1E
+    ; CMP/CMPR are destructive on Sophia8, so we must re-peek before each check.
+
+    ; '='
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x3D
+    JZ R0, PRS_EQ
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x1D
+    JZ R0, PRS_EQ
+
+    ; '<'
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x3C
+    JZ R0, PRS_LT
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x1C
+    JZ R0, PRS_LT
+
+    ; '>'
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x3E
+    JZ R0, PRS_GT
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x1E
+    JZ R0, PRS_GT
+
+    ; No operator after string expression: restore cursor and fall back.
+PRS_FALLBACK:
+    POP R5
+    POP R7
+    POP R6
+    LOAD REL_SAV_H, R0
+    STORE R0, CURPTR_H
+    LOAD REL_SAV_L, R0
+    STORE R0, CURPTR_L
+    JMP PR_NUMERIC_ENTRY
+
+; -------------------------
+; String relational operators
+; -------------------------
+
+PRS_EQ:
+    ; consume '='
+    CALL GETCHAR_CUR
+    JMP PRS_PARSE_RIGHT_EQ
+
+PRS_LT:
+    ; consume '<'
+    CALL GETCHAR_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x3D          ; <= (ASCII)
+    JZ R0, PRS_LE
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x1D          ; <= (token '=')
+    JZ R0, PRS_LE
+
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x3E          ; <> (ASCII)
+    JZ R0, PRS_NE
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x1E          ; <> (token '>')
+    JZ R0, PRS_NE
+    ; plain '<'
+    JMP PRS_PARSE_RIGHT_LT
+
+PRS_GT:
+    ; consume '>'
+    CALL GETCHAR_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x3D          ; >= (ASCII)
+    JZ R0, PRS_GE
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x1D          ; >= (token '=')
+    JZ R0, PRS_GE
+    ; plain '>'
+    JMP PRS_PARSE_RIGHT_GT
+
+PRS_LE:
+    CALL GETCHAR_CUR       ; consume '='
+    JMP PRS_PARSE_RIGHT_LE
+
+PRS_GE:
+    CALL GETCHAR_CUR       ; consume '='
+    JMP PRS_PARSE_RIGHT_GE
+
+PRS_NE:
+    CALL GETCHAR_CUR       ; consume '>'
+    JMP PRS_PARSE_RIGHT_NE
+
+; Common helper: compare left (saved on stack) with right (parsed now).
+; Uses STR_ALLOC_AND_COPY to create NUL-terminated copies for STRCMP.
+; Returns compare result in R0: 0 (eq), 0xFF (lt), 0x01 (gt)
+PRS_DO_CMP:
+    ; Length-aware lexicographic compare (no NUL termination needed).
+    ; Inputs:
+    ;   R1:R2 = s1 ptr, R3 = len1
+    ;   R6:R7 = s2 ptr, R5 = len2
+    ; Output:
+    ;   R0 = 0x00 equal, 0xFF if s1 < s2, 0x01 if s1 > s2
+    ; Clobbers:
+    ;   R4
+
+PRS_CMP_LOOP:
+    CMP R3, #0x00
+    JZ R3, PRS_LEN1_DONE
+    CMP R5, #0x00
+    JZ R5, PRS_LEN2_DONE
+
+    LOADR R4, R1, R2      ; c1
+    LOADR R0, R6, R7      ; c2
+
+    CMPR R4, R0
+    JZ R4, PRS_CMP_EQ
+    JC PRS_CMP_LT
+    SET #0x01, R0
+    RET
+PRS_CMP_LT:
+    SET #0xFF, R0
+    RET
+PRS_CMP_EQ:
+    ; ++s1
+    INC R2
+    JNZ R2, PRS_S1_OK
+    INC R1
+PRS_S1_OK:
+    ; ++s2
+    INC R7
+    JNZ R7, PRS_S2_OK
+    INC R6
+PRS_S2_OK:
+
+    DEC R3
+    DEC R5
+    JMP PRS_CMP_LOOP
+
+PRS_LEN1_DONE:
+    CMP R5, #0x00
+    JZ R5, PRS_CMP_EQUAL
+    SET #0xFF, R0          ; s1 shorter => s1 < s2
+    RET
+PRS_LEN2_DONE:
+    CMP R3, #0x00
+    JZ R3, PRS_CMP_EQUAL
+    SET #0x01, R0          ; s2 shorter => s1 > s2
+    RET
+PRS_CMP_EQUAL:
+    SET #0x00, R0
+    RET
+
+PRS_PARSE_RIGHT_EQ:
+
+    CALL STR_PARSE_EXPR_CONCAT
+    CMP R0, #0x01
+    JNZ R0, PRS_FAIL
+    ; restore left (saved ptr+len)
+    POP R3
+    POP R2
+    POP R1
+    CALL PRS_DO_CMP
+    CMP R0, #0x00
+    JZ R0, PRS_TRUE
+    JMP PRS_FALSE
+
+PRS_PARSE_RIGHT_NE:
+    CALL STR_PARSE_EXPR_CONCAT
+    CMP R0, #0x01
+    JNZ R0, PRS_FAIL
+    ; restore left (saved ptr+len)
+    POP R3
+    POP R2
+    POP R1
+    CALL PRS_DO_CMP
+    CMP R0, #0x00
+    JZ R0, PRS_FALSE
+    JMP PRS_TRUE
+
+PRS_PARSE_RIGHT_LT:
+    CALL STR_PARSE_EXPR_CONCAT
+    CMP R0, #0x01
+    JNZ R0, PRS_FAIL
+    ; restore left (saved ptr+len)
+    POP R3
+    POP R2
+    POP R1
+    CALL PRS_DO_CMP
+    CMP R0, #0xFF
+    JZ R0, PRS_TRUE
+    JMP PRS_FALSE
+
+PRS_PARSE_RIGHT_GT:
+    CALL STR_PARSE_EXPR_CONCAT
+    CMP R0, #0x01
+    JNZ R0, PRS_FAIL
+    ; restore left (saved ptr+len)
+    POP R3
+    POP R2
+    POP R1
+    CALL PRS_DO_CMP
+    CMP R0, #0x01
+    JZ R0, PRS_TRUE
+    JMP PRS_FALSE
+
+PRS_PARSE_RIGHT_LE:
+    CALL STR_PARSE_EXPR_CONCAT
+    CMP R0, #0x01
+    JNZ R0, PRS_FAIL
+    ; restore left (saved ptr+len)
+    POP R3
+    POP R2
+    POP R1
+    CALL PRS_DO_CMP
+    CMP R0, #0x01
+    JZ R0, PRS_FALSE
+    JMP PRS_TRUE
+
+PRS_PARSE_RIGHT_GE:
+    CALL STR_PARSE_EXPR_CONCAT
+    CMP R0, #0x01
+    JNZ R0, PRS_FAIL
+    ; restore left (saved ptr+len)
+    POP R3
+    POP R2
+    POP R1
+    CALL PRS_DO_CMP
+    CMP R0, #0xFF
+    JZ R0, PRS_FALSE
+    JMP PRS_TRUE
+
+PRS_FAIL:
+    ; parse failure: treat as false (caller typically prints syntax elsewhere)
+PRS_FALSE:
+    SET #0x00, R6
+    SET #0x00, R7
+    RET
+PRS_TRUE:
+    SET #0x00, R6
+    SET #0x01, R7
+    RET
+
+; -------------------------
+; Numeric relational operators (original behaviour)
+; -------------------------
+
+PR_NUMERIC:
+PR_NUMERIC_ENTRY:
     CALL PARSE_ADD
     CALL SKIPSP_CUR
-    CALL PEEKCHAR_CUR
+
+    ; Tokenized/ASCII relational operators (see comment in string section).
+
     ; '='
+    CALL PEEKCHAR_CUR
     CMP R0, #0x3D
     JZ R0, PR_EQ
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x1D
+    JZ R0, PR_EQ
+
     ; '<'
     CALL PEEKCHAR_CUR
     CMP R0, #0x3C
     JZ R0, PR_LT
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x1C
+    JZ R0, PR_LT
+
     ; '>'
     CALL PEEKCHAR_CUR
     CMP R0, #0x3E
     JZ R0, PR_GT
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x1E
+    JZ R0, PR_GT
+
     RET
 
 PR_EQ:
@@ -1251,10 +1549,17 @@ PR_EQ:
 PR_LT:
     CALL GETCHAR_CUR
     CALL PEEKCHAR_CUR
-    CMP R0, #0x3D      ; <=
+    CMP R0, #0x3D      ; <= (ASCII)
     JZ R0, PR_LE
     CALL PEEKCHAR_CUR
-    CMP R0, #0x3E      ; <>
+    CMP R0, #0x1D      ; <= (token '=')
+    JZ R0, PR_LE
+
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x3E      ; <> (ASCII)
+    JZ R0, PR_NE
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x1E      ; <> (token '>')
     JZ R0, PR_NE
     ; '<'
     PUSH R6
@@ -1268,7 +1573,10 @@ PR_LT:
 PR_GT:
     CALL GETCHAR_CUR
     CALL PEEKCHAR_CUR
-    CMP R0, #0x3D      ; >=
+    CMP R0, #0x3D      ; >= (ASCII)
+    JZ R0, PR_GE
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x1D      ; >= (token '=')
     JZ R0, PR_GE
     ; '>'
     PUSH R6
@@ -1391,8 +1699,28 @@ PARSE_FACTOR:
     CALL ISDIGIT
     CMP R0, #0x01
     JZ R0, PF2_DEC
-    
-; PEEK(...)
+
+	; LEN(...)
+	CALL MATCH_KW_LEN
+	CMP R0, #0x01
+	JZ R0, PF2_LEN
+
+	; ASC(...)
+	CALL MATCH_KW_ASC
+	CMP R0, #0x01
+	JZ R0, PF2_ASC
+
+	; INSTR(...)
+	CALL MATCH_KW_INSTR
+	CMP R0, #0x01
+	JZ R0, PF2_INSTR
+
+	; VAL(...)
+	CALL MATCH_KW_VAL
+	CMP R0, #0x01
+	JZ R0, PF2_VAL
+	
+	; PEEK(...)
 CALL MATCH_KW_PEEK
 CMP R0, #0x01
 JZ R0, PF2_PEEK
@@ -1460,6 +1788,22 @@ PF2_HEX:
     RET
 PF2_DEC:
     CALL PARSE_NUM_DEC
+    RET
+
+PF2_LEN:
+    CALL STRFN_LEN
+    RET
+
+PF2_ASC:
+    CALL STRFN_ASC
+    RET
+
+PF2_INSTR:
+    CALL STRFN_INSTR
+    RET
+
+PF2_VAL:
+    CALL STRFN_VAL
     RET
 
 PF2_PEEK:

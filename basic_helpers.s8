@@ -188,17 +188,4 @@ AEO_DONE:
 AEO_RET:
     RET
 
-; ---------------------------------------------------------------------------
-; RNG_NEXT
-;   BASIC convenience wrapper for rng.s8's RNG_NEXT16.
-;   Uses BASIC variable RNG_SEED_PTR (a .word pointing to RNG_SEED_H).
-;   Returns value in R6:R7.
-;
-;   Requires: rng.s8 (RNG_NEXT16)
-; ---------------------------------------------------------------------------
-RNG_NEXT:
-    ; load pointer to the seed (R1:R2)
-    LOAD RNG_SEED_PTR, R1
-    LOAD RNG_SEED_PTR+1, R2
-    CALL RNG_NEXT16
-    RET
+; (RNG_NEXT wrapper moved to basic_rng.s8)

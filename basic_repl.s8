@@ -107,7 +107,7 @@ RP_LOOP:
     SUBR R6, R7
     JZ R7, RP_DONE
 
-    SET #0x30, R1
+    SET #0x40, R1
     SET #0x00, R2
     SET #0x00, R6
     ADDR R4, R6

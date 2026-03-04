@@ -166,54 +166,23 @@ CA_ABOK:
     RET
 
 CA_STR:
-    ; Preserve variable entry pointer (R1:R2) across CURPTR helper calls.
+    ; Preserve variable entry pointer (R1:R2) while parsing RHS.
     STORE R1, TMP_ENTRY_H
     STORE R2, TMP_ENTRY_L
 
-    ; string: expect opening quote
-    CALL PEEKCHAR_CUR
-    CMP R0, #0x22
+    ; Parse full string expression (functions, literals, vars, concatenation).
+    ; Output: R6:R7 ptr, R5 len, R4 heap-owned, R0 success
+    CALL STR_PARSE_EXPR_CONCAT
+    CMP R0, #0x01
     JNZ R0, CA_FAIL
-    CALL GETCHAR_CUR
 
-    ; allocate at STRFREE
-    LOAD STRFREE_H, R3
-    LOAD STRFREE_L, R4
-    STORE R3, TMP_PTR_H
-    STORE R4, TMP_PTR_L
-    SET #0x00, R5 ; len
-
-CA_SCOPY:
-    CALL PEEKCHAR_CUR
-    CMP R0, #0x00
-    JZ R0, CA_SDONE
-    CMP R0, #0x22
-    JZ R0, CA_SDONE
-    CALL GETCHAR_CUR
-    STORER R0, R3, R4
-    INC R4
-    JNZ R4, CA_S1
-    INC R3
-CA_S1:
-    INC R5
-    JMP CA_SCOPY
-
-CA_SDONE:
-    ; consume closing quote if present
-    CMP R0, #0x22
-    JNZ R0, CA_SNZ
-    CALL GETCHAR_CUR
-CA_SNZ:
-    ; null terminate
-    SET #0x00, R0
-    STORER R0, R3, R4
-    INC R4
-    JNZ R4, CA_S2
-    INC R3
-CA_S2:
-    ; update STRFREE
-    STORE R3, STRFREE_H
-    STORE R4, STRFREE_L
+    ; Ensure heap-owned storage (variables must point into heap).
+    CMP R4, #0x01
+    JZ R4, CA_STR_HAVE_HEAP
+    SET #0x00, R0         ; start=0
+    SET #0x00, R1         ; len=0 => to end
+    CALL STR_ALLOC_AND_COPY
+CA_STR_HAVE_HEAP:
 
     ; store ptr+len into entry (offset 12..14)
     LOAD TMP_ENTRY_H, R1
@@ -224,14 +193,12 @@ CA_S2:
     JNC CA_P1
     INC R1
 CA_P1:
-    LOAD TMP_PTR_H, R0
-    STORER R0, R1, R2
+    STORER R6, R1, R2
     INC R2
     JNZ R2, CA_P2
     INC R1
 CA_P2:
-    LOAD TMP_PTR_L, R0
-    STORER R0, R1, R2
+    STORER R7, R1, R2
     INC R2
     JNZ R2, CA_P3
     INC R1

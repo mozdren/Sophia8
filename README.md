@@ -6,3 +6,7 @@ BASIC now supports string functions: LEN(), LEFT$(), RIGHT$(), MID$(), ASC(), CH
 It also supports string concatenation with '+' in PRINT and string assignments (e.g., A$=A$+"X").
 See basic_strfn.s8 and sophia_basic_test_auto.bas for examples.
 
+
+## BASIC Flow Control
+BASIC supports subroutines using `GOSUB <line>` and `RETURN` during program execution (`RUN`).
+This enables reusable code blocks and is implemented in `basic_flow.s8`.

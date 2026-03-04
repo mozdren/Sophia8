@@ -185,7 +185,9 @@
   },
   "basic": {
     "features": [
+      "GOSUB <line> / RETURN",
       "LEN(string)",
+      "String relational operators (=, <>, <, >, <=, >=)",
       "LEFT$(string,n)",
       "RIGHT$(string,n)",
       "MID$(string,start,n)",
@@ -1397,7 +1399,7 @@
       ]
     },
     "stdio_console.s8": {
-      "purpose": "Console-only stdio-like façade",
+      "purpose": "Console-only stdio-like fa\u00e7ade",
       "routines": [
         {
           "args": {
