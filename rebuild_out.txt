@@ -1,3 +1,0 @@
-[ 62%] Built target s8asm
-[ 62%] Built target sophia8
-[100%] Built target test_graphics_c64
