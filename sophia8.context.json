@@ -131,6 +131,22 @@
         "lesson": "Preserve the original line (before comment stripping) for diagnostics, and report file/line plus include stack. Good errors reduce debugging time more than any other feature.",
         "note": "If you extend the assembler, keep new errors consistent with AsmError formatting.",
         "topic": "Error reporting"
+      },
+      {
+        "topic": "Destructive CMP/CMPR semantics",
+        "lesson": "CMP/CMPR subtract into the compared register. Never compare a live value in-place if it is still needed afterward; compare on a scratch copy instead.",
+        "reason": "This caused real stack/index corruption bugs in BASIC control-flow code."
+      },
+      {
+        "topic": "Reserved BASIC scratch region at 0x9600/0x9601",
+        "lesson": "Treat decimal 38400/38401 (0x9600/0x9601) as reserved BASIC scratch/test-safe addresses in the current project layout.",
+        "pitfall": "Allowing interpreter code growth into that range means user POKE can overwrite instructions and produce late, hard-to-debug failures.",
+        "prevention": "Check the final .deb map after code growth and preserve the gap/relocation strategy unless the tests and memory map are intentionally redesigned."
+      },
+      {
+        "topic": "Use .deb and .pre.s8 together when debugging",
+        "lesson": "The .pre.s8 file explains final include order and effective source, while the .deb file explains exact emitted addresses and source mapping.",
+        "prevention": "When behavior changes after a refactor or new feature, inspect both outputs before assuming the parser or VM is wrong."
       }
     ],
     "numbers": {
@@ -185,8 +201,25 @@
   },
   "basic": {
     "features": [
+      "RUN and line-numbered program storage",
+      "GOTO",
+      "IF ... THEN ... [ELSE ...]",
       "GOSUB <line> / RETURN",
+      "FOR / NEXT",
+      "END / STOP",
       "REM comments and apostrophe (') comment shorthand",
+      "Numeric variables",
+      "String variables",
+      "DIM arrays",
+      "PRINT",
+      "INPUT",
+      "PEEK(address)",
+      "POKE address, value",
+      "RANDOMIZE",
+      "RND()",
+      "DATA",
+      "READ",
+      "RESTORE",
       "LEN(string)",
       "String relational operators (=, <>, <, >, <=, >=)",
       "LEFT$(string,n)",
@@ -198,7 +231,13 @@
       "ASC(string)",
       "CHR$(number)",
       "String concatenation with '+' (PRINT and string assignment)"
-    ]
+    ],
+    "architecture": {
+      "top_level_file": "sophia_basic_v1.s8",
+      "top_level_role": "Composition/wiring only: core libs, fixed BASIC strings/state, aggregate include, entry point.",
+      "aggregate_include": "basic_all.s8",
+      "rule": "Implement features in focused basic_*.s8 modules and wire them through basic_all.s8 instead of growing the top-level BASIC file."
+    }
   },
   "binary_image": {
     "entry_stub": {
@@ -218,12 +257,15 @@
       "Include-once is enforced (including the same file twice is an assembler error).",
       ".org operands must be numeric literals (no labels).",
       ".byte does not allow labels.",
-      "MUL/MULR destination register order: encoded as (dst_high, dst_low). If you want low in R6 and high in R7, write: MUL #imm, R7, R6."
+      "MUL/MULR destination register order: encoded as (dst_high, dst_low). If you want low in R6 and high in R7, write: MUL #imm, R7, R6.",
+      "Preserve 0x9600/0x9601 as reserved BASIC scratch/test-safe addresses unless the layout is intentionally redesigned."
     ],
     "layout": [
       "Keep all user code/data at addresses >= 0x0003.",
       "If you include kernel.s8 or other libs, place them explicitly with .org <addr> before including.",
-      "Avoid overlap: never emit code/data into the same address twice."
+      "Avoid overlap: never emit code/data into the same address twice.",
+      "Inspect the generated .deb map after meaningful code growth; address safety is a layout property, not an assumption.",
+      "For the current BASIC layout, keep interpreter code away from 0x9600/0x9601 because tests intentionally POKE there."
     ],
     "strict": [
       "Never invent new instructions, directives, or registers.",
@@ -671,10 +713,18 @@
       "purpose": "BASIC string functions: LEN, LEFT$, RIGHT$, MID$, ASC, CHR$, INSTR, VAL; plus parsing helpers.",
       "org": "0x7000",
       "notes": [
-        "Placed at 0x7000 to avoid overlapping the main BASIC code region (which grows beyond 0x5200).",
+        "Placed at 0x7000 to avoid overlapping the main BASIC code region.",
         "INSTR(hay$, needle$) returns 1-based position; returns 0 if not found; returns 1 if needle is empty.",
         "VAL(s$) parses the signed decimal prefix of the string (leading spaces allowed); returns 0 if no digits.",
-        "Ensure test programs do not POKE into 0x7000..(end of basic_strfn) to avoid self-corruption."
+        "Do not treat 0x7000 placement as permanently safe without checking the final .deb/.pre.s8 outputs after code growth."
+      ]
+    },
+    "basic_data_cmd.s8": {
+      "purpose": "BASIC command handlers for DATA / READ / RESTORE relocated out of the hot main statement region.",
+      "org": "0xC000",
+      "notes": [
+        "Placed high in memory to reduce pressure around the main BASIC interpreter code.",
+        "This relocation helps keep 0x9600/0x9601 free for BASIC POKE scratch/tests."
       ]
     }
   },
@@ -1400,7 +1450,7 @@
       ]
     },
     "stdio_console.s8": {
-      "purpose": "Console-only stdio-like fa\u00e7ade",
+      "purpose": "Console-only stdio-like façade",
       "routines": [
         {
           "args": {
@@ -1848,6 +1898,22 @@
         "register dump after execution: R0..R7, IP, SP, BP, C"
       ],
       "requires_deb": true
+    }
+  },
+  "memory_conventions": {
+    "basic_reserved_scratch": {
+      "range": "0x9600..0x9601",
+      "decimal_addresses": [
+        38400,
+        38401
+      ],
+      "purpose": "Project-reserved BASIC scratch/test-safe area commonly used by POKE/PEEK integration tests.",
+      "status": "Convention in the current project layout; not VM-enforced MMIO.",
+      "lesson": "A regression occurred when interpreter code grew into 0x9600/0x9601 and user POKE overwrote instructions. Keep this range free unless the memory layout and tests are redesigned together.",
+      "current_mitigation": [
+        "basic_stmt.s8 leaves a gap before later code continues at 0x9700.",
+        "basic_data_cmd.s8 is placed at 0xC000 to reduce growth pressure near 0x9600."
+      ]
     }
   }
 }

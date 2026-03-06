@@ -1,103 +1,211 @@
-# Sophia 8 – Libraries and Debugging Notes
+# Sophia 8 – Technical Notes, Libraries, BASIC, and Debugging
 
-This document describes the extracted helper libraries and how to use them from Sophia 8 assembly programs.
+This document is the human-oriented companion to `sophia8.context.json`. It summarizes the current state of the Sophia8 toolchain, standard libraries, Sophia BASIC layout, and the implementation pitfalls that have already caused real bugs.
 
-## Quick include set
+## 1. Toolchain summary
 
-Typical programs include only what they use:
+### Assembler (`s8asm`)
+The assembler is strict and intentionally simple.
+
+It produces three artifacts:
+- `<output>.bin` — full `0xFFFF`-byte memory image
+- `<output>.pre.s8` — preprocessed source with all `.include` content expanded
+- `<output>.deb` — debug map used by the VM for file:line breakpoints and verbose logs
+
+Important rules:
+- `.org <addr>` takes a numeric literal only
+- `.org` without an operand marks the entry point and may appear only once
+- `.byte` accepts numeric literals only
+- `.word` accepts numeric literals or labels
+- `.include` is textual and include-once is enforced
+- overlapping output bytes are an error
+
+### VM (`sophia8`)
+The VM can run:
+- a raw `.bin` image
+- a `.deb` file directly (it resolves the paired `.bin`)
+- a saved `debug.img` snapshot
+
+Debugging support includes:
+- `--help`
+- source breakpoint support from `.deb`
+- validation that a breakpoint line really maps to executable code
+- `debug.img` snapshot generation when a breakpoint is hit
+- resume from `debug.img`
+- `-v` verbose per-instruction logging
+
+## 2. Standard library overview
+
+Typical assembly programs include only what they need.
 
 ```asm
-.include "kernel.s8"          ; console/syscalls
-.include "mem.s8"             ; memset/memcpy helpers
-.include "str.s8"             ; basic string helpers
-.include "fmt.s8"             ; formatting helpers (printing)
-
-; extracted helpers
-.include "line.s8"            ; line input (echo + backspace)
-.include "parse.s8"           ; parsing helpers (skip spaces, parse u8)
-.include "ctype.s8"           ; ASCII classification/conversion
-.include "u16.s8"             ; 16-bit unsigned helpers
-.include "int16.s8"           ; 16-bit signed helpers
-.include "conv.s8"            ; string ↔ integer conversions
-.include "stdio_console.s8"   ; stdio-like wrappers for console
+.include "kernel.s8"
+.include "mem.s8"
+.include "str.s8"
+.include "fmt.s8"
+.include "line.s8"
+.include "parse.s8"
+.include "ctype.s8"
+.include "u16.s8"
+.include "int16.s8"
+.include "conv.s8"
+.include "stdio_console.s8"
 ```
 
-## Extracted libraries
-
 ### line.s8
-
-- **READLINE_ECHO** – reads a line with echo and backspace handling.
-  - Inputs: `R1:R2` destination buffer, `R3` max bytes (including `\0`)
-  - Returns: `R4` length (excluding `\0`)
-  - Terminates on CR/LF, always null-terminates if `max > 0`.
+- `READLINE_ECHO` — line input with echo and backspace handling
 
 ### parse.s8
-
-- **SKIPSPACES** – advances `R1:R2` past spaces (0x20) and tabs (0x09).
-- **PARSE_U8_DEC** – parses an unsigned 8-bit decimal value with overflow detection.
-
-These were extracted from the former CLI helpers.
+- `SKIPSPACES`
+- `PARSE_U8_DEC`
 
 ### ctype.s8
-
-Small ASCII helpers:
-
-- **ISDIGIT**: `R4=1` if `R0` is `'0'..'9'`
-- **ISSPACE**: `R4=1` if `R0` is space/tab/CR/LF
-- **TOLOWER** / **TOUPPER**: converts ASCII case when applicable
+- `ISDIGIT`
+- `ISSPACE`
+- `TOLOWER`
+- `TOUPPER`
 
 ### u16.s8 / int16.s8
+16-bit helpers using hi:lo convention.
 
-16-bit helpers use a **hi:lo** convention.
-
+Examples:
 - `U16_ADD`, `U16_SUB`, `U16_CMP`
 - `U16_SHL1`, `U16_SHR1`
-- `U16_MUL_U8` (16-bit × 8-bit)
-- `U16_DIV_U8` (16-bit ÷ 8-bit)
-- `I16_NEG` (two’s complement negate)
+- `U16_MUL_U8`, `U16_DIV_U8`
+- `I16_NEG`
 
 ### conv.s8
-
-Conversions:
-
-- **PARSE_U16_DEC** – parses `0..65535`
-  - Input: `R1:R2` pointer
-  - Output: `R6:R7` value, `R4` success, `R1:R2` advanced pointer
-
-- **PARSE_I16_DEC** – parses `-32768..32767`
-  - Input: `R1:R2` pointer
-  - Output: `R6:R7` value, `R4` success
-
-- **U16_TO_DEC_BUF** – converts a 16-bit unsigned value to a decimal string in a buffer
-  - Input: `R0:R1` value, `R2:R3` output buffer, `R4` max bytes including `\0`
-  - Output: `R6=1` success else `0`, `R5` length (excluding `\0`)
+Conversions between decimal strings and 16-bit numbers.
 
 ### stdio_console.s8
+Simple stdio-like wrappers around console primitives.
 
-Simple wrappers around the kernel console:
+## 3. Sophia BASIC v1 architecture
 
-- `PUTCHAR` (calls `PUTC`)
-- `GETCHAR` (calls `GETC`)
-- `FPUTS` (calls `PUTS`)
-- `FGETS` (calls `READLINE_ECHO`)
+The intended structure is:
+- `sophia_basic_v1.s8` = composition/wiring only
+- `basic_all.s8` = aggregate include list for feature modules
+- implementation in focused `basic_*.s8` files
 
-## Notes and pitfalls
+Current aggregate includes:
+- errors/helpers/vars
+- string functions and expression parser
+- RNG support
+- assignment, I/O, flow control
+- DATA scanner/runtime
+- statement dispatcher
+- program storage / REPL
+- DATA command handlers
+- arrays
+- initialization
 
-- `.byte` accepts **numeric literals only** (no labels, no `#`).
-- `.word` accepts **numeric literals or labels** (no `#`).
-- Operand **label arithmetic** (like `LABEL+1`) is not supported. Prefer:
-  - passing pointers via registers,
-  - fixed absolute addresses (when appropriate),
-  - or data layouts that avoid needing “+1”.
+This modular split is important for maintainability. New features should be added as focused modules rather than growing the top-level BASIC file.
 
-## Debugging and verbose logging
+## 4. Current BASIC feature set
 
-The Sophia 8 toolchain supports `.deb` debug files for address↔source mapping.
+### Flow and control
+- `RUN`
+- `GOTO`
+- `IF ... THEN ... [ELSE ...]`
+- `GOSUB` / `RETURN`
+- `FOR` / `NEXT`
+- `END`, `STOP`
+- `REM` and apostrophe (`'`) comments
 
-The VM supports:
+### Variables and arrays
+- numeric variables
+- string variables
+- `DIM`
+- string concatenation and assignment
 
-- `--help` for usage
-- breakpoint validation (cannot set a breakpoint on a line without executable code)
-- optional **verbose logging** with `-v` (writes executed commands/parameters, memory updates, and register dumps to the specified debug file)
+### I/O and runtime helpers
+- `PRINT`
+- `INPUT`
+- `RANDOMIZE`
+- `RND()`
+- `PEEK()` / `POKE`
 
-(See `sophia8.context.json` for the machine-readable overview.)
+### DATA support
+- `DATA`
+- `READ`
+- `RESTORE`
+
+### String functions
+- `LEN`
+- `LEFT$`
+- `RIGHT$`
+- `MID$`
+- `ASC`
+- `CHR$`
+- `INSTR`
+- `VAL`
+- `STR$`
+- string relational operators
+
+## 5. Memory layout and placement notes
+
+### Fixed areas already in use
+- entry stub reserved by assembler: `0x0000..0x0002`
+- core libraries and BASIC composition start around `0x0400`
+- BASIC fixed strings: `0x0200+`
+- BASIC state blocks: `0x6800+`
+- `basic_strfn.s8`: `0x7000`
+- `basic_data_cmd.s8`: `0xC000`
+- VM MMIO: `0xFF00..0xFF03`
+
+### Critical reserved BASIC scratch region
+`0x9600` / `0x9601` (decimal `38400` / `38401`) must remain safe for BASIC user `POKE` tests and scratch usage.
+
+This is not a VM-enforced MMIO area. It is a **project memory-layout convention** that exists because real BASIC tests write there.
+
+A regression already happened when interpreter code expanded into `0x9600..0x9601`. User `POKE` then overwrote interpreter instructions, which caused later failures in `IF` and string/DATA paths. The current layout avoids that by:
+- leaving a gap in `basic_stmt.s8`
+- relocating `basic_data_cmd.s8` to `0xC000`
+
+When adding new BASIC code, always verify that code growth has not reclaimed `0x9600..0x9601`.
+
+## 6. Important implementation lessons
+
+### `CMP` / `CMPR` are destructive
+They subtract into the compared register. If you still need the original value after the comparison, copy it first.
+
+This caused a real stack corruption bug in BASIC `GOSUB`/`RETURN` and loop bookkeeping.
+
+### Avoid silent self-corruption with `POKE`
+Because BASIC can write arbitrary addresses, interpreter layout matters. Tests and examples already use decimal `38400`/`38401`, so code placement must respect that.
+
+### Keep using the debug artifacts
+When behavior becomes unclear, use:
+- `<program>.pre.s8` to verify include expansion and final source order
+- `<program>.deb` for exact address↔source mapping
+- VM `-v` logs to find loops, register damage, or unexpected memory writes
+
+### One feature, one focused test
+BASIC regressions are often integration issues, not isolated parser bugs. Every new feature should add or extend an executable test scenario.
+
+## 7. Debugging workflow that has proven useful
+
+1. Build from a clean directory.
+2. Run the existing tests.
+3. Assemble the BASIC image and inspect `<output>.pre.s8` when include order or `.org` placement is suspicious.
+4. Use `<output>.deb` to find the exact machine address for a source line.
+5. Run the VM with `-v` when execution appears stuck or corrupted.
+6. Use source breakpoints to emit `debug.img` and inspect machine state at a precise location.
+
+## 8. Notes and pitfalls carried forward
+
+- `.byte` accepts numeric literals only
+- `.word` accepts numeric literals or labels
+- label arithmetic like `LABEL+1` is not supported by the assembler
+- include-once is enforced
+- labels are global after preprocessing
+- diagnostics are strongest when file:line and include-stack information are preserved
+
+## 9. What to keep stable
+
+Try to preserve these project conventions unless there is a conscious redesign:
+- modular BASIC organization
+- `.deb` and `.pre.s8` generation on every assembly
+- breakpoint validation in the VM
+- verbose logging only when explicitly enabled
+- reserved BASIC scratch safety at `0x9600..0x9601`
