@@ -42,6 +42,12 @@ DIVL: .byte 0
 TOKSTART_H: .byte 0
 TOKSTART_L: .byte 0
 
+; Phase 14 additions (DATA / READ / RESTORE)
+DATA_VALID: .byte 0        ; 0=not initialized, 1=valid pointer
+DATA_INDEX: .byte 0        ; current program line index (0..LINECOUNT-1)
+DATA_PTR_H: .byte 0        ; pointer into current DATA payload
+DATA_PTR_L: .byte 0
+
 ; Phase 5 additions
 RNG_SEED_H: .byte 0
 RNG_SEED_L: .byte 0

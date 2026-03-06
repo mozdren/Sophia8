@@ -90,6 +90,9 @@ RUN_PROG:
     SET #0x01, R0
     STORE R0, RUNNING
 
+    ; reset DATA/READ pointer for each RUN
+    CALL DATA_RESET
+
     SET #0x00, R4
     STORE R4, RUN_INDEX
     LOAD LINECOUNT, R5

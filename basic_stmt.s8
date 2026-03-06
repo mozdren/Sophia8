@@ -169,6 +169,35 @@ CALL STREQ
 CMP R0, #0x01
 JZ R0, CMD_REM
 
+
+; Phase 14: DATA / READ / RESTORE
+; DATA
+SET #0x68, R1
+    SET #0x80, R2
+SET #0x03, R3
+SET #0x48, R4
+CALL STREQ
+CMP R0, #0x01
+JZ R0, CMD_DATA
+
+; READ
+SET #0x68, R1
+    SET #0x80, R2
+SET #0x03, R3
+SET #0x50, R4
+CALL STREQ
+CMP R0, #0x01
+JZ R0, CMD_READ
+
+; RESTORE
+SET #0x68, R1
+    SET #0x80, R2
+SET #0x03, R3
+SET #0x58, R4
+CALL STREQ
+CMP R0, #0x01
+JZ R0, CMD_RESTORE
+
     ; IF
     SET #0x68, R1
     SET #0x80, R2
@@ -253,6 +282,9 @@ CR_DONE:
     STORE R2, CURPTR_L
     RET
 
+
+; CMD_DATA / CMD_READ / CMD_RESTORE extracted to basic_data_cmd.s8
+
 ; CMD_LET/CMD_ASSIGN* moved to basic_assign.s8
 
 CMD_GOTO:
@@ -317,6 +349,9 @@ RZ_DEF:
     SET #0x01, R0
     STORE R0, RNG_SEED_L
     RET
+
+; Keep 0x9600/0x9601 free for BASIC POKE tests (screen/MMIO scratch).
+.org 0x9700
 
 CMD_IF:
 

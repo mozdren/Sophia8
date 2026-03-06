@@ -15,9 +15,8 @@
 HANDLE_PROGLINE:
     ; parse line number => uint8 (stored in low byte), high byte = 0
     CALL PARSE_UINT8
-    SET #0x00, R6
-    ADDR R0, R6
-    SET #0x00, R7
+    SET #0x00, R6           ; high byte
+    SET #0x00, R7           ; low byte
     ADDR R0, R7
     STORE R6, TMP_LINENO_H
     STORE R7, TMP_LINENO_L

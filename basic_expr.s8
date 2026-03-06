@@ -139,6 +139,21 @@ PI_START:
     STORE R5, IDLEN
     STORE R5, IDTYPE
 
+    ; ensure IDBUF is zero-padded (VAR_FIND compares full 8 bytes)
+    SET #0x68, R3
+    SET #0xA0, R4
+    SET #8, R7
+    SET #0x00, R0
+PI_ZPAD:
+    STORER R0, R3, R4
+    INC R4
+    JNZ R4, PI_Z1
+    INC R3
+PI_Z1:
+    DEC R7
+    JNZ R7, PI_ZPAD
+
+
 PI_LOOP:
     LOADR R0, R1, R2
 

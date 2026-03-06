@@ -1,0 +1,33 @@
+{
+  "feature": "BASIC DATA / READ / RESTORE",
+  "status": "done",
+  "milestone": "data-read-restore-fixed",
+  "what_was_done": [
+    "Implemented BASIC DATA, READ and RESTORE support.",
+    "Added DATA runtime state and scanner in basic_data.s8.",
+    "Added DATA/READ/RESTORE keywords and OUT OF DATA error string.",
+    "Hooked DATA reset into RUN.",
+    "Added READ and RESTORE command handlers and extracted them into basic_data_cmd.s8.",
+    "Fixed destructive-CMP stack corruption in GOSUB/RETURN/FOR/NEXT in basic_flow.s8.",
+    "Prevented BASIC POKE 38400/38401 from overwriting interpreter code by moving the IF-and-later basic_stmt code past 0x9600 with an .org gap and relocating DATA command handlers out of the hot region.",
+    "Updated the BASIC auto test expectations for DATA/READ/RESTORE and filtered the trailing REPL prompt in the CMake integration test."
+  ],
+  "what_was_found": [
+    "Sophia8 CMP is destructive. Using CMP directly on stack pointers corrupted GOSUB/FOR bookkeeping and overwrote memory.",
+    "User POKE at decimal 38400/38401 writes to 0x9600/0x9601. After the DATA implementation grew the binary, those addresses landed inside interpreter code, which broke later string READ/IF execution.",
+    "The remaining full-test failure was therefore not a DATA parser bug but a memory-map/code-placement regression caused by code growth."
+  ],
+  "next_to_do": [
+    "Consider reserving the 0x9600 screen/MMIO region explicitly in the machine/context documentation so future code growth cannot silently overlap it.",
+    "Consider adding a dedicated regression test that verifies POKE 38400/38401 does not break later IF/string/DATA execution.",
+    "Consider moving more BASIC command handlers into separate modules to keep the core layout stable and reduce future overlap risk."
+  ],
+  "tests": {
+    "cmake_build": "passed",
+    "ctest": {
+      "test_graphics_c64": "passed",
+      "test_libs_s8": "passed",
+      "test_basic_auto": "passed"
+    }
+  }
+}

@@ -88,3 +88,15 @@ K_REM:   .string "REM"
 ; Phase 13 keyword (arrays)
 .org 0x0340
 K_DIM:   .string "DIM"
+
+; Phase 14 keywords (DATA / READ / RESTORE)
+.org 0x0348
+K_DATA:  .string "DATA"
+.org 0x0350
+K_READ:  .string "READ"
+.org 0x0358
+K_RESTORE: .string "RESTORE"
+
+; Phase 14 error
+.org 0x0360
+ErrOutOfData: .string "?OUT OF DATA\n"
