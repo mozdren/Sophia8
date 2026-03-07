@@ -29,10 +29,13 @@ INIT_VARS:
     SET #0x34, R0
     STORE R0, RNG_SEED_L
 
-    ; reset GOSUB / FOR stacks
+    ; reset GOSUB / FOR stacks and loop/classifier scratch
     SET #0x00, R0
     STORE R0, GOSUB_SP
     STORE R0, FOR_SP
+    STORE R0, CLS_SP
+    STORE R0, MATCH_INDEX
+    STORE R0, SCAN_INDEX
 
     ; mark entries empty by writing 0xFF to type byte of each entry
     SET #0x60, R1

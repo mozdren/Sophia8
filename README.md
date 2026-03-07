@@ -58,6 +58,8 @@ Implementation lives in `basic_*.s8` files.
 - `IF ... THEN ... [ELSE ...]`
 - `GOSUB` / `RETURN`
 - `FOR` / `NEXT`
+- `DO ... WHILE`
+- `WHILE ... ENDWHILE`
 - `END`, `STOP`
 - `REM` and apostrophe (`'`) comments
 
@@ -98,6 +100,7 @@ Implementation lives in `basic_*.s8` files.
 On Sophia8, compare instructions subtract into the compared register. Do not assume the input register survives a compare.
 
 This already caused real bugs in BASIC flow-control stacks (`GOSUB`, `RETURN`, `FOR`, `NEXT`). Always compare on a scratch copy if the value is still needed later.
+Also keep BASIC runtime stacks out of assembled code regions: `0x6A00/0x6A20` are no longer safe once the modular BASIC grows. Preserve `0x9600/0x9601` for user `POKE`, and keep `GOSUB`/`FOR` stacks in a dedicated free RAM block instead.
 
 ### 2. `POKE 38400` / `POKE 38401` must stay safe
 Decimal `38400` and `38401` are addresses `0x9600` and `0x9601`.

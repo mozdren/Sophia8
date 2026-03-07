@@ -198,6 +198,33 @@ CALL STREQ
 CMP R0, #0x01
 JZ R0, CMD_RESTORE
 
+; DO
+SET #0x68, R1
+    SET #0x80, R2
+SET #0x03, R3
+SET #0x68, R4
+CALL STREQ
+CMP R0, #0x01
+JZ R0, CMD_DO
+
+; WHILE
+SET #0x68, R1
+    SET #0x80, R2
+SET #0x03, R3
+SET #0x70, R4
+CALL STREQ
+CMP R0, #0x01
+JZ R0, CMD_WHILE
+
+; ENDWHILE
+SET #0x68, R1
+    SET #0x80, R2
+SET #0x03, R3
+SET #0x78, R4
+CALL STREQ
+CMP R0, #0x01
+JZ R0, CMD_ENDWHILE
+
     ; IF
     SET #0x68, R1
     SET #0x80, R2
@@ -351,7 +378,7 @@ RZ_DEF:
     RET
 
 ; Keep 0x9600/0x9601 free for BASIC POKE tests (screen/MMIO scratch).
-.org 0x9700
+.org 0x9C00
 
 CMD_IF:
 

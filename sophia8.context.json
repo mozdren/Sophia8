@@ -147,6 +147,11 @@
         "topic": "Use .deb and .pre.s8 together when debugging",
         "lesson": "The .pre.s8 file explains final include order and effective source, while the .deb file explains exact emitted addresses and source mapping.",
         "prevention": "When behavior changes after a refactor or new feature, inspect both outputs before assuming the parser or VM is wrong."
+      },
+      {
+        "topic": "BASIC block-loop scans must preserve caller scratch",
+        "lesson": "Runtime structure scans for BASIC DO/WHILE/ENDWHILE must preserve loop counters and scan state across helper calls. On Sophia8, helpers freely clobber registers unless you save them explicitly.",
+        "pitfall": "Using R5/R6/R7 as scan counters and then calling token/classifier helpers without saving them can make matching skip or jump to the wrong line."
       }
     ],
     "numbers": {
@@ -206,6 +211,8 @@
       "IF ... THEN ... [ELSE ...]",
       "GOSUB <line> / RETURN",
       "FOR / NEXT",
+      "DO ... WHILE",
+      "WHILE ... ENDWHILE",
       "END / STOP",
       "REM comments and apostrophe (') comment shorthand",
       "Numeric variables",
@@ -1450,7 +1457,7 @@
       ]
     },
     "stdio_console.s8": {
-      "purpose": "Console-only stdio-like façade",
+      "purpose": "Console-only stdio-like fa\u00e7ade",
       "routines": [
         {
           "args": {

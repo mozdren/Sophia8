@@ -55,9 +55,12 @@ RNG_SEED_PTR: .byte 0x68
 RNG_SEED_PTR_L: .byte 0x1F
 GOSUB_SP: .byte 0
 FOR_SP: .byte 0
+CLS_SP: .byte 0
+MATCH_INDEX: .byte 0
+SCAN_INDEX: .byte 0
 
-; GOSUB stack: 16 return indices (byte) stored sequentially at 0x6A00
-; FOR stack entries at 0x6A20, max 8 entries:
+; GOSUB stack: 16 return indices (byte) stored sequentially at 0x6E00
+; FOR stack entries at 0x6E20, max 8 entries:
 ;   +0..1 var entry ptr (H,L)
 ;   +2..3 end value (H,L)
 ;   +4..5 step value (H,L)
@@ -74,3 +77,8 @@ TOKENBUF: .byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 ; Identifier buffer used by PARSE_IDENT / VAR_FIND (8 bytes, zero-padded)
 .org 0x68A0
 IDBUF: .byte 0,0,0,0,0,0,0,0
+
+; Block classifier stack used by DO/WHILE/ENDWHILE scans.
+; Each entry is 1 byte: 1=DO, 2=WHILE. Max nesting depth 16.
+.org 0x68B0
+CLS_STACK: .byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0

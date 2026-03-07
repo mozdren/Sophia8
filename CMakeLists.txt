@@ -96,3 +96,8 @@ HI
 ' > exp.txt; \
          diff -u exp.txt got.txt"
 )
+
+add_test(
+    NAME test_basic_loops
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/test_basic_loops.sh
+)

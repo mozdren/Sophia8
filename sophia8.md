@@ -109,6 +109,8 @@ This modular split is important for maintainability. New features should be adde
 - `IF ... THEN ... [ELSE ...]`
 - `GOSUB` / `RETURN`
 - `FOR` / `NEXT`
+- `DO ... WHILE`
+- `WHILE ... ENDWHILE`
 - `END`, `STOP`
 - `REM` and apostrophe (`'`) comments
 

@@ -97,6 +97,14 @@ K_READ:  .string "READ"
 .org 0x0358
 K_RESTORE: .string "RESTORE"
 
+; Phase 15 keywords (loop blocks)
+.org 0x0368
+K_DO: .string "DO"
+.org 0x0370
+K_WHILE: .string "WHILE"
+.org 0x0378
+K_ENDWHILE: .string "ENDWHILE"
+
 ; Phase 14 error
-.org 0x0360
+.org 0x0388
 ErrOutOfData: .string "?OUT OF DATA\n"

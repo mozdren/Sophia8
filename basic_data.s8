@@ -293,6 +293,8 @@ DNN_FAIL:
     SET #0x00, R0
     RET
 
+.org 0x9700
+
 ; ---------------------------------------------------------------------------
 ; DATA_NEXT_STR
 ;   Returns next string DATA item. Always returns a heap-owned string.
