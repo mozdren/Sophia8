@@ -9,7 +9,7 @@ The assembler is strict and intentionally simple.
 
 It produces three artifacts:
 - `<output>.bin` — full `0x10000`-byte memory image
-- `<output>.pre.s8` — preprocessed source with all `.include` content expanded
+- `<output>.pre.s8.asm` — preprocessed source with all `.include` content expanded
 - `<output>.deb` — debug map used by the VM for file:line breakpoints and verbose logs
 
 Important rules:
@@ -41,33 +41,33 @@ Debugging support includes:
 Typical assembly programs include only what they need.
 
 ```asm
-.include "kernel.s8"
-.include "mem.s8"
-.include "str.s8"
-.include "fmt.s8"
-.include "line.s8"
-.include "parse.s8"
-.include "ctype.s8"
-.include "u16.s8"
-.include "int16.s8"
-.include "conv.s8"
-.include "stdio_console.s8"
+.include "kernel.s8.asm"
+.include "mem.s8.asm"
+.include "str.s8.asm"
+.include "fmt.s8.asm"
+.include "line.s8.asm"
+.include "parse.s8.asm"
+.include "ctype.s8.asm"
+.include "u16.s8.asm"
+.include "int16.s8.asm"
+.include "conv.s8.asm"
+.include "stdio_console.s8.asm"
 ```
 
-### line.s8
+### line.s8.asm
 - `READLINE_ECHO` — line input with echo and backspace handling
 
-### parse.s8
+### parse.s8.asm
 - `SKIPSPACES`
 - `PARSE_U8_DEC`
 
-### ctype.s8
+### ctype.s8.asm
 - `ISDIGIT`
 - `ISSPACE`
 - `TOLOWER`
 - `TOUPPER`
 
-### u16.s8 / int16.s8
+### u16.s8.asm / int16.s8.asm
 16-bit helpers using hi:lo convention.
 
 Examples:
@@ -76,18 +76,18 @@ Examples:
 - `U16_MUL_U8`, `U16_DIV_U8`
 - `I16_NEG`
 
-### conv.s8
+### conv.s8.asm
 Conversions between decimal strings and 16-bit numbers.
 
-### stdio_console.s8
+### stdio_console.s8.asm
 Simple stdio-like wrappers around console primitives.
 
 ## 3. Sophia BASIC v1 architecture
 
 The intended structure is:
-- `sophia_basic_v1.s8` = composition/wiring only
-- `basic_all.s8` = aggregate include list for feature modules
-- implementation in focused `basic_*.s8` files
+- `sophia_basic_v1.s8.asm` = composition/wiring only
+- `basic_all.s8.asm` = aggregate include list for feature modules
+- implementation in focused `basic_*.s8.asm` files
 
 Current aggregate includes:
 - errors/helpers/vars
@@ -153,8 +153,8 @@ This modular split is important for maintainability. New features should be adde
 - core libraries and BASIC composition start around `0x0400`
 - BASIC fixed strings: `0x0200+`
 - BASIC state blocks: `0x6800+`
-- `basic_strfn.s8`: `0x7000`
-- `basic_data_cmd.s8`: `0xC000`
+- `basic_strfn.s8.asm`: `0x7000`
+- `basic_data_cmd.s8.asm`: `0xC000`
 - VM MMIO: `0xFF00..0xFF03`
 
 ### Critical reserved BASIC scratch region
@@ -163,8 +163,8 @@ This modular split is important for maintainability. New features should be adde
 This is not a VM-enforced MMIO area. It is a **project memory-layout convention** that exists because real BASIC tests write there.
 
 A regression already happened when interpreter code expanded into `0x9600..0x9601`. User `POKE` then overwrote interpreter instructions, which caused later failures in `IF` and string/DATA paths. The current layout avoids that by:
-- leaving a gap in `basic_stmt.s8`
-- relocating `basic_data_cmd.s8` to `0xC000`
+- leaving a gap in `basic_stmt.s8.asm`
+- relocating `basic_data_cmd.s8.asm` to `0xC000`
 
 When adding new BASIC code, always verify that code growth has not reclaimed `0x9600..0x9601`.
 
@@ -180,7 +180,7 @@ Because BASIC can write arbitrary addresses, interpreter layout matters. Tests a
 
 ### Keep using the debug artifacts
 When behavior becomes unclear, use:
-- `<program>.pre.s8` to verify include expansion and final source order
+- `<program>.pre.s8.asm` to verify include expansion and final source order
 - `<program>.deb` for exact address↔source mapping
 - VM `-v` logs to find loops, register damage, or unexpected memory writes
 
@@ -191,7 +191,7 @@ BASIC regressions are often integration issues, not isolated parser bugs. Every 
 
 1. Build from a clean directory.
 2. Run the existing tests with `ctest --test-dir build --output-on-failure`.
-3. Assemble the BASIC image and inspect `<output>.pre.s8` when include order or `.org` placement is suspicious.
+3. Assemble the BASIC image and inspect `<output>.pre.s8.asm` when include order or `.org` placement is suspicious.
 4. Use `<output>.deb` to find the exact machine address for a source line.
 5. Run the VM with `-v` when execution appears stuck or corrupted.
 6. Use source breakpoints to emit `debug.img` and inspect machine state at a precise location.
@@ -211,7 +211,7 @@ The current CTest integration is platform-neutral and avoids shell-only features
 
 Try to preserve these project conventions unless there is a conscious redesign:
 - modular BASIC organization
-- `.deb` and `.pre.s8` generation on every assembly
+- `.deb` and `.pre.s8.asm` generation on every assembly
 - breakpoint validation in the VM
 - verbose logging only when explicitly enabled
 - reserved BASIC scratch safety at `0x9600..0x9601`

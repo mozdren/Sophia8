@@ -1,0 +1,84 @@
+; basic_state.s8.asm
+; Extracted BASIC runtime state variables and scratch buffers from sophia_basic_v1.s8.asm
+; Keeps BASIC core file focused on control flow and statement implementations.
+
+.org 0x6800
+LINECOUNT: .byte 0
+TMP_LINENO_H: .byte 0
+TMP_LINENO_L: .byte 0
+CURPTR_H: .byte 0
+CURPTR_L: .byte 0
+CURSRC_H: .byte 0
+CURSRC_L: .byte 0
+SAVCUR_H: .byte 0
+SAVCUR_L: .byte 0
+TMP_PTR_H: .byte 0
+TMP_PTR_L: .byte 0
+; Temporary storage for variable entry pointers (e.g. during string assignments).
+
+; Saved cursor for PARSE_REL string fallback (basic_expr.s8.asm)
+REL_SAV_H:
+    .byte 0x00
+REL_SAV_L:
+    .byte 0x00
+TMP_ENTRY_H: .byte 0
+TMP_ENTRY_L: .byte 0
+INT_SIGN: .byte 0
+RUN_LC: .byte 0
+RUN_INDEX: .byte 0
+JUMPED: .byte 0
+RUN_STOP: .byte 0
+RUNNING: .byte 0
+STRFREE_H: .byte 0
+STRFREE_L: .byte 0
+IDLEN: .byte 0
+IDTYPE: .byte 0
+TMPH: .byte 0
+TMPL: .byte 0
+MULH: .byte 0
+MULL: .byte 0
+DIVH: .byte 0
+DIVL: .byte 0
+TOKSTART_H: .byte 0
+TOKSTART_L: .byte 0
+
+; Phase 14 additions (DATA / READ / RESTORE)
+DATA_VALID: .byte 0        ; 0=not initialized, 1=valid pointer
+DATA_INDEX: .byte 0        ; current program line index (0..LINECOUNT-1)
+DATA_PTR_H: .byte 0        ; pointer into current DATA payload
+DATA_PTR_L: .byte 0
+
+; Phase 5 additions
+RNG_SEED_H: .byte 0
+RNG_SEED_L: .byte 0
+RNG_SEED_PTR: .byte 0x68
+RNG_SEED_PTR_L: .byte 0x1F
+GOSUB_SP: .byte 0
+FOR_SP: .byte 0
+CLS_SP: .byte 0
+MATCH_INDEX: .byte 0
+SCAN_INDEX: .byte 0
+
+; GOSUB stack: 16 return indices (byte) stored sequentially at 0x6E00
+; FOR stack entries at 0x6E20, max 8 entries:
+;   +0..1 var entry ptr (H,L)
+;   +2..3 end value (H,L)
+;   +4..5 step value (H,L)
+;   +6    return index (next line index)
+;   +7    padding
+
+; ---------------------------------------------------------------------------
+; Scratch buffers (must NOT overlap with code)
+; ---------------------------------------------------------------------------
+; Token buffer used by GETTOKEN and keyword matching (24 bytes incl NUL)
+.org 0x6880
+TOKENBUF: .byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+
+; Identifier buffer used by PARSE_IDENT / VAR_FIND (8 bytes, zero-padded)
+.org 0x68A0
+IDBUF: .byte 0,0,0,0,0,0,0,0
+
+; Block classifier stack used by DO/WHILE/ENDWHILE scans.
+; Each entry is 1 byte: 1=DO, 2=WHILE. Max nesting depth 16.
+.org 0x68B0
+CLS_STACK: .byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0

@@ -9,7 +9,7 @@
 // - .org (no operand): entry marker only (does not move LC). Allowed exactly once.
 // - If .org (no operand) exists -> ENTRY is its LC. Else ENTRY is first .org <addr>.
 // - .org is mandatory overall (either form must appear at least once).
-// - .include "file.s8": pure textual include at position; nested includes allowed.
+// - .include "file.s8.asm": pure textual include at position; nested includes allowed.
 //   Path resolution: 1) including file dir, 2) entry file dir, else error.
 //   Include cycles: strict error w/ include chain. Multiple include of same file: strict error.
 // - Labels are global; duplicate labels are strict error.
@@ -23,7 +23,7 @@
 // Build:
 //   g++ -std=c++17 -O2 s8asm.cpp -o s8asm
 // Use:
-//   ./s8asm main.s8 -o image.bin
+//   ./s8asm main.s8.asm -o image.bin
 
 #include <cstdint>
 #include <cstdio>
@@ -52,7 +52,7 @@ static void print_help(const char* prog)
         << "Sophia8 Assembler (s8asm)\n"
         << "\n"
         << "Usage:\n"
-        << "  " << prog << " <input.s8> [-o <output.bin>]\n"
+        << "  " << prog << " <input.s8.asm> [-o <output.bin>]\n"
         << "\n"
         << "Options:\n"
         << "  -o, --output <file>   Output image file (default: sophia8_image.bin)\n"
@@ -60,7 +60,7 @@ static void print_help(const char* prog)
         << "\n"
         << "What it produces:\n"
         << "  <output.bin>          Full 0x10000-byte memory image (0x0000..0xFFFF), zero-filled\n"
-        << "  <output.pre.s8>       Fully preprocessed source (.include expanded) with ';@ file:line' markers\n"
+        << "  <output.pre.s8.asm>       Fully preprocessed source (.include expanded) with ';@ file:line' markers\n"
         << "  <output.deb>          Debug map used by sophia8 for file:line breakpoints\n"
         << "\n"
         << "Key rules (strict):\n"
@@ -72,7 +72,7 @@ static void print_help(const char* prog)
         << "  - Any overlapping emission is an error\n"
         << "\n"
         << "Examples:\n"
-        << "  " << prog << " main.s8 -o program.bin\n";
+        << "  " << prog << " main.s8.asm -o program.bin\n";
 }
 
 struct AsmError : public std::runtime_error {
@@ -336,10 +336,10 @@ static void preprocess_file(const fs::path& file_path,
         }
 
         if (starts_with(scan, ".include")) {
-            // format: .include "file.s8"
+            // format: .include "file.s8.asm"
             std::string rest = trim(scan.substr(std::strlen(".include")));
             if (rest.size() < 2 || rest.front() != '"' || rest.back() != '"') {
-                throw AsmError(R"(Invalid .include syntax. Expected: .include "file.s8")",
+                throw AsmError(R"(Invalid .include syntax. Expected: .include "file.s8.asm")",
                                canon_s, line_no, line, include_stack);
             }
             std::string inc = rest.substr(1, rest.size()-2);
@@ -998,8 +998,8 @@ static void write_debug_map(const fs::path& deb_out,
 
 static fs::path default_preprocessed_path(const fs::path& bin_out) {
     fs::path p = bin_out;
-    // e.g. prog.bin -> prog.pre.s8
-    p.replace_extension(".pre.s8");
+    // e.g. prog.bin -> prog.pre.s8.asm
+    p.replace_extension(".pre.s8.asm");
     return p;
 }
 

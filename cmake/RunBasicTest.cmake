@@ -10,14 +10,14 @@ set(output_path "${BINARY_DIR}/${TEST_NAME}.out")
 set(actual_path "${BINARY_DIR}/${TEST_NAME}.actual.txt")
 
 execute_process(
-    COMMAND "${ASM}" "${SOURCE_DIR}/sophia_basic_v1.s8" -o "${bin_path}"
+    COMMAND "${ASM}" "${SOURCE_DIR}/sophia_basic_v1.s8.asm" -o "${bin_path}"
     RESULT_VARIABLE asm_rc
     OUTPUT_VARIABLE asm_out
     ERROR_VARIABLE asm_err
 )
 
 if(NOT asm_rc STREQUAL "0")
-    message(FATAL_ERROR "Assembler failed for sophia_basic_v1.s8\n${asm_out}${asm_err}")
+    message(FATAL_ERROR "Assembler failed for sophia_basic_v1.s8.asm\n${asm_out}${asm_err}")
 endif()
 
 file(READ "${BASIC_SOURCE}" basic_source_text)

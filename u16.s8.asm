@@ -1,0 +1,252 @@
+; u16.s8.asm — 16-bit unsigned helpers (big-endian register pairs)
+;
+; Conventions (this file):
+;   u16 value = HI:LO
+;   A in R0:R1, B in R2:R3
+;
+; ---------------------------------------------------------------------------
+; U16_ADD
+;   R0:R1 = A + B (wrap)
+;   R4 = 1 if carry out of bit15 else 0
+;   Clobbers: R5
+; ---------------------------------------------------------------------------
+U16_ADD:
+    ; low
+    ADDR R3, R1
+    SET #0x00, R4        ; carry_out = 0
+    JNC U16_ADD_HI
+    INC R0
+    ; if INC wrapped, carry out of bit15 happened
+    JNZ R0, U16_ADD_HI
+    SET #0x01, R4
+U16_ADD_HI:
+    ; high
+    ADDR R2, R0
+    JNC U16_ADD_DONE
+    SET #0x01, R4
+U16_ADD_DONE:
+    RET
+
+; ---------------------------------------------------------------------------
+; U16_SUB
+;   R0:R1 = A - B (wrap)
+;   R4 = 1 if borrow out of bit15 else 0
+;   Clobbers: R5
+; ---------------------------------------------------------------------------
+U16_SUB:
+    ; low
+    SUBR R3, R1
+    JNC U16_SUB_NO_B1
+    DEC R0
+U16_SUB_NO_B1:
+    ; high
+    SUBR R2, R0
+    ; capture borrow (carry flag indicates borrow)
+    SET #0x00, R4
+    JNC U16_SUB_DONE
+    SET #0x01, R4
+U16_SUB_DONE:
+    RET
+
+; ---------------------------------------------------------------------------
+; U16_CMP
+;   Compare A (R0:R1) to B (R2:R3).
+;   Returns:
+;     R4 = 0 if A < B
+;     R4 = 1 if A == B
+;     R4 = 2 if A > B
+;   Clobbers: R5, R6
+; ---------------------------------------------------------------------------
+U16_CMP:
+    ; compare high bytes (unsigned)
+    SET #0x00, R5
+    ADDR R0, R5          ; tmp = A_hi
+    SUBR R2, R5          ; tmp -= B_hi, borrow => A_hi < B_hi
+    JC U16_CMP_LT
+    JZ R5, U16_CMP_LOW
+    ; A_hi > B_hi
+    SET #0x02, R4
+    RET
+U16_CMP_LOW:
+    SET #0x00, R5
+    ADDR R1, R5          ; tmp = A_lo
+    SUBR R3, R5          ; tmp -= B_lo
+    JC U16_CMP_LT
+    JZ R5, U16_CMP_EQ
+    SET #0x02, R4
+    RET
+U16_CMP_EQ:
+    SET #0x01, R4
+    RET
+U16_CMP_LT:
+    SET #0x00, R4
+    RET
+; ---------------------------------------------------------------------------
+; U16_SHL1
+;   Logical shift left by 1.
+;   R4 = bit15 shifted out (1/0)
+;   Clobbers: R5
+; ---------------------------------------------------------------------------
+U16_SHL1:
+    ; shift low, remember carry_from_low in R5 (0/1)
+    SHL #1, R1
+    SET #0x00, R5
+    JNC U16_SHL1_CLOW0
+    SET #0x01, R5
+U16_SHL1_CLOW0:
+
+    ; shift high, capture carry_out (original bit15) in R4
+    SHL #1, R0
+    SET #0x00, R4
+    JNC U16_SHL1_COUT0
+    SET #0x01, R4
+U16_SHL1_COUT0:
+
+    ; inject carry_from_low into bit0 of high
+    JZ R5, U16_SHL1_DONE
+    ADD #0x01, R0
+U16_SHL1_DONE:
+    RET
+
+; ---------------------------------------------------------------------------
+; U16_SHR1
+;   Logical shift right by 1.
+;   R4 = bit0 shifted out (1/0)
+;   Clobbers: R5
+; ---------------------------------------------------------------------------
+U16_SHR1:
+    ; shift high first to capture carry_from_high in R5
+    SHR #1, R0
+    SET #0x00, R5
+    JNC U16_SHR1_CHI0
+    SET #0x01, R5
+U16_SHR1_CHI0:
+
+    ; shift low, capture bit0 shifted out in R4
+    SHR #1, R1
+    SET #0x00, R4
+    JNC U16_SHR1_CLO0
+    SET #0x01, R4
+U16_SHR1_CLO0:
+
+    ; inject carry_from_high into bit7 of low
+    JZ R5, U16_SHR1_DONE
+    SET #0x80, R6
+    ADDR R6, R1
+U16_SHR1_DONE:
+    RET
+
+; ---------------------------------------------------------------------------
+; U16_MUL_U8
+;   Multiply 16-bit A (R0:R1) by 8-bit B (R2), return 16-bit product (truncated).
+;   R0:R1 = (A * B) & 0xFFFF
+;   R4 = 1 if overflow beyond 16 bits else 0
+;   Clobbers: R3, R5, R6, R7
+;
+; Implementation uses MULR for byte×byte and combines partial products:
+;   (ahi*B)<<8 + (alo*B)
+;   Overflow if (ahi*B) high byte != 0, or carry when adding into result high.
+; ---------------------------------------------------------------------------
+U16_MUL_U8:
+    ; Save inputs
+    SET #0x00, R3
+    ADDR R0, R3        ; ahi -> R3
+    SET #0x00, R5
+    ADDR R1, R5        ; alo -> R5
+
+    ; p0 = alo * B => R6:R7 (hi:lo)
+    SET #0x00, R6
+    SET #0x00, R7
+    ADDR R5, R7        ; multiplicand in destL
+    MULR R2, R6, R7
+
+    ; p1 = ahi * B => R0:R1 (hi:lo) reused
+    SET #0x00, R0
+    SET #0x00, R1
+    ADDR R3, R1
+    MULR R2, R0, R1
+    ; now p1lo in R1, p1hi in R0
+
+    ; result_lo = p0lo (R7)
+    ; result_hi = p0hi (R6) + p1lo (R1)
+    SET #0x00, R4
+
+    SET #0x00, R5
+    ADDR R6, R5        ; tmp hi
+    ADDR R1, R5
+    JNC U16_MULU8_NO_C
+    SET #0x01, R4
+U16_MULU8_NO_C:
+    ; overflow also if p1hi != 0
+    JZ R0, U16_MULU8_OVCHK2
+    SET #0x01, R4
+U16_MULU8_OVCHK2:
+
+    ; write back
+    SET #0x00, R0
+    ADDR R5, R0        ; hi
+    SET #0x00, R1
+    ADDR R7, R1        ; lo
+    RET
+
+; ---------------------------------------------------------------------------
+; U16_DIV_U8
+;   Divide unsigned 16-bit dividend by unsigned 8-bit divisor.
+;
+;   Args:
+;     R0:R1 = dividend
+;     R2    = divisor (must be non-zero)
+;   Returns:
+;     R0:R1 = quotient
+;     R3    = remainder (0..divisor-1)
+;   Clobbers: R4, R5, R6, R7
+;
+; Notes:
+;   Implements classic restoring long division (16 iterations).
+; ---------------------------------------------------------------------------
+U16_DIV_U8:
+    ; Simple repeated-subtraction division.
+    ; Args: R0:R1 dividend, R2 divisor (non-zero)
+    ; Returns: R0:R1 quotient, R3 remainder
+    ; Clobbers: R4,R5,R6,R7
+
+    ; quotient = 0
+    SET #0x00, R5
+    SET #0x00, R6
+
+    ; remainder_work = dividend in R0:R1
+
+U16_DIV_RS_LOOP:
+    ; if high byte != 0 => remainder >= divisor for sure (since divisor is 8-bit)
+    SET #0x00, R4
+    ADDR R0, R4
+    JNZ R4, U16_DIV_RS_SUB
+
+    ; compare low byte against divisor: if R1 < R2 => done
+    SET #0x00, R4
+    ADDR R1, R4
+    SUBR R2, R4          ; R4 = R4 - R2, borrow => R1 < R2
+    JC U16_DIV_RS_DONE
+
+U16_DIV_RS_SUB:
+    ; remainder -= divisor
+    SUBR R2, R1
+    JNC U16_DIV_RS_NOB
+    DEC R0
+U16_DIV_RS_NOB:
+
+    ; quotient++
+    ADD #0x01, R6
+    JNC U16_DIV_RS_LOOP
+    INC R5
+    JMP U16_DIV_RS_LOOP
+
+U16_DIV_RS_DONE:
+    ; output
+    SET #0x00, R3
+    ADDR R1, R3
+    SET #0x00, R0
+    ADDR R5, R0
+    SET #0x00, R1
+    ADDR R6, R1
+    RET

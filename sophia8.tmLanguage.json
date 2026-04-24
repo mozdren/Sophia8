@@ -3,7 +3,7 @@
   "name": "Sophia8 Assembly",
   "scopeName": "source.sophia8",
   "fileTypes": [
-    "s8"
+    "s8.asm"
   ],
   "patterns": [
     {

@@ -4,9 +4,9 @@ Programmer’s Reference Manual (Assembler + ISA + Standard Libraries)
 
 This document describes the **Sophia8 assembler language**, the `s8asm` assembler tool,
 the Sophia8 VM instruction set as implemented by `sophia8`, and the provided
-standard libraries (`kernel.s8`, `mem.s8`, `fmt.s8`, `str.s8`, `rng.s8`, plus newer modular libs: `ctype.s8`, `u16.s8`, `int16.s8`, `conv.s8`, `line.s8`, `parse.s8`, `stdio_console.s8`).
+standard libraries (`kernel.s8.asm`, `mem.s8.asm`, `fmt.s8.asm`, `str.s8.asm`, `rng.s8.asm`, plus newer modular libs: `ctype.s8.asm`, `u16.s8.asm`, `int16.s8.asm`, `conv.s8.asm`, `line.s8.asm`, `parse.s8.asm`, `stdio_console.s8.asm`).
 
-Note: `cli.s8` and `text.s8` remain for backward compatibility, but their responsibilities are now split into `line.s8` + `parse.s8` and superseded by `ctype.s8`/`conv.s8` where appropriate.
+Note: `cli.s8.asm` and `text.s8.asm` remain for backward compatibility, but their responsibilities are now split into `line.s8.asm` + `parse.s8.asm` and superseded by `ctype.s8.asm`/`conv.s8.asm` where appropriate.
 
 This is written as a *working engineer’s reference*, not marketing material.
 Everything here is explicit. Anything not described should be considered undefined.
@@ -32,10 +32,10 @@ The assembler produces a **full memory image**, not relocatable object files.
 ### Invocation
 
 ```bash
-s8asm input.s8 -o output.bin
+s8asm input.s8.asm -o output.bin
 ```
 
-- `input.s8` — main assembly file
+- `input.s8.asm` — main assembly file
 - `output.bin` — raw binary memory image
 
 If `-o` is omitted, the assembler writes `sophia8_image.bin` in the current directory.
@@ -53,9 +53,9 @@ If `-o` is omitted, the assembler writes `sophia8_image.bin` in the current dire
 
 When you assemble to `output.bin`, `s8asm` also writes two **sidecar** files next to it:
 
-- `output.pre.s8` — the **fully preprocessed** source with all `.include` expanded into one file.
+- `output.pre.s8.asm` — the **fully preprocessed** source with all `.include` expanded into one file.
   - Each original source line is preceded by an origin marker comment: `;@ <file>:<line>`
-  - The original line text is preserved, so you can re-assemble the `.pre.s8` file if needed.
+  - The original line text is preserved, so you can re-assemble the `.pre.s8.asm` file if needed.
 
 - `output.deb` — a **debug map** that records how emitted bytes relate to source locations.
   - Contains both CODE and DATA records, emitted address, length, bytes, and `file:line: original source line`.
@@ -131,8 +131,8 @@ Defines absolute placement.
 ## 4. Includes
 
 ```asm
-.include "kernel.s8"
-.include "utils/math.s8"
+.include "kernel.s8.asm"
+.include "utils/math.s8.asm"
 ```
 
 
@@ -327,9 +327,9 @@ Important:
 
 ---
 
-## 10. `kernel.s8` (console kernel)
+## 10. `kernel.s8.asm` (console kernel)
 
-`kernel.s8` is an optional support library included via `.include`.
+`kernel.s8.asm` is an optional support library included via `.include`.
 
 ### Exported routines
 
@@ -356,25 +356,25 @@ These libraries are optional and are meant to be included explicitly.
 
 | Library | Depends on | Purpose |
 |---|---|---|
-| `kernel.s8` | — | Console MMIO primitives (`PUTC`, `GETC`, `PUTS`, etc.) |
-| `mem.s8` | — | Byte-wise memory utilities (`memset/memcpy/memmove/memcmp/memchr`) |
-| `str.s8` | — | Minimal NUL-terminated string helpers |
-| `rng.s8` | — | 16-bit deterministic PRNG |
-| `fmt.s8` | `kernel.s8` | Printing helpers (hex/dec) |
-| `ctype.s8` | — | Character classification / case conversion (`isspace`, `isdigit`, …) |
-| `u16.s8` | — | Unsigned 16-bit helpers (`add/sub/cmp/shifts/mul/div`) |
-| `int16.s8` | — | Signed 16-bit helpers (`neg/abs/cmp`) |
-| `conv.s8` | `ctype.s8`, `u16.s8`, `int16.s8`, `mem.s8` | String↔integer conversions (buffer-first formatting, checked parsing) |
-| `line.s8` | `kernel.s8` | Line input (echo, NUL-terminated) |
-| `parse.s8` | `ctype.s8` | Tokenization + checked `u8` decimal parsing |
-| `stdio_console.s8` | `kernel.s8`, `line.s8` | Tiny `stdio`-like façade for console-only I/O |
-| `cli.s8` | `kernel.s8`, `ctype.s8` | **Compatibility** wrappers (historical API; now mostly duplicates of `line.s8` + `parse.s8`) |
-| `text.s8` | — | **Legacy/BASIC-oriented** text helpers (kept for older BASIC code) |
-| `basic_helpers.s8` | varies | BASIC runtime helpers (may rely on BASIC globals; not a general-purpose lib) |
+| `kernel.s8.asm` | — | Console MMIO primitives (`PUTC`, `GETC`, `PUTS`, etc.) |
+| `mem.s8.asm` | — | Byte-wise memory utilities (`memset/memcpy/memmove/memcmp/memchr`) |
+| `str.s8.asm` | — | Minimal NUL-terminated string helpers |
+| `rng.s8.asm` | — | 16-bit deterministic PRNG |
+| `fmt.s8.asm` | `kernel.s8.asm` | Printing helpers (hex/dec) |
+| `ctype.s8.asm` | — | Character classification / case conversion (`isspace`, `isdigit`, …) |
+| `u16.s8.asm` | — | Unsigned 16-bit helpers (`add/sub/cmp/shifts/mul/div`) |
+| `int16.s8.asm` | — | Signed 16-bit helpers (`neg/abs/cmp`) |
+| `conv.s8.asm` | `ctype.s8.asm`, `u16.s8.asm`, `int16.s8.asm`, `mem.s8.asm` | String↔integer conversions (buffer-first formatting, checked parsing) |
+| `line.s8.asm` | `kernel.s8.asm` | Line input (echo, NUL-terminated) |
+| `parse.s8.asm` | `ctype.s8.asm` | Tokenization + checked `u8` decimal parsing |
+| `stdio_console.s8.asm` | `kernel.s8.asm`, `line.s8.asm` | Tiny `stdio`-like façade for console-only I/O |
+| `cli.s8.asm` | `kernel.s8.asm`, `ctype.s8.asm` | **Compatibility** wrappers (historical API; now mostly duplicates of `line.s8.asm` + `parse.s8.asm`) |
+| `text.s8.asm` | — | **Legacy/BASIC-oriented** text helpers (kept for older BASIC code) |
+| `basic_helpers.s8.asm` | varies | BASIC runtime helpers (may rely on BASIC globals; not a general-purpose lib) |
 
 ---
 
-### `mem.s8`
+### `mem.s8.asm`
 
 | Routine | Args | Returns | Clobbers | Description |
 |--------|------|---------|----------|-------------|
@@ -384,7 +384,7 @@ These libraries are optional and are meant to be included explicitly.
 | MEMCMP | `R1:R2` a, `R3:R4` b, `R5` len | `R0` = `00`/`FF`/`01` | `R6`, `R7` | Compare ranges (lexicographic) |
 | MEMCHR | `R1:R2` start, `R0` byte, `R3` len | `R1:R2` ptr, `R4` found | `R3`, `R5` | Find byte in bounded range |
 
-### `str.s8`
+### `str.s8.asm`
 
 | Routine | Args | Returns | Clobbers | Description |
 |--------|------|---------|----------|-------------|
@@ -395,17 +395,17 @@ These libraries are optional and are meant to be included explicitly.
 | STRCMP | `R1:R2` s1, `R3:R4` s2 | `R0` = `00`/`FF`/`01` | `R5`,`R6` | Lexicographic compare |
 | STRCHR | `R1:R2` s, `R0` ch | `R1:R2` ptr, `R4` found | `R5` | Find character in string |
 
-### `rng.s8`
+### `rng.s8.asm`
 
 | Routine | Args | Returns | Clobbers | Description |
 |--------|------|---------|----------|-------------|
 | RNG_NEXT16 | `R1:R2` -> seed (`[hi][lo]`) | `R6:R7` random; seed updated | `R0`,`R3`,`R4`,`R5` | `seed = seed*109 + 89 (mod 65536)`, returns `seed & 0x7FFF` |
 
-### `kernel.s8`
+### `kernel.s8.asm`
 
 Low-level console I/O via MMIO. See the MMIO section for addresses and behavior.
 
-### `fmt.s8` (depends on `kernel.s8`)
+### `fmt.s8.asm` (depends on `kernel.s8.asm`)
 
 Printing helpers (primarily for debugging / REPL output).
 
@@ -415,7 +415,7 @@ Printing helpers (primarily for debugging / REPL output).
 | PUTHEX16 | `R1:R2` value | — | `R0`,`R1`,`R2`,`R4`,`R5`,`R7` (+kernel `R3`) | Print 4-digit uppercase hex |
 | PUTDEC8 | `R0` value | — | `R0`,`R1`,`R2`,`R4` (+kernel `R3`) | Print unsigned 0..255 decimal |
 
-### `ctype.s8`
+### `ctype.s8.asm`
 
 Character classification / conversion helpers (ASCII only).
 
@@ -430,7 +430,7 @@ Character classification / conversion helpers (ASCII only).
 | TOUPPER | `R0` ch | `R0` ch | — | Convert to uppercase if lowercase |
 | TOLOWER | `R0` ch | `R0` ch | — | Convert to lowercase if uppercase |
 
-### `u16.s8`
+### `u16.s8.asm`
 
 Unsigned 16-bit arithmetic helpers.
 
@@ -444,7 +444,7 @@ Unsigned 16-bit arithmetic helpers.
 | U16_MUL_U8 | `R0:R1` a, `R2` b8 | `R0:R1` | `R3`,`R4`,`R5` | Multiply u16 by u8 |
 | U16_DIV_U8 | `R0:R1` a, `R2` b8 | `R0:R1` quotient, `R3` remainder | `R4`,`R5`,`R6`,`R7` | Divide u16 by u8 |
 
-### `int16.s8`
+### `int16.s8.asm`
 
 Signed 16-bit helpers (two's complement).
 
@@ -454,7 +454,7 @@ Signed 16-bit helpers (two's complement).
 | I16_ABS | `R0:R1` x | `R0:R1` abs(x) | `R4` | Absolute value |
 | I16_CMP | `R0:R1` a, `R2:R3` b | `R0`=`FF/00/01` | `R4`,`R5` | Signed compare |
 
-### `conv.s8`
+### `conv.s8.asm`
 
 Conversions between integers and strings (buffer-first), plus checked parsing.
 
@@ -464,13 +464,13 @@ Conversions between integers and strings (buffer-first), plus checked parsing.
 | PARSE_I16_DEC | `R1:R2` ptr | `R0:R1` value; `R4` ok; `R1:R2` updated | many | Parse signed decimal (-32768..32767), no wrap |
 | U16_TO_DEC_BUF | `R0:R1` value; `R2:R3` outbuf; `R4` outmax | `R0` len; `R4` ok | many | Convert u16 to decimal ASCII in buffer, NUL-terminated |
 
-### `line.s8` (depends on `kernel.s8`)
+### `line.s8.asm` (depends on `kernel.s8.asm`)
 
 | Routine | Args | Returns | Clobbers | Description |
 |--------|------|---------|----------|-------------|
 | READLINE_ECHO | `R1:R2` buf; `R3` max (incl NUL) | `R4` len | `R0`,`R3`,`R5`,`R6`,`R7` | Read line with echo and backspace editing |
 
-### `parse.s8` (depends on `ctype.s8`)
+### `parse.s8.asm` (depends on `ctype.s8.asm`)
 
 | Routine | Args | Returns | Clobbers | Description |
 |--------|------|---------|----------|-------------|
@@ -478,7 +478,7 @@ Conversions between integers and strings (buffer-first), plus checked parsing.
 | READTOKEN | `R1:R2` src; `R3:R4` dst; `R5` max (incl NUL) | `R6` len; `R1:R2` updated | `R0`,`R5`,`R6`,`R7` | Read space/tab-delimited token |
 | PARSE_U8_DEC | `R1:R2` ptr | `R0` value; `R4` ok; `R1:R2` updated | `R5`,`R6`,`R7` | Parse decimal 0..255 (checked), skips spaces/tabs |
 
-### `stdio_console.s8` (console-only)
+### `stdio_console.s8.asm` (console-only)
 
 | Routine | Args | Returns | Clobbers | Description |
 |--------|------|---------|----------|-------------|
@@ -487,9 +487,9 @@ Conversions between integers and strings (buffer-first), plus checked parsing.
 | FPUTS | `R1:R2` s | — | many | Print NUL-terminated string |
 | FGETS | `R1:R2` buf; `R3` max (incl NUL) | `R4` len | many | Read line into buffer (wraps `READLINE_ECHO`) |
 
-### `cli.s8` (compatibility)
+### `cli.s8.asm` (compatibility)
 
-`cli.s8` is retained for code that already includes it. Internally, its routines mirror `line.s8` and `parse.s8`.
+`cli.s8.asm` is retained for code that already includes it. Internally, its routines mirror `line.s8.asm` and `parse.s8.asm`.
 
 | Routine | Args | Returns | Clobbers | Description |
 |--------|------|---------|----------|-------------|
@@ -498,10 +498,10 @@ Conversions between integers and strings (buffer-first), plus checked parsing.
 | READTOKEN | `R1:R2` src; `R3:R4` dst; `R5` max (incl NUL) | `R6` len; `R1:R2` updated | `R0`,`R5`,`R6`,`R7` | Read token |
 | PARSE_U8_DEC | `R1:R2` ptr | `R0` value; `R4` ok; `R1:R2` updated | `R5`,`R6`,`R7` | Checked u8 parse |
 
-### `text.s8` (legacy/BASIC)
+### `text.s8.asm` (legacy/BASIC)
 
-`text.s8` predates `ctype.s8`/`conv.s8` and is kept primarily for older Sophia BASIC code.
-For new code, prefer `ctype.s8` + `parse.s8` + `conv.s8`.
+`text.s8.asm` predates `ctype.s8.asm`/`conv.s8.asm` and is kept primarily for older Sophia BASIC code.
+For new code, prefer `ctype.s8.asm` + `parse.s8.asm` + `conv.s8.asm`.
 
 | Routine | Args | Returns | Clobbers | Description |
 |--------|------|---------|----------|-------------|
@@ -513,7 +513,7 @@ For new code, prefer `ctype.s8` + `parse.s8` + `conv.s8`.
 
 ```asm
 .org 0x0800
-.include "kernel.s8"
+.include "kernel.s8.asm"
 
 .org 0x0200
 Msg: .string "Hello, Sophia!\n"
@@ -528,7 +528,7 @@ START:
 
 Assemble:
 ```bash
-s8asm hello.s8 -o hello.bin
+s8asm hello.s8.asm -o hello.bin
 ```
 
 Run:
@@ -573,21 +573,21 @@ If something feels manual, that is the point.
 
 Sophia8 debugging is intentionally simple and file-based.
 
-### 14.1 Preprocessed source: `.pre.s8`
+### 14.1 Preprocessed source: `.pre.s8.asm`
 
-If you compile `prog.s8` to `prog.bin`, `s8asm` also writes `prog.pre.s8`.
+If you compile `prog.s8.asm` to `prog.bin`, `s8asm` also writes `prog.pre.s8.asm`.
 This is the exact source that the assembler *actually saw* after expanding all `.include`s.
 
 Practical uses:
 
 - Confirm that includes expanded the way you expect (especially when includes are nested).
-- Reproduce a build from a single file (share `*.pre.s8` when reporting an issue).
+- Reproduce a build from a single file (share `*.pre.s8.asm` when reporting an issue).
 - Track down label collisions and layout mistakes caused by include order.
 
 Each original line is preceded by an origin marker:
 
 ```asm
-;@ path/to/file.s8:123
+;@ path/to/file.s8.asm:123
     SET #0x41, R0
 ```
 
@@ -613,7 +613,7 @@ The VM understands `.deb` files directly:
 sophia8 prog.deb
 
 # Stop when execution reaches a specific source location
-sophia8 prog.deb path/to/file.s8 123
+sophia8 prog.deb path/to/file.s8.asm 123
 ```
 
 When a breakpoint is hit, the VM:
@@ -634,13 +634,13 @@ sophia8 debug.img
 If you also provide `prog.deb` and a breakpoint, the VM can still resolve source locations:
 
 ```bash
-sophia8 debug.img prog.deb path/to/file.s8 200
+sophia8 debug.img prog.deb path/to/file.s8.asm 200
 ```
 
 ### 14.5 Practical tips
 
 - Put your application code in one `.org` region and your data in another, and keep a small memory map comment at the top of the entry file.
-- If something “mysteriously” changes after adding an `.include`, inspect the generated `*.pre.s8` first.
+- If something “mysteriously” changes after adding an `.include`, inspect the generated `*.pre.s8.asm` first.
 - If you can’t find a breakpoint location, check the `.deb` lines for the **exact** file path or filename used by the assembler.
 
 ### 14.6 Verbose execution logging: `-v`
@@ -779,5 +779,5 @@ GFX_DATA:
 
 Common helper scripts used during development:
 
-- `img_to_s8gfx.py`: converts an input image into a `.s8` file that emits VRAM bytes at `.org 0x8000`
+- `img_to_s8gfx.py`: converts an input image into a `.s8.asm` file that emits VRAM bytes at `.org 0x8000`
 - `ppm_to_png.py`: converts a PPM (P6/P3) file (e.g., `frame.ppm`) into PNG (requires Pillow)

@@ -4,7 +4,7 @@
   "milestone": "basic-loop-blocks-fixed",
   "what_was_done": [
     "Added BASIC keywords DO, WHILE, and ENDWHILE.",
-    "Implemented line-oriented DO..WHILE and WHILE..ENDWHILE handlers in basic_flow.s8.",
+    "Implemented line-oriented DO..WHILE and WHILE..ENDWHILE handlers in basic_flow.s8.asm.",
     "Added runtime structure-scanning helpers that classify WHILE lines as either block openers or DO-terminators.",
     "Added an integration test program sophia_basic_test_loops.bas and wired it into CTest as test_basic_loops.",
     "Updated README.md, sophia8.md, and sophia8.context.json with the new loop feature and the related memory-map lesson."
@@ -13,7 +13,7 @@
     "Sophia8 CMP/CMPR are destructive, so multi-branch comparisons on the same register must always use a scratch copy.",
     "Loop-structure scans must preserve caller registers across helper calls; otherwise matching logic drifts to the wrong line.",
     "The old BASIC GOSUB/FOR stack region at 0x6A00/0x6A20 is no longer safe after code growth because assembled BASIC helper code now occupies that area.",
-    "The user POKE regression area 0x9600/0x9601 still must remain free; basic_data.s8 needed an explicit relocation gap to keep it safe."
+    "The user POKE regression area 0x9600/0x9601 still must remain free; basic_data.s8.asm needed an explicit relocation gap to keep it safe."
   ],
   "next_to_do": [
     "Consider adding explicit memory-map reservations for BASIC runtime stack regions in the context docs.",

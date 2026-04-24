@@ -4,7 +4,7 @@
     "cli_usage": {
       "exit_behavior": "On error: non-zero exit; prints file:line, the failing line, and an include stack.",
       "output_default": "sophia8_image.bin",
-      "pattern": "s8asm input.s8 [-o output.bin]"
+      "pattern": "s8asm input.s8.asm [-o output.bin]"
     },
     "comments": {
       "line_comment": ";",
@@ -73,7 +73,7 @@
         "Include-once is enforced: including the exact same file more than once is an error."
       ],
       "directive": ".include",
-      "syntax": ".include \"relative/or/absolute/path.s8\""
+      "syntax": ".include \"relative/or/absolute/path.s8.asm\""
     },
     "labels": {
       "definition_syntax": "label:",
@@ -144,8 +144,8 @@
         "prevention": "Check the final .deb map after code growth and preserve the gap/relocation strategy unless the tests and memory map are intentionally redesigned."
       },
       {
-        "topic": "Use .deb and .pre.s8 together when debugging",
-        "lesson": "The .pre.s8 file explains final include order and effective source, while the .deb file explains exact emitted addresses and source mapping.",
+        "topic": "Use .deb and .pre.s8.asm together when debugging",
+        "lesson": "The .pre.s8.asm file explains final include order and effective source, while the .deb file explains exact emitted addresses and source mapping.",
         "prevention": "When behavior changes after a refactor or new feature, inspect both outputs before assuming the parser or VM is wrong."
       },
       {
@@ -195,12 +195,12 @@
       },
       "preprocessed_source": {
         "description": "Fully preprocessed source (all .include expanded). Each line is preceded by ';@ file:line' origin marker.",
-        "extension": ".pre.s8"
+        "extension": ".pre.s8.asm"
       }
     },
     "source_format": {
       "encoding": "UTF-8 source, but .string must decode to 7-bit ASCII bytes (0x00..0x7F).",
-      "file_extension": ".s8"
+      "file_extension": ".s8.asm"
     },
     "tool_name": "s8asm"
   },
@@ -240,10 +240,10 @@
       "String concatenation with '+' (PRINT and string assignment)"
     ],
     "architecture": {
-      "top_level_file": "sophia_basic_v1.s8",
+      "top_level_file": "sophia_basic_v1.s8.asm",
       "top_level_role": "Composition/wiring only: core libs, fixed BASIC strings/state, aggregate include, entry point.",
-      "aggregate_include": "basic_all.s8",
-      "rule": "Implement features in focused basic_*.s8 modules and wire them through basic_all.s8 instead of growing the top-level BASIC file."
+      "aggregate_include": "basic_all.s8.asm",
+      "rule": "Implement features in focused basic_*.s8.asm modules and wire them through basic_all.s8.asm instead of growing the top-level BASIC file."
     }
   },
   "binary_image": {
@@ -269,7 +269,7 @@
     ],
     "layout": [
       "Keep all user code/data at addresses >= 0x0003.",
-      "If you include kernel.s8 or other libs, place them explicitly with .org <addr> before including.",
+      "If you include kernel.s8.asm or other libs, place them explicitly with .org <addr> before including.",
       "Avoid overlap: never emit code/data into the same address twice.",
       "Inspect the generated .deb map after meaningful code growth; address safety is a layout property, not an assumption.",
       "For the current BASIC layout, keep interpreter code away from 0x9600/0x9601 because tests intentionally POKE there."
@@ -716,17 +716,17 @@
     }
   },
   "libraries": {
-    "basic_strfn.s8": {
+    "basic_strfn.s8.asm": {
       "purpose": "BASIC string functions: LEN, LEFT$, RIGHT$, MID$, ASC, CHR$, INSTR, VAL; plus parsing helpers.",
       "org": "0x7000",
       "notes": [
         "Placed at 0x7000 to avoid overlapping the main BASIC code region.",
         "INSTR(hay$, needle$) returns 1-based position; returns 0 if not found; returns 1 if needle is empty.",
         "VAL(s$) parses the signed decimal prefix of the string (leading spaces allowed); returns 0 if no digits.",
-        "Do not treat 0x7000 placement as permanently safe without checking the final .deb/.pre.s8 outputs after code growth."
+        "Do not treat 0x7000 placement as permanently safe without checking the final .deb/.pre.s8.asm outputs after code growth."
       ]
     },
-    "basic_data_cmd.s8": {
+    "basic_data_cmd.s8.asm": {
       "purpose": "BASIC command handlers for DATA / READ / RESTORE relocated out of the hot main statement region.",
       "org": "0xC000",
       "notes": [
@@ -765,12 +765,12 @@
     "range": "0xFF00..0xFF03"
   },
   "standard_libraries": {
-    "basic_helpers.s8": {
+    "basic_helpers.s8.asm": {
       "depends_on": [
-        "text.s8",
-        "rng.s8"
+        "text.s8.asm",
+        "rng.s8.asm"
       ],
-      "purpose": "BASIC-specific helpers factored out of sophia_basic_v1.s8 (depends on BASIC globals)",
+      "purpose": "BASIC-specific helpers factored out of sophia_basic_v1.s8.asm (depends on BASIC globals)",
       "routines": [
         {
           "args": {},
@@ -854,11 +854,11 @@
         }
       ]
     },
-    "cli.s8": {
+    "cli.s8.asm": {
       "depends_on": [
-        "kernel.s8"
+        "kernel.s8.asm"
       ],
-      "purpose": "Compatibility console+parsing helpers (mirrors line.s8 + parse.s8)",
+      "purpose": "Compatibility console+parsing helpers (mirrors line.s8.asm + parse.s8.asm)",
       "routines": [
         {
           "args": {
@@ -937,7 +937,7 @@
         }
       ]
     },
-    "conv.s8": {
+    "conv.s8.asm": {
       "purpose": "Checked parsing and integer-to-string conversion (buffer-first)",
       "routines": [
         {
@@ -1002,7 +1002,7 @@
         }
       ]
     },
-    "ctype.s8": {
+    "ctype.s8.asm": {
       "purpose": "ASCII character classification and case conversion",
       "routines": [
         {
@@ -1095,11 +1095,11 @@
         }
       ]
     },
-    "fmt.s8": {
+    "fmt.s8.asm": {
       "depends_on": [
-        "kernel.s8"
+        "kernel.s8.asm"
       ],
-      "purpose": "Formatting helpers (requires kernel.s8)",
+      "purpose": "Formatting helpers (requires kernel.s8.asm)",
       "routines": [
         {
           "args": {
@@ -1152,7 +1152,7 @@
         }
       ]
     },
-    "int16.s8": {
+    "int16.s8.asm": {
       "purpose": "Signed 16-bit helpers (two's complement)",
       "routines": [
         {
@@ -1204,7 +1204,7 @@
         }
       ]
     },
-    "kernel.s8": {
+    "kernel.s8.asm": {
       "purpose": "Console I/O via MMIO",
       "routines": [
         {
@@ -1256,7 +1256,7 @@
         }
       ]
     },
-    "line.s8": {
+    "line.s8.asm": {
       "purpose": "Line input helpers (console)",
       "routines": [
         {
@@ -1280,7 +1280,7 @@
         }
       ]
     },
-    "mem.s8": {
+    "mem.s8.asm": {
       "purpose": "Small memory helpers",
       "routines": [
         {
@@ -1371,7 +1371,7 @@
         }
       ]
     },
-    "parse.s8": {
+    "parse.s8.asm": {
       "purpose": "Tokenization and checked u8 decimal parsing",
       "routines": [
         {
@@ -1432,7 +1432,7 @@
         }
       ]
     },
-    "rng.s8": {
+    "rng.s8.asm": {
       "depends_on": [],
       "purpose": "Simple 16-bit RNG helper (extracted from Sophia BASIC)",
       "routines": [
@@ -1456,7 +1456,7 @@
         }
       ]
     },
-    "stdio_console.s8": {
+    "stdio_console.s8.asm": {
       "purpose": "Console-only stdio-like fa\u00e7ade",
       "routines": [
         {
@@ -1511,7 +1511,7 @@
         }
       ]
     },
-    "str.s8": {
+    "str.s8.asm": {
       "purpose": "Minimal string helpers",
       "routines": [
         {
@@ -1614,9 +1614,9 @@
         }
       ]
     },
-    "text.s8": {
+    "text.s8.asm": {
       "depends_on": [],
-      "purpose": "Legacy/BASIC-oriented text helpers (prefer ctype.s8/parse.s8/conv.s8 for new code)",
+      "purpose": "Legacy/BASIC-oriented text helpers (prefer ctype.s8.asm/parse.s8.asm/conv.s8.asm for new code)",
       "routines": [
         {
           "args": {
@@ -1680,7 +1680,7 @@
         }
       ]
     },
-    "u16.s8": {
+    "u16.s8.asm": {
       "purpose": "Unsigned 16-bit arithmetic helpers",
       "routines": [
         {
@@ -1918,8 +1918,8 @@
       "status": "Convention in the current project layout; not VM-enforced MMIO.",
       "lesson": "A regression occurred when interpreter code grew into 0x9600/0x9601 and user POKE overwrote instructions. Keep this range free unless the memory layout and tests are redesigned together.",
       "current_mitigation": [
-        "basic_stmt.s8 leaves a gap before later code continues at 0x9700.",
-        "basic_data_cmd.s8 is placed at 0xC000 to reduce growth pressure near 0x9600."
+        "basic_stmt.s8.asm leaves a gap before later code continues at 0x9700.",
+        "basic_data_cmd.s8.asm is placed at 0xC000 to reduce growth pressure near 0x9600."
       ]
     }
   }

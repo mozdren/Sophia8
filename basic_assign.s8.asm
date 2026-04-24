@@ -1,0 +1,215 @@
+; ---------------------------------------------------------------------------
+; basic_assign.s8.asm
+;
+; Sophia BASIC v1 - assignment handling (LET + implicit assignment).
+;
+; Purpose:
+;   Keeps statement dispatch focused by moving assignment parsing and string/
+;   numeric variable updates into a dedicated module.
+;
+; Provides:
+;   CMD_LET
+;   CMD_ASSIGN_DISPATCH
+;   CMD_ASSIGN
+;
+; Dependencies:
+;   - basic_state.s8.asm (CURPTR_*, TOKSTART_*, IDBUF/IDTYPE, STRFREE, temporaries)
+;   - basic_expr.s8.asm  (PARSE_IDENT, EVAL_EXPR, SKIPSP_CUR/PEEKCHAR_CUR/GETCHAR_CUR)
+;   - basic_vars.s8.asm  (VAR_FIND_OR_CREATE, STORE_VAR_INT)
+;   - basic_errors.s8.asm (PRINT_SYNTAX_ERROR)
+;
+; Notes:
+;   This is a direct extraction from basic_stmt.s8.asm to reduce churn.
+;   No functional changes intended.
+; ---------------------------------------------------------------------------
+
+CMD_LET:
+    ; LET <var>=...
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    CALL SKIPSP
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    CALL CMD_ASSIGN
+    CMP R0, #0x01
+    JZ R0, CL_OK
+    ; failed assignment => syntax
+    CALL PRINT_SYNTAX_ERROR
+CL_OK:
+    RET
+
+CMD_ASSIGN_DISPATCH:
+    ; restore pointer to token start, attempt assignment
+    LOAD TOKSTART_H, R1
+    LOAD TOKSTART_L, R2
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    CALL CMD_ASSIGN
+    CMP R0, #0x01
+    JZ R0, CAD_OK
+    CALL PRINT_SYNTAX_ERROR
+    RET
+CAD_OK:
+    RET
+
+; CMD_ASSIGN (routine)
+;   Parses <ident>=<expr> or <ident$>="..."
+;   Returns R0=1 on success, R0=0 if not an assignment
+CMD_ASSIGN:
+    ; parse identifier from CURPTR
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    CALL PARSE_IDENT
+    CMP R0, #0x01
+    JNZ R0, CA_FAIL
+    ; save updated ptr
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+
+    CALL SKIPSP_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x28
+    JZ R0, CA_ARRAY
+
+    ; scalar assignment: expect '='
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x3D
+    JNZ R0, CA_FAIL
+    CALL GETCHAR_CUR
+    CALL SKIPSP_CUR
+
+    ; find or create variable (uses IDBUF/IDTYPE)
+    CALL VAR_FIND_OR_CREATE
+    CMP R0, #0x01
+    JNZ R0, CA_FAIL
+    ; entry ptr in R1:R2
+
+    LOAD IDTYPE, R0
+    CMP R0, #0x01
+    JZ R0, CA_STR
+
+    ; numeric: eval expression
+    STORE R1, TMP_PTR_H
+    STORE R2, TMP_PTR_L
+    CALL EVAL_EXPR
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+    CALL STORE_VAR_INT
+    SET #0x01, R0
+    RET
+
+CA_ARRAY:
+    ; integer array assignment: <ident>(<idx>)=<expr>
+    ; only int arrays supported
+    LOAD IDTYPE, R0
+    CMP R0, #0x01
+    JZ R0, CA_FAIL
+
+    ; consume '(' and parse index
+    CALL GETCHAR_CUR
+    CALL EVAL_EXPR              ; index in R6:R7
+    STORE R7, TMPH
+    STORE R6, TMPL
+    CALL SKIPSP_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x29
+    JNZ R0, CA_FAIL
+    CALL GETCHAR_CUR
+    CALL SKIPSP_CUR
+
+    ; expect '='
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x3D
+    JNZ R0, CA_FAIL
+    CALL GETCHAR_CUR
+    CALL SKIPSP_CUR
+
+    ; lookup existing array entry (IDTYPE=2)
+    LOAD IDTYPE, R3
+    SET #0x02, R0
+    STORE R0, IDTYPE
+    CALL VAR_FIND
+    STORE R3, IDTYPE
+    CMP R0, #0x01
+    JNZ R0, CA_FAIL
+    ; entry ptr in R1:R2
+
+    ; load array meta (base ptr + max)
+    CALL ARRAY_META_LOAD         ; R3:R4 base, R5:R0 max
+    STORE R3, TMP_PTR_H
+    STORE R4, TMP_PTR_L
+    STORE R5, DIVH               ; reuse as maxH
+    STORE R0, DIVL               ; reuse as maxL
+
+    ; bounds check: index <= max
+    LOAD TMPH, R1
+    LOAD DIVH, R2
+    CMPR R1, R2                  ; idxH - maxH
+    JNZ R1, CA_AH
+    LOAD TMPL, R1
+    LOAD DIVL, R2
+    CMPR R1, R2                  ; idxL - maxL
+    JNC CA_ABOK
+    JMP CA_FAIL
+CA_AH:
+    JNC CA_ABOK
+    JMP CA_FAIL
+CA_ABOK:
+    ; eval RHS value
+    CALL EVAL_EXPR               ; value in R6:R7
+
+    ; store element using helper (index in TMPH/TMPL)
+    CALL ARRAY_STORE_INT_ELEM
+    CMP R0, #0x01
+    JNZ R0, CA_FAIL
+    SET #0x01, R0
+    RET
+
+CA_STR:
+    ; Preserve variable entry pointer (R1:R2) while parsing RHS.
+    STORE R1, TMP_ENTRY_H
+    STORE R2, TMP_ENTRY_L
+
+    ; Parse full string expression (functions, literals, vars, concatenation).
+    ; Output: R6:R7 ptr, R5 len, R4 heap-owned, R0 success
+    CALL STR_PARSE_EXPR_CONCAT
+    CMP R0, #0x01
+    JNZ R0, CA_FAIL
+
+    ; Ensure heap-owned storage (variables must point into heap).
+    CMP R4, #0x01
+    JZ R4, CA_STR_HAVE_HEAP
+    SET #0x00, R0         ; start=0
+    SET #0x00, R1         ; len=0 => to end
+    CALL STR_ALLOC_AND_COPY
+CA_STR_HAVE_HEAP:
+
+    ; store ptr+len into entry (offset 12..14)
+    LOAD TMP_ENTRY_H, R1
+    LOAD TMP_ENTRY_L, R2
+    PUSH R1
+    PUSH R2
+    ADD #12, R2
+    JNC CA_P1
+    INC R1
+CA_P1:
+    STORER R6, R1, R2
+    INC R2
+    JNZ R2, CA_P2
+    INC R1
+CA_P2:
+    STORER R7, R1, R2
+    INC R2
+    JNZ R2, CA_P3
+    INC R1
+CA_P3:
+    STORER R5, R1, R2
+    POP R2
+    POP R1
+
+    SET #0x01, R0
+    RET
+
+CA_FAIL:
+    SET #0x00, R0
+    RET

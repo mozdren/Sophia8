@@ -265,7 +265,7 @@ static inline uint8_t mmio_read(uint16_t address)
 
     if (address == 0xFF02)
     {
-        /* bit0=1 always (as documented by kernel.s8) */
+        /* bit0=1 always (as documented by kernel.s8.asm) */
         return 0x01;
     }
 

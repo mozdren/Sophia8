@@ -5,14 +5,14 @@ endif()
 set(bin_path "${BINARY_DIR}/test_libs.bin")
 
 execute_process(
-    COMMAND "${ASM}" "${SOURCE_DIR}/test_libs.s8" -o "${bin_path}"
+    COMMAND "${ASM}" "${SOURCE_DIR}/test_libs.s8.asm" -o "${bin_path}"
     RESULT_VARIABLE asm_rc
     OUTPUT_VARIABLE asm_out
     ERROR_VARIABLE asm_err
 )
 
 if(NOT asm_rc STREQUAL "0")
-    message(FATAL_ERROR "Assembler failed for test_libs.s8\n${asm_out}${asm_err}")
+    message(FATAL_ERROR "Assembler failed for test_libs.s8.asm\n${asm_out}${asm_err}")
 endif()
 
 execute_process(
