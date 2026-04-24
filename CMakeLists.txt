@@ -26,78 +26,38 @@ add_test(NAME test_graphics_c64 COMMAND test_graphics_c64)
 # Integration tests (assembler + VM)
 add_test(
     NAME test_libs_s8
-    COMMAND bash -lc
-        "set -euo pipefail; \
-         ./s8asm ${CMAKE_CURRENT_SOURCE_DIR}/test_libs.s8 -o test_libs.bin >/dev/null; \
-         ./sophia8 test_libs.bin | tr -d '\\000' | grep -q 'ALL PASS'"
+    COMMAND ${CMAKE_COMMAND}
+        -DASM=$<TARGET_FILE:s8asm>
+        -DVM=$<TARGET_FILE:sophia8>
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DBINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunLibsTest.cmake
 )
 
 add_test(
     NAME test_basic_auto
-    COMMAND bash -lc
-        "set -euo pipefail; \
-         ./s8asm ${CMAKE_CURRENT_SOURCE_DIR}/sophia_basic_v1.s8 -o sophia_basic_v1.bin >/dev/null; \
-         rm -f basic.out got.txt exp.txt; \
-         (cat ${CMAKE_CURRENT_SOURCE_DIR}/sophia_basic_test_auto.bas; echo RUN) | timeout 8s ./sophia8 sophia_basic_v1.bin > basic.out || true; \
-         grep -qx 'SOPHIA BASIC AUTO TEST' basic.out; \
-         awk 'f && $0 != \"\> \"{print} $0==\"SOPHIA BASIC AUTO TEST\"{f=1;next}' basic.out | head -n 53 > got.txt; \
-         printf '13
-7
-30
-26
-3
-65
-25
-5
-HE
-LLO
-EL
-HELL
-65
-72
-B
-C
-3
-0
-1
-123
--42
-0
-0
-0
--42
-123
-AB
-HELLO
-ABCD
-1
-1
-1
-1
-1
-1
-0
-0
-1
-1
-1
-GOSUB
-IN SUB
-AFTER
-REMOK
-APOSOK
-1
-2
-3
-HI
-THERE
-1
-HI
-' > exp.txt; \
-         diff -u exp.txt got.txt"
+    COMMAND ${CMAKE_COMMAND}
+        -DTEST_NAME=test_basic_auto
+        -DASM=$<TARGET_FILE:s8asm>
+        -DVM=$<TARGET_FILE:sophia8>
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DBINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+        -DBASIC_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/sophia_basic_test_auto.bas
+        -DEXPECTED_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/expected/basic_auto.txt
+        -DMARKER=SOPHIA_BASIC_AUTO_TEST
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBasicTest.cmake
 )
 
 add_test(
     NAME test_basic_loops
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/test_basic_loops.sh
+    COMMAND ${CMAKE_COMMAND}
+        -DTEST_NAME=test_basic_loops
+        -DASM=$<TARGET_FILE:s8asm>
+        -DVM=$<TARGET_FILE:sophia8>
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DBINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+        -DBASIC_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/sophia_basic_test_loops.bas
+        -DEXPECTED_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/expected/basic_loops.txt
+        -DMARKER=SOPHIA_BASIC_LOOP_TEST
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBasicTest.cmake
 )

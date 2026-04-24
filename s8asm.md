@@ -47,7 +47,7 @@ If `-o` is omitted, the assembler writes `sophia8_image.bin` in the current dire
 3. Applies `.org` directives (absolute placement)
 4. Reserves addresses `0x0000..0x0002` for an implicit entry stub
 5. Emits an implicit `JMP <entry>` at `0x0000`
-6. Outputs a full binary image of size `0xFFFF` bytes
+6. Outputs a full binary image of size `0x10000` bytes
 
 ### Debugging outputs (generated automatically)
 
@@ -781,4 +781,3 @@ Common helper scripts used during development:
 
 - `img_to_s8gfx.py`: converts an input image into a `.s8` file that emits VRAM bytes at `.org 0x8000`
 - `ppm_to_png.py`: converts a PPM (P6/P3) file (e.g., `frame.ppm`) into PNG (requires Pillow)
-

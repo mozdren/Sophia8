@@ -3,7 +3,7 @@
 
 /* GENERAL CONSTANTS *********************************************************/
 
-#define MEM_SIZE 0xFFFF         /* memory size                               */
+#define MEM_SIZE 0x10000        /* memory size (64 KiB, addresses 0x0000..0xFFFF) */
 
 /* INSTRUCTIONS **************************************************************/
 
@@ -38,8 +38,8 @@
 
 /* special instructions */
 
-#define HALT    0x00            /* no operation                         A    */
-#define NOP     0xFF            /* stops/exits the virtual machine      A    */
+#define HALT    0x00            /* stops/exits the virtual machine      A    */
+#define NOP     0xFF            /* no operation                         A    */
 
 /* INSTRUCTIONS LENGTHS ******************************************************/
 
@@ -102,17 +102,5 @@
 #define LEX_LABEL           0xFFFF0006
 #define LEX_COMMENT         0xFFFF0007
 #define LEX_COMMA           0xFFFF0008
-
-/* MEMORY MAPPINGS ***********************************************************/
-
-#define VIDEO_MEM_ADDRESS 0xC000
-#define COLOR_MEM_ADDRESS 0xDF40
-#define CONSOLE_X_ADDRESS 0xE000
-#define CONSOLE_Y_ADDRESS 0xE001
-#define CURSOR_ON_ADDRESS 0xE002
-#define VIDEO_MODE_ADDRESS 0xE003
-#define KEY_BUF_SIZE_ADDRESS 0xE004
-#define KEY_BUFFER_ADDRESS 0xE005
-#define CHAR_MEM_ADDRESS 0xE069
 
 #endif

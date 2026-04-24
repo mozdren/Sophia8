@@ -5,7 +5,7 @@ Sophia8 is an 8-bit virtual machine with 16-bit addressing, a matching assembler
 The VM has:
 - 8 general-purpose 8-bit registers (`R0..R7`)
 - 16-bit `IP`, `SP`, `BP`
-- 64 KiB address space (`0x0000..0xFFFF`, image size `0xFFFF` bytes)
+- 64 KiB address space (`0x0000..0xFFFF`, image size `0x10000` bytes)
 - memory-mapped console I/O at `0xFF00..0xFF03`
 - optional debug-map driven breakpoints and verbose execution logging
 
@@ -13,7 +13,7 @@ The VM has:
 
 ### Assembler: `s8asm`
 `S8asm` compiles `.s8` assembly into:
-- `<output>.bin` — full memory image
+- `<output>.bin` — full `0x10000`-byte memory image
 - `<output>.pre.s8` — fully preprocessed source with include-origin markers
 - `<output>.deb` — debug map used by the VM for file:line breakpoints and verbose traces
 
@@ -126,6 +126,16 @@ The project is expected to be validated by a clean rebuild and test run. Existin
 - graphics test
 - standard library test
 - BASIC automatic integration test
+- BASIC loop integration test
+
+The test harness is platform-neutral: CTest uses `cmake -P` driver scripts instead of shell pipelines, so the suite is expected to run on Windows as well as POSIX environments.
+
+Typical workflow:
+```bash
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
 
 ## Main project files
 - `s8asm.cpp` — assembler

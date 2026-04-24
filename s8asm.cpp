@@ -2,7 +2,7 @@
 // Spec: deterministic Sophia8 assembler with .include and .org entry marker.
 //
 // Features (frozen):
-// - Output is full 0xFFFF-byte memory image (addresses 0x0000..0xFFFE), zero-filled.
+// - Output is full 0x10000-byte memory image (addresses 0x0000..0xFFFF), zero-filled.
 // - Implicit entry stub at 0x0000..0x0002: JMP <ENTRY>
 // - Default emission begins at 0x0003.
 // - .org <addr>: sets location counter to addr (>=0x0003). Multiple allowed.
@@ -43,7 +43,7 @@
 
 namespace fs = std::filesystem;
 
-static constexpr uint32_t MEM_SIZE = 0xFFFF; // bytes, valid indices 0x0000..0xFFFE
+static constexpr uint32_t MEM_SIZE = 0x10000; // bytes, valid indices 0x0000..0xFFFF
 
 static void print_help(const char* prog)
 {
@@ -59,7 +59,7 @@ static void print_help(const char* prog)
         << "  -h, --help            Show this help\n"
         << "\n"
         << "What it produces:\n"
-        << "  <output.bin>          Full 0xFFFF-byte memory image (0x0000..0xFFFE), zero-filled\n"
+        << "  <output.bin>          Full 0x10000-byte memory image (0x0000..0xFFFF), zero-filled\n"
         << "  <output.pre.s8>       Fully preprocessed source (.include expanded) with ';@ file:line' markers\n"
         << "  <output.deb>          Debug map used by sophia8 for file:line breakpoints\n"
         << "\n"
@@ -639,7 +639,7 @@ static std::vector<uint8_t> assemble(const std::vector<SrcLine>& src_lines,
             lc += (uint32_t)sz;
         }
 
-        require(lc <= MEM_SIZE, "Assembly exceeds MEM_SIZE (0xFFFF bytes)", sl);
+        require(lc <= MEM_SIZE, "Assembly exceeds MEM_SIZE (0x10000 bytes)", sl);
     }
 
     require(any_org, "No .org found (mandatory; use .org <addr> and/or .org)", src_lines.empty() ? SrcLine{"","",0,{}} : src_lines.front());

@@ -9,8 +9,9 @@
 /*                                                                           */
 /* This is a simple virtual machine which simulates 8 bit computer with      */
 /* 16 bit addressing, and random access memory (not a plain stack machine).  */
-/* The machine has 8 general purpose registers and a stack which starts      */
-/* pointing at the end of memory and goes down as being pushed upon.         */
+/* The machine has 8 general purpose registers and a descending stack.       */
+/* On the true 64 KiB model, the empty-stack sentinel is SP=BP=0x0000, so    */
+/* the first push wraps into 0xFFFF and then grows downward.                 */
 /*                                                                           */
 /*****************************************************************************/
 
@@ -105,7 +106,7 @@ static void print_help(const char* prog)
     printf("  %s\n", prog);
     printf("      Run built-in test program.\n\n");
     printf("  %s <image.bin>\n", prog);
-    printf("      Load and run a raw 0xFFFF-byte memory image.\n\n");
+    printf("      Load and run a raw 0x10000-byte memory image.\n\n");
     printf("  %s <program.deb>\n", prog);
     printf("      Load a .deb debug map (emitted by s8asm), then load its referenced .bin, then run.\n\n");
     printf("  %s <program.deb> <break_file> <break_line>\n", prog);
@@ -594,7 +595,7 @@ static bool load_debug_image(const char* path)
  */
 void init_machine()
 {
-    uint16_t i;
+    uint32_t i;
     STOP = 0;
 
     /* clean all memory */
@@ -605,8 +606,11 @@ void init_machine()
 
     /* initialize registers */
     ip = 0;
-    sp = MEM_SIZE;
-    bp = MEM_SIZE;
+    // SP/BP are 16-bit registers, so a true 64 KiB machine cannot represent
+    // one-past-the-end as 0x10000. Initialize to 0x0000 and rely on the
+    // pre-decrement push logic to wrap to 0xFFFF on first use.
+    sp = 0x0000;
+    bp = 0x0000;
     c = 0;
 
     for (i = 0; i < 8; i++)
@@ -2032,7 +2036,7 @@ void process_instruction()
  */
 void print_memory()
 {
-    for (uint16_t i = 0; i < MEM_SIZE; i++)
+    for (uint32_t i = 0; i < MEM_SIZE; i++)
     {
         if (i % 64 == 0)
         {
@@ -2209,7 +2213,27 @@ bool load_bin_file(const char* file_path)
         return false;
     }
 
-    (void)fread(mem, 1, MEM_SIZE, f);
+    init_machine();
+
+    const size_t bytes_read = fread(mem, 1, MEM_SIZE, f);
+    if (ferror(f))
+    {
+        printf("Failed while reading bin file: %s\n", file_path);
+        fclose(f);
+        return false;
+    }
+
+    if (bytes_read == MEM_SIZE)
+    {
+        unsigned char extra = 0;
+        if (fread(&extra, 1, 1, f) == 1)
+        {
+            printf("Bin file too large (expected at most 0x10000 bytes): %s\n", file_path);
+            fclose(f);
+            return false;
+        }
+    }
+
     fclose(f);
     return true;
 }
@@ -2440,4 +2464,3 @@ int main(int argc, char** argv)
     run(break_enabled, break_addr, break_file, break_line);
     return 0;
 }
-

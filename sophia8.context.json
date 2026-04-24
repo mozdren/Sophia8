@@ -186,7 +186,7 @@
     },
     "outputs": {
       "binary_image": {
-        "description": "Full 0xFFFF-byte memory image (raw binary).",
+        "description": "Full 0x10000-byte memory image (raw binary).",
         "extension": ".bin"
       },
       "debug_map": {
@@ -254,7 +254,7 @@
       "reserved_range": "0x0000..0x0002"
     },
     "overlap": "Forbidden. Writing two different bytes to the same address is an assembler error.",
-    "size_bytes": "0xFFFF",
+    "size_bytes": "0x10000",
     "type": "full memory image"
   },
   "codegen_rules": {
@@ -1813,7 +1813,7 @@
     ],
     "debug_snapshot": {
       "file": "debug.img",
-      "format": "Binary snapshot: magic 'S8DI', version 0x01, registers, IP/SP/BP, carry, then full memory image."
+      "format": "Binary snapshot: magic 'S8DI', version 0x01, registers, IP/SP/BP, carry, then full 0x10000-byte memory image."
     },
     "graphics": {
       "enabled_flag": "--gfx",

@@ -8,7 +8,7 @@ This document is the human-oriented companion to `sophia8.context.json`. It summ
 The assembler is strict and intentionally simple.
 
 It produces three artifacts:
-- `<output>.bin` — full `0xFFFF`-byte memory image
+- `<output>.bin` — full `0x10000`-byte memory image
 - `<output>.pre.s8` — preprocessed source with all `.include` content expanded
 - `<output>.deb` — debug map used by the VM for file:line breakpoints and verbose logs
 
@@ -25,6 +25,8 @@ The VM can run:
 - a raw `.bin` image
 - a `.deb` file directly (it resolves the paired `.bin`)
 - a saved `debug.img` snapshot
+
+The VM models a true 64 KiB machine. The empty-stack sentinel is `SP=BP=0x0000`, so the first push wraps into `0xFFFF` and the stack then grows downward through RAM.
 
 Debugging support includes:
 - `--help`
@@ -188,11 +190,13 @@ BASIC regressions are often integration issues, not isolated parser bugs. Every 
 ## 7. Debugging workflow that has proven useful
 
 1. Build from a clean directory.
-2. Run the existing tests.
+2. Run the existing tests with `ctest --test-dir build --output-on-failure`.
 3. Assemble the BASIC image and inspect `<output>.pre.s8` when include order or `.org` placement is suspicious.
 4. Use `<output>.deb` to find the exact machine address for a source line.
 5. Run the VM with `-v` when execution appears stuck or corrupted.
 6. Use source breakpoints to emit `debug.img` and inspect machine state at a precise location.
+
+The current CTest integration is platform-neutral and avoids shell-only features such as `bash`, `awk`, `grep`, `diff`, and `timeout`.
 
 ## 8. Notes and pitfalls carried forward
 
