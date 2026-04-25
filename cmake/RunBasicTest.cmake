@@ -22,6 +22,10 @@ endif()
 
 file(READ "${BASIC_SOURCE}" basic_source_text)
 file(WRITE "${input_path}" "${basic_source_text}\nRUN\n")
+if(DEFINED TEST_INPUT_FILE)
+    file(READ "${TEST_INPUT_FILE}" test_input_text)
+    file(APPEND "${input_path}" "${test_input_text}")
+endif()
 
 execute_process(
     COMMAND "${VM}" "${bin_path}"

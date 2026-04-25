@@ -221,7 +221,7 @@
       "DIM arrays",
       "PRINT",
       "PRINT item lists with ';' and ',' separators",
-      "INPUT",
+      "INPUT for a single variable, with optional quoted prompt strings",
       "PEEK(address)",
       "POKE address, value",
       "RANDOMIZE",

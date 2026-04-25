@@ -89,7 +89,7 @@ CP_RET:
     RET
 
 CMD_INPUT:
-    ; INPUT <var>
+    ; INPUT ["prompt"[;|,]] <var>
     ; Dedicated input path (does not reuse the main CLI line buffer for strings).
     ; Save current CURPTR so INPUT can't corrupt parser state.
     LOAD CURPTR_H, R0
@@ -97,6 +97,37 @@ CMD_INPUT:
     LOAD CURPTR_L, R0
     STORE R0, SAVCUR_L
 
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    CALL SKIPSP
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+
+    ; Optional quoted prompt.
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x22
+    JNZ R0, IN_DEF_PROMPT
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    CALL DO_PRINT_ITEM
+    CALL SKIPSP_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x3B
+    JZ R0, IN_PROMPT_SEP
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x2C
+    JNZ R0, IN_SYNTAX
+IN_PROMPT_SEP:
+    CALL GETCHAR_CUR
+    JMP IN_PARSE_VAR
+
+IN_DEF_PROMPT:
+    SET #0x3F, R0
+    CALL PUTC
+    SET #0x20, R0
+    CALL PUTC
+
+IN_PARSE_VAR:
     LOAD CURPTR_H, R1
     LOAD CURPTR_L, R2
     CALL SKIPSP
@@ -111,21 +142,15 @@ CMD_INPUT:
     STORE R1, TMP_PTR_H
     STORE R2, TMP_PTR_L
 
-    ; prompt "? "
-    SET #0x3F, R0
-    CALL PUTC
-    SET #0x20, R0
-    CALL PUTC
-
     ; Branch by variable type.
     LOAD IDTYPE, R0
     CMP R0, #0x01
     JZ R0, IN_READ_STR
 
 IN_READ_NUM:
-    ; numeric input: read line into 0x6E00 and parse signed integer
+    ; numeric input: read line into 0x6E80 and parse signed integer
     SET #0x6E, R1
-    SET #0x00, R2
+    SET #0x80, R2
     SET #96, R3
     CALL READLINE_ECHO
 
@@ -136,7 +161,7 @@ IN_READ_NUM:
 
     SET #0x6E, R0
     STORE R0, CURPTR_H
-    SET #0x00, R0
+    SET #0x80, R0
     STORE R0, CURPTR_L
     CALL SKIPSP_CUR
     CALL PARSE_INT16

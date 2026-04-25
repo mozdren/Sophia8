@@ -375,7 +375,7 @@ RZ_DEF:
     RET
 
 ; Keep 0x9600/0x9601 free for BASIC POKE tests (screen/MMIO scratch).
-.org 0xA000
+.org 0xA500
 
 CMD_IF:
 

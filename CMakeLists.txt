@@ -75,3 +75,33 @@ add_test(
         -DMARKER=SOPHIA_BASIC_HIGH_LINE_TEST
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBasicTest.cmake
 )
+
+add_test(
+    NAME test_basic_io
+    COMMAND ${CMAKE_COMMAND}
+        -DTEST_NAME=test_basic_io
+        -DASM=$<TARGET_FILE:s8asm>
+        -DVM=$<TARGET_FILE:sophia8>
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DBINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+        -DBASIC_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/sophia_basic_test_io.bas
+        -DTEST_INPUT_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/inputs/basic_io.in
+        -DEXPECTED_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/expected/basic_io.txt
+        -DMARKER=SOPHIA_BASIC_IO_TEST
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBasicTest.cmake
+)
+
+add_test(
+    NAME test_basic_input
+    COMMAND ${CMAKE_COMMAND}
+        -DTEST_NAME=test_basic_input
+        -DASM=$<TARGET_FILE:s8asm>
+        -DVM=$<TARGET_FILE:sophia8>
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DBINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+        -DBASIC_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/sophia_basic_test_input.bas
+        -DTEST_INPUT_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/inputs/basic_input.in
+        -DEXPECTED_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/expected/basic_input.txt
+        -DMARKER=SOPHIA_BASIC_INPUT_TEST
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBasicTest.cmake
+)

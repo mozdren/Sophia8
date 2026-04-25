@@ -75,7 +75,7 @@ Program lines are stored as packed variable-length records with 16-bit line numb
 #### Input / output and memory access
 - `PRINT`
 - `PRINT` item lists with `;` and `,`, including trailing `;` newline suppression
-- `INPUT`
+- `INPUT` for a single variable, with optional quoted prompt strings
 - `PEEK(address)`
 - `POKE address, value`
 - `RANDOMIZE`
