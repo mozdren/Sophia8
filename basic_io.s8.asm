@@ -89,13 +89,15 @@ CP_RET:
     RET
 
 CMD_INPUT:
-    ; INPUT ["prompt"[;|,]] <var>
+    ; INPUT ["prompt"[;|,]] <var>[,<var>...]
     ; Dedicated input path (does not reuse the main CLI line buffer for strings).
     ; Save current CURPTR so INPUT can't corrupt parser state.
     LOAD CURPTR_H, R0
     STORE R0, SAVCUR_H
     LOAD CURPTR_L, R0
     STORE R0, SAVCUR_L
+    SET #0x00, R0
+    STORE R0, INPUT_VAR_COUNT
 
     LOAD CURPTR_H, R1
     LOAD CURPTR_L, R2
@@ -128,27 +130,9 @@ IN_DEF_PROMPT:
     CALL PUTC
 
 IN_PARSE_VAR:
-    LOAD CURPTR_H, R1
-    LOAD CURPTR_L, R2
-    CALL SKIPSP
-    CALL PARSE_IDENT
-    CMP R0, #0x01
-    JNZ R0, IN_SYNTAX
-    STORE R1, CURPTR_H
-    STORE R2, CURPTR_L
-    CALL VAR_FIND_OR_CREATE
-    CMP R0, #0x01
-    JNZ R0, IN_SYNTAX
-    STORE R1, TMP_PTR_H
-    STORE R2, TMP_PTR_L
+    CALL INPUT_PARSE_VARLIST
 
-    ; Branch by variable type.
-    LOAD IDTYPE, R0
-    CMP R0, #0x01
-    JZ R0, IN_READ_STR
-
-IN_READ_NUM:
-    ; numeric input: read line into 0x6E80 and parse signed integer
+    ; read full input line into 0x6E80 and assign fields
     SET #0x6E, R1
     SET #0x80, R2
     SET #96, R3
@@ -163,76 +147,7 @@ IN_READ_NUM:
     STORE R0, CURPTR_H
     SET #0x80, R0
     STORE R0, CURPTR_L
-    CALL SKIPSP_CUR
-    CALL PARSE_INT16
-    LOAD TMP_PTR_H, R1
-    LOAD TMP_PTR_L, R2
-    CALL STORE_VAR_INT
-    JMP IN_DONE
-
-IN_READ_STR:
-    ; string input: read directly into string heap at STRFREE
-    LOAD STRFREE_H, R6
-    LOAD STRFREE_L, R7
-    STORE R6, TMPH          ; start pointer high
-    STORE R7, TMPL          ; start pointer low
-
-    ; R1:R2 = STRFREE, max 96 incl NUL
-    SET #0x00, R1
-    ADDR R6, R1
-    SET #0x00, R2
-    ADDR R7, R2
-    SET #96, R3
-    CALL READLINE_ECHO
-
-    ; echo newline after input line
-    SET #0x02, R1
-    SET #0x44, R2
-    CALL PUTS
-
-    ; stash input length from READLINE_ECHO
-    STORE R4, IDLEN
-
-    ; advance STRFREE by (len + 1)
-    LOAD TMPH, R1
-    LOAD TMPL, R2
-    LOAD IDLEN, R0
-    ADDR R0, R2
-    JNC IN_ADV1
-    INC R1
-IN_ADV1:
-    ADD #1, R2
-    JNC IN_ADV2
-    INC R1
-IN_ADV2:
-    STORE R1, STRFREE_H
-    STORE R2, STRFREE_L
-
-    ; store ptr+len into entry (offset 12..14)
-    LOAD TMP_PTR_H, R1
-    LOAD TMP_PTR_L, R2
-    PUSH R1
-    PUSH R2
-    ADD #12, R2
-    JNC IN_P1
-    INC R1
-IN_P1:
-    LOAD TMPH, R0
-    STORER R0, R1, R2
-    INC R2
-    JNZ R2, IN_P2
-    INC R1
-IN_P2:
-    LOAD TMPL, R0
-    STORER R0, R1, R2
-    INC R2
-    JNZ R2, IN_P3
-    INC R1
-IN_P3:
-    LOAD IDLEN, R0
-    STORER R0, R1, R2
-    POP R2
-    POP R1
+    CALL INPUT_ASSIGN_FIELDS
 
 IN_DONE:
     LOAD SAVCUR_H, R0
@@ -244,6 +159,245 @@ IN_DONE:
 IN_SYNTAX:
     CALL PRINT_SYNTAX_ERROR
     JMP IN_DONE
+
+; ---------------------------------------------------------------------------
+; INPUT_PARSE_VARLIST
+;   Parse <var>[,<var>...] from CURPTR into INPUT_VAR_* arrays.
+; ---------------------------------------------------------------------------
+INPUT_PARSE_VARLIST:
+IPV_LOOP:
+    CALL SKIPSP_CUR
+    CALL PARSE_IDENT
+    CMP R0, #0x01
+    JNZ R0, IN_SYNTAX
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    CALL VAR_FIND_OR_CREATE
+    CMP R0, #0x01
+    JNZ R0, IN_SYNTAX
+
+    LOAD INPUT_VAR_COUNT, R6
+    SET #0x00, R5
+    ADDR R6, R5
+    CMP R5, #0x08
+    JZ R5, IN_SYNTAX
+
+    LOAD INPUT_VAR_COUNT, R6
+    SET #0x68, R3
+    SET #0xE0, R4
+    ADDR R6, R4
+    STORER R1, R3, R4
+
+    LOAD INPUT_VAR_COUNT, R6
+    SET #0x68, R3
+    SET #0xE8, R4
+    ADDR R6, R4
+    STORER R2, R3, R4
+
+    LOAD INPUT_VAR_COUNT, R6
+    SET #0x68, R3
+    SET #0xF0, R4
+    ADDR R6, R4
+    LOAD IDTYPE, R5
+    STORER R5, R3, R4
+
+    LOAD INPUT_VAR_COUNT, R0
+    INC R0
+    STORE R0, INPUT_VAR_COUNT
+
+    CALL SKIPSP_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x2C
+    JZ R0, IPV_MORE
+    RET
+
+IPV_MORE:
+    CALL GETCHAR_CUR
+    JMP IPV_LOOP
+
+; ---------------------------------------------------------------------------
+; INPUT_ASSIGN_FIELDS
+;   Assign one input line to the parsed INPUT_VAR_* list.
+; ---------------------------------------------------------------------------
+INPUT_ASSIGN_FIELDS:
+    SET #0x00, R0
+    STORE R0, INPUT_VAR_INDEX
+IAF_LOOP:
+    LOAD INPUT_VAR_INDEX, R6
+    LOAD INPUT_VAR_COUNT, R0
+    SET #0x00, R5
+    ADDR R6, R5
+    CMPR R5, R0
+    JZ R5, IAF_DONE
+
+    ; load current entry pointer into TMP_PTR
+    LOAD INPUT_VAR_INDEX, R6
+    SET #0x68, R3
+    SET #0xE0, R4
+    ADDR R6, R4
+    LOADR R1, R3, R4
+    STORE R1, TMP_PTR_H
+
+    LOAD INPUT_VAR_INDEX, R6
+    SET #0x68, R3
+    SET #0xE8, R4
+    ADDR R6, R4
+    LOADR R2, R3, R4
+    STORE R2, TMP_PTR_L
+
+    ; dispatch by stored type
+    LOAD INPUT_VAR_INDEX, R6
+    SET #0x68, R3
+    SET #0xF0, R4
+    ADDR R6, R4
+    LOADR R0, R3, R4
+    CMP R0, #0x01
+    JZ R0, IAF_STR
+
+IAF_NUM:
+    CALL SKIPSP_CUR
+    CALL PARSE_INT16
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+    CALL STORE_VAR_INT
+    JMP IAF_POST
+
+IAF_STR:
+    CALL INPUT_PARSE_STR_FIELD
+    CALL INPUT_STORE_STR_FIELD
+
+IAF_POST:
+    CALL SKIPSP_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x2C
+    JNZ R0, IAF_NEXT
+    CALL GETCHAR_CUR
+
+IAF_NEXT:
+    LOAD INPUT_VAR_INDEX, R0
+    INC R0
+    STORE R0, INPUT_VAR_INDEX
+    JMP IAF_LOOP
+
+IAF_DONE:
+    RET
+
+; ---------------------------------------------------------------------------
+; INPUT_PARSE_STR_FIELD
+;   Parse one string field from CURPTR.
+;   Output: TMPH:TMPL = source pointer, IDLEN = length, CURPTR advanced.
+; ---------------------------------------------------------------------------
+INPUT_PARSE_STR_FIELD:
+    CALL SKIPSP_CUR
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    STORE R1, TMPH
+    STORE R2, TMPL
+    SET #0x00, R5
+
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x22
+    JZ R0, IPS_QUOTED
+
+IPS_RAW_LOOP:
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x00
+    JZ R0, IPS_DONE
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x2C
+    JZ R0, IPS_DONE
+    CALL GETCHAR_CUR
+    INC R5
+    JMP IPS_RAW_LOOP
+
+IPS_QUOTED:
+    CALL GETCHAR_CUR
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    STORE R1, TMPH
+    STORE R2, TMPL
+    SET #0x00, R5
+IPS_Q_LOOP:
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x00
+    JZ R0, IPS_DONE
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x22
+    JZ R0, IPS_Q_END
+    CALL GETCHAR_CUR
+    INC R5
+    JMP IPS_Q_LOOP
+IPS_Q_END:
+    CALL GETCHAR_CUR
+
+IPS_DONE:
+    STORE R5, IDLEN
+    RET
+
+; ---------------------------------------------------------------------------
+; INPUT_STORE_STR_FIELD
+;   Store source string TMPH:TMPL / IDLEN into heap and current TMP_PTR entry.
+; ---------------------------------------------------------------------------
+INPUT_STORE_STR_FIELD:
+    LOAD TMPH, R6
+    LOAD TMPL, R7
+    LOAD IDLEN, R5
+
+    LOAD STRFREE_H, R3
+    LOAD STRFREE_L, R4
+    STORE R3, DIVH
+    STORE R4, DIVL
+
+ISS_COPY_LOOP:
+    JZ R5, ISS_TERM
+    LOADR R0, R6, R7
+    STORER R0, R3, R4
+    INC R7
+    JNZ R7, ISS_S1
+    INC R6
+ISS_S1:
+    INC R4
+    JNZ R4, ISS_D1
+    INC R3
+ISS_D1:
+    DEC R5
+    JMP ISS_COPY_LOOP
+
+ISS_TERM:
+    SET #0x00, R0
+    STORER R0, R3, R4
+    INC R4
+    JNZ R4, ISS_ADV1
+    INC R3
+ISS_ADV1:
+    STORE R3, STRFREE_H
+    STORE R4, STRFREE_L
+
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+    PUSH R1
+    PUSH R2
+    ADD #12, R2
+    JNC ISS_P1
+    INC R1
+ISS_P1:
+    LOAD DIVH, R0
+    STORER R0, R1, R2
+    INC R2
+    JNZ R2, ISS_P2
+    INC R1
+ISS_P2:
+    LOAD DIVL, R0
+    STORER R0, R1, R2
+    INC R2
+    JNZ R2, ISS_P3
+    INC R1
+ISS_P3:
+    LOAD IDLEN, R0
+    STORER R0, R1, R2
+    POP R2
+    POP R1
+    RET
 
 ; ---------------------------------------------------------------------------
 ; DO_PRINT: compatibility wrapper for printing one item followed by newline

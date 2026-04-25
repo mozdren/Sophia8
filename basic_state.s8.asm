@@ -100,3 +100,16 @@ MATCH_STACK_H: .byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 
 .org 0x68D0
 MATCH_STACK_L: .byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+
+.org 0x68E0
+INPUT_VAR_H: .byte 0,0,0,0,0,0,0,0
+
+.org 0x68E8
+INPUT_VAR_L: .byte 0,0,0,0,0,0,0,0
+
+.org 0x68F0
+INPUT_VAR_T: .byte 0,0,0,0,0,0,0,0
+
+.org 0x68F8
+INPUT_VAR_COUNT: .byte 0
+INPUT_VAR_INDEX: .byte 0

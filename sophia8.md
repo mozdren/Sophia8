@@ -126,7 +126,7 @@ This modular split is important for maintainability. New features should be adde
 ### I/O and runtime helpers
 - `PRINT`
 - `PRINT` item lists with `;` and `,`, including trailing `;` newline suppression
-- `INPUT` for a single variable, with optional quoted prompt strings
+- `INPUT` for one or more variables, with optional quoted prompt strings
 - `RANDOMIZE`
 - `RND()`
 - `PEEK()` / `POKE`
