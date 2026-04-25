@@ -278,9 +278,7 @@ JZ R0, CMD_ENDWHILE
     RET
 
 CMD_NEW:
-    SET #0x00, R0
-    STORE R0, LINECOUNT
-
+    CALL PROG_RESET
     ; init variables + string heap
     CALL INIT_VARS
     RET
@@ -326,7 +324,8 @@ CMD_GOTO:
     CALL FIND_LINE
     CMP R0, #0x01
     JNZ R0, GOTO_UNDEF
-    STORE R4, RUN_INDEX
+    STORE R1, RUN_PTR_H
+    STORE R2, RUN_PTR_L
     SET #0x01, R0
     STORE R0, JUMPED
     RET
@@ -376,7 +375,7 @@ RZ_DEF:
     RET
 
 ; Keep 0x9600/0x9601 free for BASIC POKE tests (screen/MMIO scratch).
-.org 0x9C00
+.org 0xA000
 
 CMD_IF:
 
@@ -452,7 +451,8 @@ IF_THEN_LINE:
     CALL FIND_LINE
     CMP R0, #0x01
     JNZ R0, GOTO_UNDEF
-    STORE R4, RUN_INDEX
+    STORE R1, RUN_PTR_H
+    STORE R2, RUN_PTR_L
     SET #0x01, R0
     STORE R0, JUMPED
     RET
@@ -513,7 +513,8 @@ IF_ELSE_LINE:
     CALL FIND_LINE
     CMP R0, #0x01
     JNZ R0, GOTO_UNDEF
-    STORE R4, RUN_INDEX
+    STORE R1, RUN_PTR_H
+    STORE R2, RUN_PTR_L
     SET #0x01, R0
     STORE R0, JUMPED
     RET

@@ -206,7 +206,8 @@
   },
   "basic": {
     "features": [
-      "RUN and line-numbered program storage",
+      "RUN and packed variable-length line-numbered program storage",
+      "16-bit BASIC line numbers",
       "GOTO",
       "IF ... THEN ... [ELSE ...]",
       "GOSUB <line> / RETURN",

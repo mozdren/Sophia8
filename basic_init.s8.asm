@@ -17,8 +17,10 @@
 ; ---------------------------------------------------------------------------
 
 INIT_VARS:
-    ; STRFREE = 0xA000
-    SET #0xA0, R0
+    ; STRFREE = 0xD000
+    ; Keep the heap above the relocated BASIC code segments. Check the .deb
+    ; map after code growth before moving this back down.
+    SET #0xD0, R0
     STORE R0, STRFREE_H
     SET #0x00, R0
     STORE R0, STRFREE_L
@@ -34,8 +36,17 @@ INIT_VARS:
     STORE R0, GOSUB_SP
     STORE R0, FOR_SP
     STORE R0, CLS_SP
-    STORE R0, MATCH_INDEX
-    STORE R0, SCAN_INDEX
+    STORE R0, MATCH_SP
+    STORE R0, RUN_PTR_H
+    STORE R0, RUN_PTR_L
+    STORE R0, RUN_NEXT_H
+    STORE R0, RUN_NEXT_L
+    STORE R0, MATCH_PTR_H
+    STORE R0, MATCH_PTR_L
+    STORE R0, SCAN_PTR_H
+    STORE R0, SCAN_PTR_L
+    STORE R0, DATA_LINE_H
+    STORE R0, DATA_LINE_L
 
     ; mark entries empty by writing 0xFF to type byte of each entry
     SET #0x60, R1

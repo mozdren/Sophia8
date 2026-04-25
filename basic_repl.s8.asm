@@ -20,9 +20,7 @@
 ; ---------------------------------------------------------------------------
 
 START:
-    ; linecount=0
-    SET #0x00, R0
-    STORE R0, LINECOUNT
+    CALL PROG_RESET
 
     ; init variables + string heap
     CALL INIT_VARS
@@ -81,9 +79,14 @@ REPL:
 ; RUN_PROG: execute stored program lines
 ; ---------------------------------------------------------------------------
 RUN_PROG:
-    LOAD LINECOUNT, R0
-    CMP R0, #0x00
-    JZ R0, RUN_NOP
+    LOAD PROG_END_H, R1
+    LOAD PROG_END_L, R2
+    CMP R1, #0x40
+    JNZ R1, RP_HAVE_PROG
+    CMP R2, #0x00
+    JZ R2, RUN_NOP
+
+RP_HAVE_PROG:
 
     SET #0x00, R0
     STORE R0, RUN_STOP
@@ -93,46 +96,39 @@ RUN_PROG:
     ; reset DATA/READ pointer for each RUN
     CALL DATA_RESET
 
-    SET #0x00, R4
-    STORE R4, RUN_INDEX
-    LOAD LINECOUNT, R5
-    STORE R5, RUN_LC
+    SET #0x40, R0
+    STORE R0, RUN_PTR_H
+    SET #0x00, R0
+    STORE R0, RUN_PTR_L
 
 RP_LOOP:
     LOAD RUN_STOP, R0
     CMP R0, #0x01
     JZ R0, RP_DONE
 
-    LOAD RUN_INDEX, R4
-    LOAD RUN_LC, R6
-    SET #0x00, R7
-    ADDR R4, R7
-    SUBR R6, R7
-    JZ R7, RP_DONE
+    LOAD RUN_PTR_H, R1
+    LOAD RUN_PTR_L, R2
+    LOAD PROG_END_H, R3
+    LOAD PROG_END_L, R4
+    SET #0x00, R5
+    ADDR R1, R5
+    CMPR R5, R3
+    JNZ R5, RP_HAVE_LINE
+    SET #0x00, R5
+    ADDR R2, R5
+    CMPR R5, R4
+    JZ R5, RP_DONE
 
-    SET #0x40, R1
-    SET #0x00, R2
-    SET #0x00, R6
-    ADDR R4, R6
-    CALL ADD_ENTRY_OFFSET
+RP_HAVE_LINE:
+    STORE R1, TMP_PTR_H
+    STORE R2, TMP_PTR_L
+    CALL PROG_NEXT_PTR
+    STORE R1, RUN_NEXT_H
+    STORE R2, RUN_NEXT_L
 
-    ; skip lineno
-    INC R2
-    JNZ R2, RP1
-    INC R1
-RP1:
-    INC R2
-    JNZ R2, RP2
-    INC R1
-RP2:
-    LOADR R0, R1, R2
-    CMP R0, #0x00
-    JZ R0, RP_NEXT
-
-    INC R2
-    JNZ R2, RP3
-    INC R1
-RP3:
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+    CALL PROG_GET_TEXT_PTR
     STORE R1, CURPTR_H
     STORE R2, CURPTR_L
 
@@ -146,9 +142,10 @@ RP3:
     JZ R0, RP_LOOP
 
 RP_NEXT:
-    LOAD RUN_INDEX, R4
-    INC R4
-    STORE R4, RUN_INDEX
+    LOAD RUN_NEXT_H, R0
+    STORE R0, RUN_PTR_H
+    LOAD RUN_NEXT_L, R0
+    STORE R0, RUN_PTR_L
     JMP RP_LOOP
 
 RP_DONE:

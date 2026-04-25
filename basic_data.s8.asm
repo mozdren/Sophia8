@@ -18,8 +18,9 @@
 ;     "?OUT OF DATA" and stops RUN.
 ;
 ; Dependencies:
-;   - basic_state.s8.asm: LINECOUNT, DATA_*, CURPTR_*, TMP_LINENO_*
-;   - basic_helpers.s8.asm: ADD_ENTRY_OFFSET, PARSE_INT16
+;   - basic_state.s8.asm: PROG_END_*, DATA_*, CURPTR_*, TMP_LINENO_*
+;   - basic_progstore.s8.asm: PROG_GET_TEXT_PTR, PROG_NEXT_PTR
+;   - basic_helpers.s8.asm: PARSE_INT16
 ;   - basic_strfn.s8.asm: STR_ALLOC_AND_COPY
 ;   - text.s8.asm: SKIPSP
 ;   - basic_errors.s8.asm: PRINT_OUT_OF_DATA
@@ -30,6 +31,10 @@ DATA_RESET:
     SET #0x00, R0
     STORE R0, DATA_VALID
     STORE R0, DATA_INDEX
+    SET #0x40, R0
+    STORE R0, DATA_LINE_H
+    SET #0x00, R0
+    STORE R0, DATA_LINE_L
     STORE R0, DATA_PTR_H
     STORE R0, DATA_PTR_L
     RET
@@ -38,25 +43,26 @@ DATA_RESET:
 ; DATA_RESTORE_TO_LINE
 ;   Restore DATA scan starting at the first program line whose line number
 ;   is >= TMP_LINENO_H/L.
-;   Sets DATA_INDEX and clears DATA_VALID so next READ will rescan.
+;   Sets DATA_LINE_* and clears DATA_VALID so next READ will rescan.
 ; ---------------------------------------------------------------------------
 DATA_RESTORE_TO_LINE:
-    ; target in TMP_LINENO_H/L
-    SET #0x00, R4          ; idx
-    LOAD LINECOUNT, R5
-DRTL_LOOP:
-    ; idx == LINECOUNT ?
-    SET #0x00, R6
-    ADDR R4, R6
-    SUBR R5, R6
-    JZ R6, DRTL_DONE
-
-    ; entry ptr = 0x4000 + idx*84
     SET #0x40, R1
     SET #0x00, R2
-    SET #0x00, R6
-    ADDR R4, R6
-    CALL ADD_ENTRY_OFFSET
+DRTL_LOOP:
+    LOAD PROG_END_H, R3
+    LOAD PROG_END_L, R4
+    SET #0x00, R5
+    ADDR R1, R5
+    CMPR R5, R3
+    JNZ R5, DRTL_HAVE
+    SET #0x00, R5
+    ADDR R2, R5
+    CMPR R5, R4
+    JZ R5, DRTL_DONE
+
+DRTL_HAVE:
+    STORE R1, TMP_PTR_H
+    STORE R2, TMP_PTR_L
 
     ; read line number
     LOADR R6, R1, R2       ; high
@@ -67,78 +73,73 @@ DRTL1:
     LOADR R7, R1, R2       ; low
 
     LOAD TMP_LINENO_H, R0
-    CMPR R6, R0
-    JC DRTL_PICK
-    JNZ R6, DRTL_NEXT
+    SET #0x00, R5
+    ADDR R6, R5
+    CMPR R5, R0
+    JC DRTL_NEXT
+    JNZ R5, DRTL_PICK
 
     LOAD TMP_LINENO_L, R0
-    CMPR R7, R0
-    JNC DRTL_PICK
+    SET #0x00, R5
+    ADDR R7, R5
+    CMPR R5, R0
+    JC DRTL_NEXT
+    JMP DRTL_PICK
 
 DRTL_NEXT:
-    INC R4
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+    CALL PROG_NEXT_PTR
     JMP DRTL_LOOP
 
 DRTL_PICK:
-    STORE R4, DATA_INDEX
+    LOAD TMP_PTR_H, R0
+    STORE R0, DATA_LINE_H
+    LOAD TMP_PTR_L, R0
+    STORE R0, DATA_LINE_L
     SET #0x00, R0
     STORE R0, DATA_VALID
     RET
 
 DRTL_DONE:
-    ; no such line => point past end so reads will fail
-    STORE R4, DATA_INDEX
+    LOAD PROG_END_H, R0
+    STORE R0, DATA_LINE_H
+    LOAD PROG_END_L, R0
+    STORE R0, DATA_LINE_L
     SET #0x00, R0
     STORE R0, DATA_VALID
     RET
 
 ; ---------------------------------------------------------------------------
 ; Internal: DATA_FIND_NEXT_STATEMENT
-;   Starting from DATA_INDEX, locate the next program line that begins with
+;   Starting from DATA_LINE_*, locate the next program line that begins with
 ;   a DATA statement (after optional leading spaces).
 ;
 ; Outputs:
 ;   R0 = 1 if found, 0 if not found
-;   DATA_INDEX updated to the line index where DATA was found
+;   DATA_LINE updated to the record where DATA was found
 ;   DATA_PTR updated to point to first byte after keyword and any spaces
 ;   DATA_VALID set to 1 on success
 ; ---------------------------------------------------------------------------
 DATA_FIND_NEXT_STATEMENT:
-    LOAD DATA_INDEX, R4
-    LOAD LINECOUNT, R5
+    LOAD DATA_LINE_H, R1
+    LOAD DATA_LINE_L, R2
 DFNS_LOOP:
-    ; idx == LINECOUNT ?
-    SET #0x00, R6
-    ADDR R4, R6
-    SUBR R5, R6
-    JZ R6, DFNS_FAIL
+    LOAD PROG_END_H, R3
+    LOAD PROG_END_L, R4
+    SET #0x00, R5
+    ADDR R1, R5
+    CMPR R5, R3
+    JNZ R5, DFNS_HAVE
+    SET #0x00, R5
+    ADDR R2, R5
+    CMPR R5, R4
+    JZ R5, DFNS_FAIL
 
-    ; entry ptr = 0x4000 + idx*84
-    SET #0x40, R1
-    SET #0x00, R2
-    SET #0x00, R6
-    ADDR R4, R6
-    CALL ADD_ENTRY_OFFSET
-
-    ; skip lineno (2 bytes)
-    INC R2
-    JNZ R2, DFNS1
-    INC R1
-DFNS1:
-    INC R2
-    JNZ R2, DFNS2
-    INC R1
-DFNS2:
-    ; len
-    LOADR R0, R1, R2
-    CMP R0, #0x00
-    JZ R0, DFNS_NEXTLINE
-
-    ; text start = after len
-    INC R2
-    JNZ R2, DFNS3
-    INC R1
-DFNS3:
+DFNS_HAVE:
+    STORE R1, TMP_PTR_H
+    STORE R2, TMP_PTR_L
+    CALL PROG_GET_TEXT_PTR
     ; skip spaces
     CALL SKIPSP
 
@@ -176,7 +177,10 @@ DFNS7:
     CALL SKIPSP
 
     ; store state
-    STORE R4, DATA_INDEX
+    LOAD TMP_PTR_H, R0
+    STORE R0, DATA_LINE_H
+    LOAD TMP_PTR_L, R0
+    STORE R0, DATA_LINE_L
     STORE R1, DATA_PTR_H
     STORE R2, DATA_PTR_L
     SET #0x01, R0
@@ -185,7 +189,9 @@ DFNS7:
     RET
 
 DFNS_NEXTLINE:
-    INC R4
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+    CALL PROG_NEXT_PTR
     JMP DFNS_LOOP
 
 DFNS_FAIL:
@@ -265,12 +271,13 @@ DNN_DELIM_DONE:
     LOADR R0, R1, R2
     CMP R0, #0x00
     JNZ R0, DNN_STORE
-    ; advance to next line for next statement
+    LOAD DATA_LINE_H, R1
+    LOAD DATA_LINE_L, R2
+    CALL PROG_NEXT_PTR
+    STORE R1, DATA_LINE_H
+    STORE R2, DATA_LINE_L
     SET #0x00, R0
     STORE R0, DATA_VALID
-    LOAD DATA_INDEX, R0
-    INC R0
-    STORE R0, DATA_INDEX
     JMP DNN_OK
 
 DNN_STORE:
@@ -296,7 +303,7 @@ DNN_FAIL:
     SET #0x00, R0
     RET
 
-.org 0x9700
+.org 0x9A00
 
 ; ---------------------------------------------------------------------------
 ; DATA_NEXT_STR
@@ -419,11 +426,13 @@ DNS_POST2:
     LOADR R0, R1, R2
     CMP R0, #0x00
     JNZ R0, DNS_STORE
+    LOAD DATA_LINE_H, R1
+    LOAD DATA_LINE_L, R2
+    CALL PROG_NEXT_PTR
+    STORE R1, DATA_LINE_H
+    STORE R2, DATA_LINE_L
     SET #0x00, R0
     STORE R0, DATA_VALID
-    LOAD DATA_INDEX, R0
-    INC R0
-    STORE R0, DATA_INDEX
     JMP DNS_OK
 
 DNS_STORE:

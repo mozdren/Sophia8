@@ -107,6 +107,7 @@ This modular split is important for maintainability. New features should be adde
 
 ### Flow and control
 - `RUN`
+- packed variable-length program storage with 16-bit line numbers
 - `GOTO`
 - `IF ... THEN ... [ELSE ...]`
 - `GOSUB` / `RETURN`
@@ -153,6 +154,7 @@ This modular split is important for maintainability. New features should be adde
 - core libraries and BASIC composition start around `0x0400`
 - BASIC fixed strings: `0x0200+`
 - BASIC state blocks: `0x6800+`
+- BASIC program storage uses packed variable-length line records in RAM
 - `basic_strfn.s8.asm`: `0x7000`
 - `basic_data_cmd.s8.asm`: `0xC000`
 - VM MMIO: `0xFF00..0xFF03`

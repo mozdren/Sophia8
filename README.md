@@ -50,10 +50,13 @@ Useful commands:
 
 Implementation lives in `basic_*.s8.asm` files.
 
+Program lines are stored as packed variable-length records with 16-bit line numbers. Practical BASIC program capacity depends on free RAM and average line length.
+
 ### Implemented BASIC areas
 
 #### Program structure and flow
 - line-numbered program storage and `RUN`
+- packed variable-length program storage with 16-bit line numbers
 - `GOTO`
 - `IF ... THEN ... [ELSE ...]`
 - `GOSUB` / `RETURN`

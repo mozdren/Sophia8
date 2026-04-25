@@ -1,19 +1,24 @@
-; BASIC program storage helpers
-; Extracted from sophia_basic_v1.s8.asm to keep core slim.
+; BASIC program storage helpers backed by packed variable-length records.
 ;
-; Provides:
-;  - HANDLE_PROGLINE (parses/dispatches numbered lines in REPL)
-;  - STORE_LINE / DELETE_LINE / DELETE_BY_LINENO
-;  - FIND_LINE and LIST_ALL
+; Record layout:
+;   +0..1 line number (H,L)
+;   +2    text length (bytes)
+;   +3..  line text
+;   +N    trailing NUL for PUTS/text scans
 ;
-; Dependencies:
-;  - basic_state.s8.asm provides LINECOUNT and temp vars
-;  - basic_helpers.s8.asm provides ADD_ENTRY_OFFSET
-;  - kernel/cli/fmt provide PUTC/PUTS/PUTDEC8 etc.
-;
+; Program records are kept in insertion order in RAM `0x4000..0x67FF`.
+; `PROG_END_*` points just past the last record.
+
+PROG_RESET:
+    SET #0x00, R0
+    STORE R0, LINECOUNT
+    SET #0x40, R0
+    STORE R0, PROG_END_H
+    SET #0x00, R0
+    STORE R0, PROG_END_L
+    RET
 
 HANDLE_PROGLINE:
-    ; parse line number => uint16
     STORE R1, CURPTR_H
     STORE R2, CURPTR_L
     CALL PARSE_U16_DEC
@@ -23,12 +28,10 @@ HANDLE_PROGLINE:
     LOAD CURPTR_L, R2
 
     CALL SKIPSP
-    ; if end => delete
     LOADR R0, R1, R2
     CMP R0, #0x00
     JZ R0, DELETE_LINE
 
-    ; save src ptr
     STORE R1, CURSRC_H
     STORE R2, CURSRC_L
     CALL STORE_LINE
@@ -38,126 +41,85 @@ DELETE_LINE:
     CALL DELETE_BY_LINENO
     JMP REPL
 
-; STORE_LINE: replace if exists else append
-STORE_LINE:
-    CALL FIND_LINE
-    CMP R0, #0x01
-    JZ R0, SL_WRITE
-
-    LOAD LINECOUNT, R4
-    SET #0x00, R7
-    ADDR R4, R7
-    CMP R7, #100
-    JZ R7, SL_FAIL
-
-    INC R4
-    STORE R4, LINECOUNT
-    DEC R4
-
-SL_WRITE:
-    ; dst = 0x4000 + index*84
-    SET #0x40, R1
-    SET #0x00, R2
-    SET #0x00, R6
-    ADDR R4, R6
-    CALL ADD_ENTRY_OFFSET
-
-    ; write lineno
-    LOAD TMP_LINENO_H, R0
-    STORER R0, R1, R2
+; PROG_GET_TEXT_PTR
+;   Input : R1:R2 = record start
+;   Output: R0 = text length, R1:R2 = text start
+PROG_GET_TEXT_PTR:
     INC R2
-    JNZ R2, BPS_SL1
+    JNZ R2, BPS_GTP1
     INC R1
-BPS_SL1:
-    LOAD TMP_LINENO_L, R0
-    STORER R0, R1, R2
+BPS_GTP1:
     INC R2
-    JNZ R2, BPS_SL2
+    JNZ R2, BPS_GTP2
     INC R1
-BPS_SL2:
-    ; len ptr
-    STORE R1, TMP_PTR_H
-    STORE R2, TMP_PTR_L
-
-    ; advance dst past len byte
+BPS_GTP2:
+    LOADR R0, R1, R2
     INC R2
-    JNZ R2, BPS_SL_LENOK
+    JNZ R2, BPS_GTP3
     INC R1
-BPS_SL_LENOK:
-
-    ; copy text
-    LOAD CURSRC_H, R3
-    LOAD CURSRC_L, R4
-    SET #0x00, R5
-BPS_SL_CPY:
-    SET #0x00, R6
-    ADDR R5, R6
-    CMP R6, #80
-    JZ R6, BPS_SL_DONE
-    LOADR R0, R3, R4
-    CMP R0, #0x00
-    JZ R0, BPS_SL_DONE
-    STORER R0, R1, R2
-    INC R2
-    JNZ R2, BPS_SLD1
-    INC R1
-BPS_SLD1:
-    INC R4
-    JNZ R4, BPS_SLS1
-    INC R3
-BPS_SLS1:
-    INC R5
-    JMP BPS_SL_CPY
-BPS_SL_DONE:
-    SET #0x00, R0
-    STORER R0, R1, R2
-
-    ; write len
-    LOAD TMP_PTR_H, R1
-    LOAD TMP_PTR_L, R2
-    SET #0x00, R0
-    ADDR R5, R0
-    STORER R0, R1, R2
+BPS_GTP3:
     RET
 
-SL_FAIL:
-    CALL PRINT_SYNTAX_ERROR
+; PROG_NEXT_PTR
+;   Input : R1:R2 = record start
+;   Output: R1:R2 = next record start
+PROG_NEXT_PTR:
+    CALL PROG_GET_TEXT_PTR
+    ADDR R0, R2
+    JNC BPS_NP1
+    INC R1
+BPS_NP1:
+    INC R2
+    JNZ R2, BPS_NP2
+    INC R1
+BPS_NP2:
     RET
 
-; FIND_LINE: lineno in TMP_LINENO_H/L, returns R0=1 found, R4=index
+; FIND_LINE
+;   Input : TMP_LINENO_H/L
+;   Output: R0 = 1 if found, 0 otherwise
+;           R1:R2 = matching record ptr or PROG_END when not found
 FIND_LINE:
-    SET #0x00, R4
-    LOAD LINECOUNT, R5
-    STORE R5, RUN_LC
-BPS_FL_LOOP:
-    LOAD RUN_LC, R6
-    SET #0x00, R7
-    ADDR R4, R7
-    SUBR R6, R7
-    JZ R7, BPS_FL_NO
-
     SET #0x40, R1
     SET #0x00, R2
-    SET #0x00, R6
-    ADDR R4, R6
-    CALL ADD_ENTRY_OFFSET
+BPS_FL_LOOP:
+    LOAD PROG_END_H, R3
+    LOAD PROG_END_L, R4
+    SET #0x00, R5
+    ADDR R1, R5
+    CMPR R5, R3
+    JNZ R5, BPS_FL_HAVE
+    SET #0x00, R5
+    ADDR R2, R5
+    CMPR R5, R4
+    JZ R5, BPS_FL_NO
 
+BPS_FL_HAVE:
     LOADR R6, R1, R2
     INC R2
     JNZ R2, BPS_FL1
     INC R1
 BPS_FL1:
     LOADR R7, R1, R2
+    DEC R2
+    JNC BPS_FL2
+    DEC R1
+BPS_FL2:
 
     LOAD TMP_LINENO_H, R0
-    CMPR R6, R0
-    JNZ R6, BPS_FL_NEXT
-    LOAD TMP_LINENO_L, R0
-    CMPR R7, R0
-    JZ R7, BPS_FL_YES
+    SET #0x00, R5
+    ADDR R6, R5
+    CMPR R5, R0
+    JNZ R5, BPS_FL_ADVANCE
 
-BPS_FL_NEXT:
-    INC R4
+    LOAD TMP_LINENO_L, R0
+    SET #0x00, R5
+    ADDR R7, R5
+    CMPR R5, R0
+    JZ R5, BPS_FL_YES
+
+BPS_FL_ADVANCE:
+    CALL PROG_NEXT_PTR
     JMP BPS_FL_LOOP
 BPS_FL_NO:
     SET #0x00, R0
@@ -166,89 +128,306 @@ BPS_FL_YES:
     SET #0x01, R0
     RET
 
+; PROG_DELETE_AT
+;   Input : R1:R2 = record start
+PROG_DELETE_AT:
+    STORE R1, TMP_PTR_H
+    STORE R2, TMP_PTR_L
+    CALL PROG_NEXT_PTR
+    SET #0x00, R3
+    ADDR R1, R3
+    SET #0x00, R4
+    ADDR R2, R4
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+BPS_DEL_LOOP:
+    LOAD PROG_END_H, R5
+    LOAD PROG_END_L, R6
+    SET #0x00, R7
+    ADDR R3, R7
+    CMPR R7, R5
+    JNZ R7, BPS_DEL_COPY
+    SET #0x00, R7
+    ADDR R4, R7
+    CMPR R7, R6
+    JZ R7, BPS_DEL_DONE
+
+BPS_DEL_COPY:
+    LOADR R0, R3, R4
+    STORER R0, R1, R2
+    INC R4
+    JNZ R4, BPS_DEL_SOK
+    INC R3
+BPS_DEL_SOK:
+    INC R2
+    JNZ R2, BPS_DEL_DOK
+    INC R1
+BPS_DEL_DOK:
+    JMP BPS_DEL_LOOP
+
+BPS_DEL_DONE:
+    STORE R1, PROG_END_H
+    STORE R2, PROG_END_L
+    LOAD LINECOUNT, R0
+    CMP R0, #0x00
+    JZ R0, BPS_DEL_RET
+    DEC R0
+    STORE R0, LINECOUNT
+BPS_DEL_RET:
+    RET
+
+; PROG_INSERT_SPACE_AT
+;   Input : R1:R2 = insertion point, R0 = record size
+;   Output: R0 = 1 on success, 0 on overflow
+PROG_INSERT_SPACE_AT:
+    STORE R1, TMP_PTR_H
+    STORE R2, TMP_PTR_L
+    STORE R0, TMPH
+
+    LOAD PROG_END_H, R3
+    LOAD PROG_END_L, R4
+    SET #0x00, R5
+    ADDR R3, R5
+    SET #0x00, R6
+    ADDR R4, R6
+    ADDR R0, R6
+    JNC BPS_INS1
+    INC R5
+BPS_INS1:
+    STORE R5, DIVH
+    STORE R6, DIVL
+    SET #0x00, R7
+    ADDR R5, R7
+    CMP R7, #0x68
+    JC BPS_INS_SPACE
+    JNZ R7, BPS_INS_FAIL
+    SET #0x00, R7
+    ADDR R6, R7
+    CMP R7, #0x00
+    JNZ R7, BPS_INS_FAIL
+
+BPS_INS_SPACE:
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+    LOAD PROG_END_H, R3
+    LOAD PROG_END_L, R4
+    SET #0x00, R7
+    ADDR R1, R7
+    CMPR R7, R3
+    JNZ R7, BPS_INS_SHIFT
+    SET #0x00, R7
+    ADDR R2, R7
+    CMPR R7, R4
+    JZ R7, BPS_INS_NOSHIFT
+
+BPS_INS_SHIFT:
+    SET #0x00, R5
+    ADDR R3, R5
+    SET #0x00, R6
+    ADDR R4, R6
+    LOAD TMPH, R0
+    ADDR R0, R6
+    JNC BPS_INS2
+    INC R5
+BPS_INS2:
+BPS_INS_LOOP:
+    SET #0x00, R7
+    ADDR R3, R7
+    CMPR R7, R1
+    JNZ R7, BPS_INS_DEC
+    SET #0x00, R7
+    ADDR R4, R7
+    CMPR R7, R2
+    JZ R7, BPS_INS_NOSHIFT
+
+BPS_INS_DEC:
+    DEC R4
+    JNC BPS_INS3
+    DEC R3
+BPS_INS3:
+    DEC R6
+    JNC BPS_INS4
+    DEC R5
+BPS_INS4:
+    LOADR R7, R3, R4
+    STORER R7, R5, R6
+    JMP BPS_INS_LOOP
+
+BPS_INS_NOSHIFT:
+    LOAD DIVH, R7
+    STORE R7, PROG_END_H
+    LOAD DIVL, R7
+    STORE R7, PROG_END_L
+    LOAD LINECOUNT, R0
+    INC R0
+    STORE R0, LINECOUNT
+    SET #0x01, R0
+    RET
+
+BPS_INS_FAIL:
+    SET #0x00, R0
+    RET
+
+; PROG_CALC_TEXT_SIZE
+;   Input : CURSRC_H/L
+;   Output: R0 = full record size, R5 = text length
+PROG_CALC_TEXT_SIZE:
+    LOAD CURSRC_H, R3
+    LOAD CURSRC_L, R4
+    SET #0x00, R5
+BPS_CTS_LOOP:
+    LOADR R0, R3, R4
+    CMP R0, #0x00
+    JZ R0, BPS_CTS_DONE
+    INC R5
+    INC R4
+    JNZ R4, BPS_CTS_LOOP
+    INC R3
+    JMP BPS_CTS_LOOP
+BPS_CTS_DONE:
+    SET #0x04, R0
+    ADDR R5, R0
+    RET
+
+; PROG_WRITE_RECORD
+;   Input : R1:R2 = destination record start
+PROG_WRITE_RECORD:
+    LOAD TMP_LINENO_H, R0
+    STORER R0, R1, R2
+    INC R2
+    JNZ R2, BPS_WR1
+    INC R1
+BPS_WR1:
+    LOAD TMP_LINENO_L, R0
+    STORER R0, R1, R2
+    INC R2
+    JNZ R2, BPS_WR2
+    INC R1
+BPS_WR2:
+    STORE R1, TMP_ENTRY_H
+    STORE R2, TMP_ENTRY_L
+    INC R2
+    JNZ R2, BPS_WR3
+    INC R1
+BPS_WR3:
+
+    LOAD CURSRC_H, R3
+    LOAD CURSRC_L, R4
+    SET #0x00, R5
+BPS_WR_LOOP:
+    LOADR R0, R3, R4
+    CMP R0, #0x00
+    JZ R0, BPS_WR_DONE
+    STORER R0, R1, R2
+    INC R2
+    JNZ R2, BPS_WR4
+    INC R1
+BPS_WR4:
+    INC R4
+    JNZ R4, BPS_WR5
+    INC R3
+BPS_WR5:
+    INC R5
+    JMP BPS_WR_LOOP
+
+BPS_WR_DONE:
+    SET #0x00, R0
+    STORER R0, R1, R2
+    LOAD TMP_ENTRY_H, R1
+    LOAD TMP_ENTRY_L, R2
+    SET #0x00, R0
+    ADDR R5, R0
+    STORER R0, R1, R2
+    RET
+
+STORE_LINE:
+    CALL FIND_LINE
+    STORE R1, TMP_PTR_H
+    STORE R2, TMP_PTR_L
+    STORE R0, TMPL
+
+    LOAD TMPL, R0
+    CMP R0, #0x01
+    JNZ R0, BPS_SL_NEW
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+    CALL PROG_DELETE_AT
+    JMP BPS_SL_SIZE
+
+BPS_SL_NEW:
+    LOAD LINECOUNT, R0
+    CMP R0, #0xFF
+    JZ R0, BPS_SL_FAIL
+
+BPS_SL_SIZE:
+    CALL PROG_CALC_TEXT_SIZE
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+    CALL PROG_INSERT_SPACE_AT
+    CMP R0, #0x01
+    JNZ R0, BPS_SL_FAIL
+
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+    CALL PROG_WRITE_RECORD
+    RET
+
+BPS_SL_FAIL:
+    CALL PRINT_SYNTAX_ERROR
+    RET
+
 DELETE_BY_LINENO:
     CALL FIND_LINE
     CMP R0, #0x01
-    JNZ R0, DB_DONE
-
-    SET #0x40, R1
-    SET #0x00, R2
-    SET #0x00, R6
-    ADDR R4, R6
-    CALL ADD_ENTRY_OFFSET
-
-    ; skip lineno
-    INC R2
-    JNZ R2, BPS_DB1
-    INC R1
-BPS_DB1:
-    INC R2
-    JNZ R2, BPS_DB2
-    INC R1
-BPS_DB2:
-    ; len=0
-    SET #0x00, R0
-    STORER R0, R1, R2
-DB_DONE:
+    JNZ R0, BPS_DB_DONE
+    CALL PROG_DELETE_AT
+BPS_DB_DONE:
     RET
 
 LIST_ALL:
-    SET #0x00, R4
-    LOAD LINECOUNT, R5
-    STORE R5, RUN_LC
-BPS_LA_LOOP:
-    LOAD RUN_LC, R6
-    SET #0x00, R7
-    ADDR R4, R7
-    SUBR R6, R7
-    JZ R7, BPS_LA_DONE
-
     SET #0x40, R1
     SET #0x00, R2
-    SET #0x00, R6
-    ADDR R4, R6
-    CALL ADD_ENTRY_OFFSET
+BPS_LA_LOOP:
+    LOAD PROG_END_H, R3
+    LOAD PROG_END_L, R4
+    SET #0x00, R5
+    ADDR R1, R5
+    CMPR R5, R3
+    JNZ R5, BPS_LA_HAVE
+    SET #0x00, R5
+    ADDR R2, R5
+    CMPR R5, R4
+    JZ R5, BPS_LA_DONE
 
-    ; read lineno high/low
+BPS_LA_HAVE:
+    STORE R1, TMP_PTR_H
+    STORE R2, TMP_PTR_L
     LOADR R6, R1, R2
     INC R2
     JNZ R2, BPS_LA1
     INC R1
 BPS_LA1:
     LOADR R7, R1, R2
-    INC R2
-    JNZ R2, BPS_LA2
-    INC R1
-BPS_LA2:
-    ; len
-    LOADR R5, R1, R2
-    CMP R5, #0x00
-    JZ R5, BPS_LA_NEXT
-
-    ; preserve loop regs + pointer across PUTDEC16U
-    PUSH R4
-    PUSH R5
-    STORE R1, TMP_PTR_H
-    STORE R2, TMP_PTR_L
+    PUSH R1
+    PUSH R2
     CALL PUTDEC16U
-    LOAD TMP_PTR_H, R1
-    LOAD TMP_PTR_L, R2
-    POP R5
-    POP R4
+    POP R2
+    POP R1
 
     SET #0x20, R0
     CALL PUTC
 
-    INC R2
-    JNZ R2, BPS_LA3
-    INC R1
-BPS_LA3:
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+    CALL PROG_GET_TEXT_PTR
     CALL PUTS
     SET #0x0A, R0
     CALL PUTC
 
-BPS_LA_NEXT:
-    INC R4
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+    CALL PROG_NEXT_PTR
     JMP BPS_LA_LOOP
+
 BPS_LA_DONE:
     RET

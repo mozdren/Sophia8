@@ -28,6 +28,10 @@ TMP_ENTRY_L: .byte 0
 INT_SIGN: .byte 0
 RUN_LC: .byte 0
 RUN_INDEX: .byte 0
+RUN_PTR_H: .byte 0
+RUN_PTR_L: .byte 0
+RUN_NEXT_H: .byte 0
+RUN_NEXT_L: .byte 0
 JUMPED: .byte 0
 RUN_STOP: .byte 0
 RUNNING: .byte 0
@@ -47,6 +51,8 @@ TOKSTART_L: .byte 0
 ; Phase 14 additions (DATA / READ / RESTORE)
 DATA_VALID: .byte 0        ; 0=not initialized, 1=valid pointer
 DATA_INDEX: .byte 0        ; current program line index (0..LINECOUNT-1)
+DATA_LINE_H: .byte 0       ; current DATA scan record pointer
+DATA_LINE_L: .byte 0
 DATA_PTR_H: .byte 0        ; pointer into current DATA payload
 DATA_PTR_L: .byte 0
 
@@ -58,16 +64,18 @@ RNG_SEED_PTR_L: .byte 0x1F
 GOSUB_SP: .byte 0
 FOR_SP: .byte 0
 CLS_SP: .byte 0
-MATCH_INDEX: .byte 0
-SCAN_INDEX: .byte 0
+MATCH_SP: .byte 0
+MATCH_PTR_H: .byte 0
+MATCH_PTR_L: .byte 0
+SCAN_PTR_H: .byte 0
+SCAN_PTR_L: .byte 0
 
-; GOSUB stack: 16 return indices (byte) stored sequentially at 0x6E00
+; GOSUB stack: 16 return pointers (H,L pairs) stored sequentially at 0x6E00
 ; FOR stack entries at 0x6E20, max 8 entries:
 ;   +0..1 var entry ptr (H,L)
 ;   +2..3 end value (H,L)
 ;   +4..5 step value (H,L)
-;   +6    return index (next line index)
-;   +7    padding
+;   +6..7 return ptr (H,L) for the next program record
 
 ; ---------------------------------------------------------------------------
 ; Scratch buffers (must NOT overlap with code)
@@ -84,3 +92,10 @@ IDBUF: .byte 0,0,0,0,0,0,0,0
 ; Each entry is 1 byte: 1=DO, 2=WHILE. Max nesting depth 16.
 .org 0x68B0
 CLS_STACK: .byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+
+; Pointer stack for matching DO/WHILE/ENDWHILE blocks while scanning.
+.org 0x68C0
+MATCH_STACK_H: .byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+
+.org 0x68D0
+MATCH_STACK_L: .byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
