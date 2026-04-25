@@ -28,7 +28,64 @@ CMD_PRINT:
     LOAD CURPTR_H, R1
     LOAD CURPTR_L, R2
     CALL SKIPSP
-    CALL DO_PRINT
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    SET #0x00, R0
+    STORE R0, PRINT_SEP_KIND
+
+CP_LOOP:
+    CALL SKIPSP_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x00
+    JZ R0, CP_DONE
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x3A
+    JZ R0, CP_DONE
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x27
+    JZ R0, CP_DONE
+
+    LOAD PRINT_SEP_KIND, R0
+    CMP R0, #0x02
+    JNZ R0, CP_ITEM
+    SET #0x20, R0
+    CALL PUTC
+
+CP_ITEM:
+    SET #0x00, R0
+    STORE R0, PRINT_SEP_KIND
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+    CALL DO_PRINT_ITEM
+
+    CALL SKIPSP_CUR
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x3B
+    JZ R0, CP_SEMI
+    CALL PEEKCHAR_CUR
+    CMP R0, #0x2C
+    JZ R0, CP_COMMA
+    JMP CP_DONE
+
+CP_SEMI:
+    CALL GETCHAR_CUR
+    SET #0x01, R0
+    STORE R0, PRINT_SEP_KIND
+    JMP CP_LOOP
+
+CP_COMMA:
+    CALL GETCHAR_CUR
+    SET #0x02, R0
+    STORE R0, PRINT_SEP_KIND
+    JMP CP_LOOP
+
+CP_DONE:
+    LOAD PRINT_SEP_KIND, R0
+    CMP R0, #0x00
+    JNZ R0, CP_RET
+    SET #0x0A, R0
+    CALL PUTC
+CP_RET:
     RET
 
 CMD_INPUT:
@@ -164,9 +221,18 @@ IN_SYNTAX:
     JMP IN_DONE
 
 ; ---------------------------------------------------------------------------
-; DO_PRINT: prints string literal, string variable, or numeric expression
+; DO_PRINT: compatibility wrapper for printing one item followed by newline
 ; ---------------------------------------------------------------------------
 DO_PRINT:
+    CALL DO_PRINT_ITEM
+    SET #0x0A, R0
+    CALL PUTC
+    RET
+
+; ---------------------------------------------------------------------------
+; DO_PRINT_ITEM: prints one string/numeric item without forcing a newline
+; ---------------------------------------------------------------------------
+DO_PRINT_ITEM:
     ; Try full string expression (functions, literals, vars, concatenation).
     ; STR_PARSE_EXPR_CONCAT operates on CURPTR_*.
     PUSH R1
@@ -183,7 +249,7 @@ DO_PRINT:
 
     ; success: print exactly R5 bytes from R6:R7
 DP_STR_EXPR_LOOP:
-    JZ R5, DP_NL
+    JZ R5, DP_DONE
     LOADR R0, R6, R7
     CALL PUTC
     INC R7
@@ -259,9 +325,9 @@ DPS2B:
 
     ; print exactly LEN bytes (more robust than relying on NUL)
 DPS_LOOP:
-    JZ R5, DP_NL
+    JZ R5, DP_DONE
     LOADR R0, R6, R7
-    JZ R0, DP_NL
+    JZ R0, DP_DONE
     CALL PUTC
     INC R7
     JNZ R7, DPS_P
@@ -286,7 +352,7 @@ DP_EXPR2:
     STORE R2, CURPTR_L
     CALL EVAL_EXPR
     CALL PUTDEC16S
-    JMP DP_NL
+    JMP DP_DONE
 
 DP_STR:
     INC R2
@@ -316,7 +382,7 @@ DP_STR_DONE_NUL:
     ; store updated CURPTR (at NUL) so the statement parser can continue
     STORE R1, CURPTR_H
     STORE R2, CURPTR_L
-    JMP DP_NL
+    JMP DP_DONE
 
 DP_STR_DONE_QUOTE:
     ; consume closing quote and store CURPTR
@@ -326,9 +392,7 @@ DP_STR_DONE_QUOTE:
 DSQ1:
     STORE R1, CURPTR_H
     STORE R2, CURPTR_L
-    JMP DP_NL
+    JMP DP_DONE
 
-DP_NL:
-    SET #0x0A, R0
-    CALL PUTC
+DP_DONE:
     RET

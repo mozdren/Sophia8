@@ -125,6 +125,7 @@ This modular split is important for maintainability. New features should be adde
 
 ### I/O and runtime helpers
 - `PRINT`
+- `PRINT` item lists with `;` and `,`, including trailing `;` newline suppression
 - `INPUT`
 - `RANDOMIZE`
 - `RND()`

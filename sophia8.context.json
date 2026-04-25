@@ -220,6 +220,7 @@
       "String variables",
       "DIM arrays",
       "PRINT",
+      "PRINT item lists with ';' and ',' separators",
       "INPUT",
       "PEEK(address)",
       "POKE address, value",

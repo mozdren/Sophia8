@@ -69,6 +69,7 @@ MATCH_PTR_H: .byte 0
 MATCH_PTR_L: .byte 0
 SCAN_PTR_H: .byte 0
 SCAN_PTR_L: .byte 0
+PRINT_SEP_KIND: .byte 0
 
 ; GOSUB stack: 16 return pointers (H,L pairs) stored sequentially at 0x6E00
 ; FOR stack entries at 0x6E20, max 8 entries:
