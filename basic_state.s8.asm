@@ -4,6 +4,8 @@
 
 .org 0x6800
 LINECOUNT: .byte 0
+PROG_END_H: .byte 0
+PROG_END_L: .byte 0
 TMP_LINENO_H: .byte 0
 TMP_LINENO_L: .byte 0
 CURPTR_H: .byte 0

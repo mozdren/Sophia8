@@ -13,13 +13,14 @@
 ;
 
 HANDLE_PROGLINE:
-    ; parse line number => uint8 (stored in low byte), high byte = 0
-    CALL PARSE_UINT8
-    SET #0x00, R6           ; high byte
-    SET #0x00, R7           ; low byte
-    ADDR R0, R7
+    ; parse line number => uint16
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
+    CALL PARSE_U16_DEC
     STORE R6, TMP_LINENO_H
     STORE R7, TMP_LINENO_L
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
 
     CALL SKIPSP
     ; if end => delete
@@ -54,7 +55,7 @@ STORE_LINE:
     DEC R4
 
 SL_WRITE:
-    ; dst = 0x3000 + index*84
+    ; dst = 0x4000 + index*84
     SET #0x40, R1
     SET #0x00, R2
     SET #0x00, R6
@@ -65,47 +66,49 @@ SL_WRITE:
     LOAD TMP_LINENO_H, R0
     STORER R0, R1, R2
     INC R2
-    JNZ R2, SL1
+    JNZ R2, BPS_SL1
     INC R1
-SL1:
+BPS_SL1:
     LOAD TMP_LINENO_L, R0
     STORER R0, R1, R2
     INC R2
-    JNZ R2, SL2
+    JNZ R2, BPS_SL2
     INC R1
-SL2:
+BPS_SL2:
     ; len ptr
     STORE R1, TMP_PTR_H
     STORE R2, TMP_PTR_L
 
     ; advance dst past len byte
     INC R2
-    JNZ R2, SL_LENOK
+    JNZ R2, BPS_SL_LENOK
     INC R1
-SL_LENOK:
+BPS_SL_LENOK:
 
     ; copy text
     LOAD CURSRC_H, R3
     LOAD CURSRC_L, R4
     SET #0x00, R5
-SL_CPY:
-    CMP R5, #80
-    JZ R5, SL_DONE
+BPS_SL_CPY:
+    SET #0x00, R6
+    ADDR R5, R6
+    CMP R6, #80
+    JZ R6, BPS_SL_DONE
     LOADR R0, R3, R4
     CMP R0, #0x00
-    JZ R0, SL_DONE
+    JZ R0, BPS_SL_DONE
     STORER R0, R1, R2
     INC R2
-    JNZ R2, SLD1
+    JNZ R2, BPS_SLD1
     INC R1
-SLD1:
+BPS_SLD1:
     INC R4
-    JNZ R4, SLS1
+    JNZ R4, BPS_SLS1
     INC R3
-SLS1:
+BPS_SLS1:
     INC R5
-    JMP SL_CPY
-SL_DONE:
+    JMP BPS_SL_CPY
+BPS_SL_DONE:
     SET #0x00, R0
     STORER R0, R1, R2
 
@@ -121,17 +124,17 @@ SL_FAIL:
     CALL PRINT_SYNTAX_ERROR
     RET
 
-; FIND_LINE: lineno in TMP_LINENO, returns R0=1 found, R4=index
+; FIND_LINE: lineno in TMP_LINENO_H/L, returns R0=1 found, R4=index
 FIND_LINE:
     SET #0x00, R4
     LOAD LINECOUNT, R5
     STORE R5, RUN_LC
-FL_LOOP:
+BPS_FL_LOOP:
     LOAD RUN_LC, R6
     SET #0x00, R7
     ADDR R4, R7
     SUBR R6, R7
-    JZ R7, FL_NO
+    JZ R7, BPS_FL_NO
 
     SET #0x40, R1
     SET #0x00, R2
@@ -141,21 +144,25 @@ FL_LOOP:
 
     LOADR R6, R1, R2
     INC R2
-    JNZ R2, FL1
+    JNZ R2, BPS_FL1
     INC R1
-FL1:
+BPS_FL1:
     LOADR R7, R1, R2
 
+    LOAD TMP_LINENO_H, R0
+    CMPR R6, R0
+    JNZ R6, BPS_FL_NEXT
     LOAD TMP_LINENO_L, R0
     CMPR R7, R0
-    JZ R7, FL_YES
+    JZ R7, BPS_FL_YES
 
+BPS_FL_NEXT:
     INC R4
-    JMP FL_LOOP
-FL_NO:
+    JMP BPS_FL_LOOP
+BPS_FL_NO:
     SET #0x00, R0
     RET
-FL_YES:
+BPS_FL_YES:
     SET #0x01, R0
     RET
 
@@ -172,13 +179,13 @@ DELETE_BY_LINENO:
 
     ; skip lineno
     INC R2
-    JNZ R2, DB1
+    JNZ R2, BPS_DB1
     INC R1
-DB1:
+BPS_DB1:
     INC R2
-    JNZ R2, DB2
+    JNZ R2, BPS_DB2
     INC R1
-DB2:
+BPS_DB2:
     ; len=0
     SET #0x00, R0
     STORER R0, R1, R2
@@ -189,12 +196,12 @@ LIST_ALL:
     SET #0x00, R4
     LOAD LINECOUNT, R5
     STORE R5, RUN_LC
-LA_LOOP:
+BPS_LA_LOOP:
     LOAD RUN_LC, R6
     SET #0x00, R7
     ADDR R4, R7
     SUBR R6, R7
-    JZ R7, LA_DONE
+    JZ R7, BPS_LA_DONE
 
     SET #0x40, R1
     SET #0x00, R2
@@ -202,27 +209,28 @@ LA_LOOP:
     ADDR R4, R6
     CALL ADD_ENTRY_OFFSET
 
-    ; read lineno low
-    INC R2
-    JNZ R2, LA1
-    INC R1
-LA1:
-    LOADR R0, R1, R2
-    INC R2
-    JNZ R2, LA2
-    INC R1
-LA2:
-    ; len
+    ; read lineno high/low
     LOADR R6, R1, R2
-    CMP R6, #0x00
-    JZ R6, LA_NEXT
+    INC R2
+    JNZ R2, BPS_LA1
+    INC R1
+BPS_LA1:
+    LOADR R7, R1, R2
+    INC R2
+    JNZ R2, BPS_LA2
+    INC R1
+BPS_LA2:
+    ; len
+    LOADR R5, R1, R2
+    CMP R5, #0x00
+    JZ R5, BPS_LA_NEXT
 
-    ; preserve loop regs + pointer across PUTDEC8
+    ; preserve loop regs + pointer across PUTDEC16U
     PUSH R4
     PUSH R5
     STORE R1, TMP_PTR_H
     STORE R2, TMP_PTR_L
-    CALL PUTDEC8
+    CALL PUTDEC16U
     LOAD TMP_PTR_H, R1
     LOAD TMP_PTR_L, R2
     POP R5
@@ -232,19 +240,15 @@ LA2:
     CALL PUTC
 
     INC R2
-    JNZ R2, LA3
+    JNZ R2, BPS_LA3
     INC R1
-LA3:
+BPS_LA3:
     CALL PUTS
     SET #0x0A, R0
     CALL PUTC
 
-LA_NEXT:
+BPS_LA_NEXT:
     INC R4
-    JMP LA_LOOP
-LA_DONE:
+    JMP BPS_LA_LOOP
+BPS_LA_DONE:
     RET
-
-; ---------------------------------------------------------------------------
-; RUN engine: executes PRINT, GOTO, IF..THEN, END/STOP
-; ---------------------------------------------------------------------------

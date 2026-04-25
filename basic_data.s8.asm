@@ -37,11 +37,11 @@ DATA_RESET:
 ; ---------------------------------------------------------------------------
 ; DATA_RESTORE_TO_LINE
 ;   Restore DATA scan starting at the first program line whose line number
-;   is >= TMP_LINENO_L.
+;   is >= TMP_LINENO_H/L.
 ;   Sets DATA_INDEX and clears DATA_VALID so next READ will rescan.
 ; ---------------------------------------------------------------------------
 DATA_RESTORE_TO_LINE:
-    ; target in TMP_LINENO_L
+    ; target in TMP_LINENO_H/L
     SET #0x00, R4          ; idx
     LOAD LINECOUNT, R5
 DRTL_LOOP:
@@ -58,21 +58,24 @@ DRTL_LOOP:
     ADDR R4, R6
     CALL ADD_ENTRY_OFFSET
 
-    ; read lineno low byte (second byte)
+    ; read line number
+    LOADR R6, R1, R2       ; high
     INC R2
     JNZ R2, DRTL1
     INC R1
 DRTL1:
-    LOADR R0, R1, R2       ; low
+    LOADR R7, R1, R2       ; low
 
-    LOAD TMP_LINENO_L, R7
-    ; if line_low >= target => choose this idx
-    SET #0x00, R6
-    ADDR R0, R6
-    SUBR R7, R6            ; R6 = line_low - target
-    ; if borrow => line_low < target => continue
+    LOAD TMP_LINENO_H, R0
+    CMPR R6, R0
+    JC DRTL_PICK
+    JNZ R6, DRTL_NEXT
+
+    LOAD TMP_LINENO_L, R0
+    CMPR R7, R0
     JNC DRTL_PICK
 
+DRTL_NEXT:
     INC R4
     JMP DRTL_LOOP
 

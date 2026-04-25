@@ -118,12 +118,8 @@ CMD_RESTORE:
     CMP R0, #0x00
     JZ R0, CRS_ALL
 
-    ; parse line number as uint8
-    CALL PARSE_UINT8
-    SET #0x00, R6
-    ADDR R0, R6
-    SET #0x00, R7
-    ADDR R0, R7
+    ; parse line number as uint16
+    CALL PARSE_U16_DEC
     STORE R6, TMP_LINENO_H
     STORE R7, TMP_LINENO_L
 

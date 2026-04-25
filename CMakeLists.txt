@@ -61,3 +61,17 @@ add_test(
         -DMARKER=SOPHIA_BASIC_LOOP_TEST
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBasicTest.cmake
 )
+
+add_test(
+    NAME test_basic_high_lines
+    COMMAND ${CMAKE_COMMAND}
+        -DTEST_NAME=test_basic_high_lines
+        -DASM=$<TARGET_FILE:s8asm>
+        -DVM=$<TARGET_FILE:sophia8>
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DBINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+        -DBASIC_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/sophia_basic_test_high_lines.bas
+        -DEXPECTED_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/expected/basic_high_lines.txt
+        -DMARKER=SOPHIA_BASIC_HIGH_LINE_TEST
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBasicTest.cmake
+)

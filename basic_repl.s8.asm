@@ -38,13 +38,13 @@ REPL:
     SET #0x40, R2
     CALL PUTS
 
-    ; read line to 0x6C00 (CLI buffer) - keep away from code region
-    SET #0x6C, R1
+    ; read line to 0x6F00 (CLI buffer) - kept above current BASIC code
+    SET #0x6F, R1
     SET #0x00, R2
     SET #96, R3
     CALL READLINE_ECHO
 
-    ; make a stable copy to 0x6D00 so parsing is not affected by any
+    ; make a stable copy to 0x6F80 so parsing is not affected by any
     ; input/echo side-effects or stray terminators
     CALL COPY_INBUF_6C00_TO_6D00
 
@@ -54,13 +54,13 @@ REPL:
     CALL PUTS
 
     ; uppercase stable copy
-    SET #0x6D, R1
-    SET #0x00, R2
+    SET #0x6F, R1
+    SET #0x80, R2
     CALL TOUPPER_Z
 
     ; skip spaces
-    SET #0x6D, R1
-    SET #0x00, R2
+    SET #0x6F, R1
+    SET #0x80, R2
     CALL SKIPSP
     LOADR R0, R1, R2
     CMP R0, #0x00
@@ -125,12 +125,10 @@ RP1:
     JNZ R2, RP2
     INC R1
 RP2:
-    ; len
     LOADR R0, R1, R2
     CMP R0, #0x00
     JZ R0, RP_NEXT
 
-    ; text
     INC R2
     JNZ R2, RP3
     INC R1

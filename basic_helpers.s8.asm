@@ -8,6 +8,7 @@
 ; - COPY_INBUF_6C00_TO_6D00
 ; - GETTOKEN
 ; - PARSE_INT16
+; - PARSE_U16_DEC
 ; - ADD_ENTRY_OFFSET
 ; - RNG_NEXT (wrapper around RNG_NEXT16 from rng.s8.asm)
 
@@ -15,13 +16,14 @@
 
 ; ---------------------------------------------------------------------------
 ; COPY_INBUF_6C00_TO_6D00
-;   Copy NUL-terminated string from 0x6C00 to 0x6D00 (incl terminator).
+;   Copy NUL-terminated string from BASIC REPL input buffer 0x6F00
+;   to stable parse buffer 0x6F80 (incl terminator).
 ; ---------------------------------------------------------------------------
 COPY_INBUF_6C00_TO_6D00:
-    SET #0x6C, R1
+    SET #0x6F, R1
     SET #0x00, R2
-    SET #0x6D, R3
-    SET #0x00, R4
+    SET #0x6F, R3
+    SET #0x80, R4
 CIB_L0:
     LOADR R0, R1, R2
     STORER R0, R3, R4
@@ -160,6 +162,53 @@ PI16_DONE:
     JNZ R0, PI16_RET
     CALL NEG16
 PI16_RET:
+    RET
+
+; ---------------------------------------------------------------------------
+; PARSE_U16_DEC
+;   Parse unsigned decimal integer from CURPTR.
+;   Returns value in R6:R7 (unsigned 16-bit). Advances CURPTR.
+;   Uses the same multiply-by-10 logic as PARSE_INT16, but without sign.
+; ---------------------------------------------------------------------------
+PARSE_U16_DEC:
+    LOAD CURPTR_H, R1
+    LOAD CURPTR_L, R2
+
+    SET #0x00, R6
+    SET #0x00, R7
+
+PU16_LOOP:
+    CALL ISDIGIT
+    JZ R0, PU16_DONE
+    LOADR R0, R1, R2
+    SUB #0x30, R0
+
+    PUSH R1
+    PUSH R2
+    PUSH R0
+    SET #0x00, R4
+    ADDR R6, R4
+    SET #0x00, R5
+    ADDR R7, R5
+    SET #0x00, R6
+    SET #10, R7
+    CALL MUL16U
+    POP R0
+    POP R2
+    POP R1
+    ADDR R0, R7
+    JNC PU16_A1
+    INC R6
+PU16_A1:
+
+    INC R2
+    JNZ R2, PU16_LOOP
+    INC R1
+    JMP PU16_LOOP
+
+PU16_DONE:
+    STORE R1, CURPTR_H
+    STORE R2, CURPTR_L
     RET
 
 ; ---------------------------------------------------------------------------
