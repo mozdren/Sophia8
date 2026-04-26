@@ -1,6 +1,7 @@
 #include "graphics_c64.h"
 
 #include <cassert>
+#include <cstdlib>
 #include <cstdio>
 #include <cstdint>
 #include <vector>
@@ -16,7 +17,14 @@ static std::vector<uint8_t> read_file(const char* path)
     assert(sz > 0);
     std::vector<uint8_t> buf;
     buf.resize(static_cast<size_t>(sz));
-    std::fread(buf.data(), 1, buf.size(), f);
+    const size_t read = std::fread(buf.data(), 1, buf.size(), f);
+    if (read != buf.size())
+    {
+        std::fprintf(stderr, "failed to read %s: expected %zu bytes, got %zu\n",
+                     path, buf.size(), read);
+        std::fclose(f);
+        std::abort();
+    }
     std::fclose(f);
     return buf;
 }
