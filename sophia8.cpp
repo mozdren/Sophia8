@@ -35,6 +35,9 @@
 
 #include <chrono>
 #include <thread>
+#include <cctype>
+
+#include <SDL.h>
 
 #include "graphics_c64.h"
 
@@ -97,8 +100,247 @@ static uint8_t  mem[MEM_SIZE];  /* random access memory                      */
 /* Graphics (C64-style) ********************************************************/
 static bool g_gfx_enabled = false;
 static std::string g_gfx_out_path = "frame.ppm";
+static bool g_gfx_ppm_enabled = false;
 static int g_gfx_scale = 3;          /* reserved for future SDL backend */
 static bool g_gfx_fullscreen = false;/* reserved for future SDL backend */
+
+struct SdlGraphicsState
+{
+    SDL_Window* window = nullptr;
+    SDL_Renderer* renderer = nullptr;
+    SDL_Texture* texture = nullptr;
+    std::vector<uint8_t> rgb;
+    bool initialized = false;
+};
+
+static SdlGraphicsState g_sdl_gfx;
+
+static constexpr int kGfxFooterHeight = 16;
+static constexpr int kGfxTextScale = 2;
+
+static const uint8_t kGlyphSpace[7] = {0, 0, 0, 0, 0, 0, 0};
+static const uint8_t kGlyphComma[7] = {0, 0, 0, 0, 0, 0b00100, 0b01000};
+static const uint8_t kGlyphA[7] = {0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001};
+static const uint8_t kGlyphC[7] = {0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110};
+static const uint8_t kGlyphD[7] = {0b11110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b11110};
+static const uint8_t kGlyphE[7] = {0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111};
+static const uint8_t kGlyphG[7] = {0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01110};
+static const uint8_t kGlyphM[7] = {0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001};
+static const uint8_t kGlyphN[7] = {0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001};
+static const uint8_t kGlyphO[7] = {0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110};
+static const uint8_t kGlyphP[7] = {0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000};
+static const uint8_t kGlyphR[7] = {0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001};
+static const uint8_t kGlyphS[7] = {0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110};
+
+static const uint8_t* glyph_for_char(const char ch)
+{
+    switch (ch)
+    {
+        case 'A': return kGlyphA;
+        case 'C': return kGlyphC;
+        case 'D': return kGlyphD;
+        case 'E': return kGlyphE;
+        case 'G': return kGlyphG;
+        case 'M': return kGlyphM;
+        case 'N': return kGlyphN;
+        case 'O': return kGlyphO;
+        case 'P': return kGlyphP;
+        case 'R': return kGlyphR;
+        case 'S': return kGlyphS;
+        case ',': return kGlyphComma;
+        case ' ': return kGlyphSpace;
+        default:  return kGlyphSpace;
+    }
+}
+
+static void draw_text(SDL_Renderer* renderer, int x, int y, const char* text, const int scale)
+{
+    if (!renderer || !text || scale < 1) return;
+
+    SDL_Rect px {0, 0, scale, scale};
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+
+    int cx = x;
+    for (const char* p = text; *p; ++p)
+    {
+        const uint8_t* glyph = glyph_for_char(static_cast<char>(std::toupper(static_cast<unsigned char>(*p))));
+        for (int row = 0; row < 7; ++row)
+        {
+            const uint8_t bits = glyph[row];
+            for (int col = 0; col < 5; ++col)
+            {
+                if ((bits & (1u << (4 - col))) == 0) continue;
+                px.x = cx + col * scale;
+                px.y = y + row * scale;
+                SDL_RenderFillRect(renderer, &px);
+            }
+        }
+        cx += 6 * scale;
+    }
+}
+
+static bool init_sdl_graphics()
+{
+    if (g_sdl_gfx.initialized) return true;
+
+    if (SDL_Init(SDL_INIT_VIDEO) != 0)
+    {
+        printf("SDL_Init failed: %s\n", SDL_GetError());
+        return false;
+    }
+
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
+
+    const Uint32 window_flags = SDL_WINDOW_SHOWN | SDL_WINDOW_FULLSCREEN_DESKTOP;
+    g_sdl_gfx.window = SDL_CreateWindow(
+        "Sophia8",
+        SDL_WINDOWPOS_CENTERED,
+        SDL_WINDOWPOS_CENTERED,
+        GraphicsC64::kWidth,
+        GraphicsC64::kHeight,
+        window_flags);
+    if (!g_sdl_gfx.window)
+    {
+        printf("SDL_CreateWindow failed: %s\n", SDL_GetError());
+        SDL_Quit();
+        return false;
+    }
+
+    g_sdl_gfx.renderer = SDL_CreateRenderer(
+        g_sdl_gfx.window,
+        -1,
+        SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (!g_sdl_gfx.renderer)
+    {
+        g_sdl_gfx.renderer = SDL_CreateRenderer(
+            g_sdl_gfx.window,
+            -1,
+            SDL_RENDERER_SOFTWARE);
+    }
+    if (!g_sdl_gfx.renderer)
+    {
+        printf("SDL_CreateRenderer failed: %s\n", SDL_GetError());
+        SDL_DestroyWindow(g_sdl_gfx.window);
+        g_sdl_gfx.window = nullptr;
+        SDL_Quit();
+        return false;
+    }
+
+    SDL_RenderSetLogicalSize(g_sdl_gfx.renderer, GraphicsC64::kWidth, GraphicsC64::kHeight);
+    SDL_RenderSetIntegerScale(g_sdl_gfx.renderer, SDL_TRUE);
+
+    g_sdl_gfx.texture = SDL_CreateTexture(
+        g_sdl_gfx.renderer,
+        SDL_PIXELFORMAT_RGB24,
+        SDL_TEXTUREACCESS_STREAMING,
+        GraphicsC64::kWidth,
+        GraphicsC64::kHeight);
+    if (!g_sdl_gfx.texture)
+    {
+        printf("SDL_CreateTexture failed: %s\n", SDL_GetError());
+        SDL_DestroyRenderer(g_sdl_gfx.renderer);
+        SDL_DestroyWindow(g_sdl_gfx.window);
+        g_sdl_gfx.renderer = nullptr;
+        g_sdl_gfx.window = nullptr;
+        SDL_Quit();
+        return false;
+    }
+
+    g_sdl_gfx.rgb.resize(static_cast<size_t>(GraphicsC64::kWidth * GraphicsC64::kHeight * 3));
+    g_sdl_gfx.initialized = true;
+    return true;
+}
+
+static void shutdown_sdl_graphics()
+{
+    if (!g_sdl_gfx.initialized)
+    {
+        SDL_Quit();
+        return;
+    }
+
+    if (g_sdl_gfx.texture) SDL_DestroyTexture(g_sdl_gfx.texture);
+    if (g_sdl_gfx.renderer) SDL_DestroyRenderer(g_sdl_gfx.renderer);
+    if (g_sdl_gfx.window) SDL_DestroyWindow(g_sdl_gfx.window);
+
+    g_sdl_gfx.texture = nullptr;
+    g_sdl_gfx.renderer = nullptr;
+    g_sdl_gfx.window = nullptr;
+    g_sdl_gfx.rgb.clear();
+    g_sdl_gfx.initialized = false;
+    SDL_Quit();
+}
+
+static void sdl_pump_events_during_run()
+{
+    SDL_Event ev;
+    while (SDL_PollEvent(&ev))
+    {
+        if (ev.type == SDL_QUIT)
+        {
+            // Ignore during execution; the window stays alive until the program ends.
+        }
+    }
+}
+
+static void render_sdl_frame(const bool show_footer)
+{
+    if (!g_sdl_gfx.initialized) return;
+
+    graphics_c64_render_rgb(
+        &mem[GraphicsC64::kGfxBase],
+        g_sdl_gfx.rgb.data(),
+        g_sdl_gfx.rgb.size());
+
+    if (SDL_UpdateTexture(
+            g_sdl_gfx.texture,
+            nullptr,
+            g_sdl_gfx.rgb.data(),
+            GraphicsC64::kWidth * 3) != 0)
+    {
+        printf("SDL_UpdateTexture failed: %s\n", SDL_GetError());
+        return;
+    }
+
+    SDL_SetRenderDrawColor(g_sdl_gfx.renderer, 0, 0, 0, 255);
+    SDL_RenderClear(g_sdl_gfx.renderer);
+    SDL_RenderCopy(g_sdl_gfx.renderer, g_sdl_gfx.texture, nullptr, nullptr);
+
+    if (show_footer)
+    {
+        SDL_Rect footer{0, GraphicsC64::kHeight - kGfxFooterHeight, GraphicsC64::kWidth, kGfxFooterHeight};
+        SDL_SetRenderDrawColor(g_sdl_gfx.renderer, 0, 0, 0, 255);
+        SDL_RenderFillRect(g_sdl_gfx.renderer, &footer);
+        draw_text(g_sdl_gfx.renderer, 8, GraphicsC64::kHeight - 14, "PROGRAM ENDED, PRESS ESC", kGfxTextScale);
+    }
+
+    SDL_RenderPresent(g_sdl_gfx.renderer);
+}
+
+static void wait_for_escape_after_end()
+{
+    if (!g_sdl_gfx.initialized) return;
+
+    bool done = false;
+    while (!done)
+    {
+        SDL_Event ev;
+        while (SDL_PollEvent(&ev))
+        {
+            if (ev.type == SDL_QUIT)
+            {
+                done = true;
+            }
+            else if (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_ESCAPE)
+            {
+                done = true;
+            }
+        }
+
+        SDL_Delay(16);
+    }
+}
+
 static void print_help(const char* prog)
 {
     printf("Sophia8 VM (sophia8)\n\n");
@@ -126,13 +368,13 @@ static void print_help(const char* prog)
     printf("      Specify the .deb debug map explicitly (used for -v logging and/or breakpoints).\n");
     printf("  --gfx\n");
     printf("      Enable C64-style graphics rendering from fixed base 0x8000 (9000 bytes).\n");
-    printf("      Output is written as PPM image (P6).\n");
+    printf("      Opens a fullscreen SDL window and renders continuously from mapped memory.\n");
     printf("  --gfx-out <file.ppm>\n");
-    printf("      Output file path for graphics frames (default: frame.ppm).\n");
+    printf("      Write the final frame to a PPM file at the given path.\n");
     printf("  --gfx-scale <n>\n");
-    printf("      Reserved for future window backend. Intended to scale 320x200 by n.\n");
+    printf("      Reserved for future windowed backend. Intended to scale 320x200 by n.\n");
     printf("  --gfx-fullscreen\n");
-    printf("      Reserved for future window backend. Intended fullscreen with aspect ratio.\n");
+    printf("      Reserved for future compatibility; SDL mode is fullscreen when --gfx is enabled.\n");
 }
 
 /* Memory-mapped I/O implementation ******************************************/
@@ -2092,21 +2334,28 @@ void run(const bool break_enabled = false,
 
         process_instruction();
 
-        if (g_gfx_enabled)
+        if (g_gfx_enabled && g_sdl_gfx.initialized)
         {
             const auto now = clock_t::now();
+            sdl_pump_events_during_run();
             if (now - last_gfx >= gfx_period)
             {
-                graphics_c64_draw_ppm(&mem[GraphicsC64::kGfxBase], g_gfx_out_path.c_str());
+                render_sdl_frame(false);
                 last_gfx = now;
             }
         }
     }
 
-    // Final graphics frame (useful for programs that HALT immediately)
     if (g_gfx_enabled)
     {
-        graphics_c64_draw_ppm(&mem[GraphicsC64::kGfxBase], g_gfx_out_path.c_str());
+        if (g_gfx_ppm_enabled)
+        {
+            graphics_c64_draw_ppm(&mem[GraphicsC64::kGfxBase], g_gfx_out_path.c_str());
+        }
+        if (g_sdl_gfx.initialized)
+        {
+            render_sdl_frame(true);
+        }
     }
 
     //print_memory();
@@ -2252,7 +2501,8 @@ int main(int argc, char** argv)
     std::string opt_deb_path;
 
     bool opt_gfx = false;
-    std::string opt_gfx_out = "frame.ppm";
+    std::string opt_gfx_out;
+    bool opt_gfx_out_enabled = false;
     int opt_gfx_scale = 3;
     bool opt_gfx_fullscreen = false;
 
@@ -2297,6 +2547,7 @@ int main(int argc, char** argv)
                 return 1;
             }
             opt_gfx_out = argv[i + 1];
+            opt_gfx_out_enabled = true;
             i++;
             continue;
         }
@@ -2332,8 +2583,17 @@ int main(int argc, char** argv)
     // Graphics configuration
     g_gfx_enabled = opt_gfx;
     g_gfx_out_path = opt_gfx_out;
+    g_gfx_ppm_enabled = opt_gfx_out_enabled;
     g_gfx_scale = opt_gfx_scale;
     g_gfx_fullscreen = opt_gfx_fullscreen;
+
+    if (g_gfx_enabled)
+    {
+        if (!init_sdl_graphics())
+        {
+            return 1;
+        }
+    }
 
     // Open verbose log early (append mode) so we can flush per instruction.
     if (g_verbose)
@@ -2462,5 +2722,12 @@ int main(int argc, char** argv)
     }
 
     run(break_enabled, break_addr, break_file, break_line);
+
+    if (g_gfx_enabled && g_sdl_gfx.initialized)
+    {
+        wait_for_escape_after_end();
+        shutdown_sdl_graphics();
+    }
+
     return 0;
 }

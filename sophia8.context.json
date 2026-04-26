@@ -1833,16 +1833,16 @@
         "cell_size_pixels": "8x8",
         "total_bytes": 9000
       },
-      "output_default": "frame.ppm",
+      "output_default": "none",
       "output_flag": "--gfx-out",
       "palette": {
         "indexes": "0..15",
         "source": "graphics_c64.cpp palette table (must match converters)"
       },
-      "refresh": "best-effort ~60 Hz while running; always writes a final frame on VM stop",
+      "refresh": "best-effort ~60 Hz while running; SDL window stays open after stop until Esc; optional PPM snapshot via --gfx-out",
       "renderer": {
-        "current_backend": "PPM (P6) file writer (dependency-free)",
-        "window_backend_note": "A future SDL (or similar) window backend can scale to fit (optional fullscreen) while preserving 320x200 aspect ratio (letterbox/pillarbox)."
+        "current_backend": "SDL fullscreen window from mapped memory",
+        "window_backend_note": "Optional PPM snapshot via --gfx-out; future windowed mode can scale to fit while preserving 320x200 aspect ratio (letterbox/pillarbox)."
       },
       "scale_flag": "--gfx-scale"
     },
@@ -1889,7 +1889,7 @@
         "pattern": "sophia8 <image.bin> --gfx"
       },
       {
-        "meaning": "Runs with graphics enabled and writes rendered frame to the specified PPM output file.",
+        "meaning": "Runs with graphics enabled and optionally writes the final frame to the specified PPM output file.",
         "pattern": "sophia8 <image.bin> --gfx --gfx-out <frame.ppm>"
       }
     ],

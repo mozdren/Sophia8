@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 // A tiny, dependency-free C64-inspired graphics renderer.
@@ -31,3 +32,7 @@ struct GraphicsC64
 // Draws the screen described by gfx_mem (must point to the first byte at base 0x8000)
 // into a PPM file.
 void graphics_c64_draw_ppm(const uint8_t* gfx_mem, const char* out_path);
+
+// Renders the screen described by gfx_mem into an RGB888 buffer.
+// rgb_out must contain at least GraphicsC64::kWidth * GraphicsC64::kHeight * 3 bytes.
+void graphics_c64_render_rgb(const uint8_t* gfx_mem, uint8_t* rgb_out, size_t rgb_out_size);

@@ -5,11 +5,21 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+find_package(SDL2 CONFIG QUIET)
+if(TARGET SDL2::SDL2)
+    set(SOPHIA8_SDL_TARGET SDL2::SDL2)
+else()
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
+    set(SOPHIA8_SDL_TARGET PkgConfig::SDL2)
+endif()
+
 add_executable(sophia8
         sophia8.cpp
         graphics_c64.cpp
 )
 target_include_directories(sophia8 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(sophia8 PRIVATE ${SOPHIA8_SDL_TARGET})
 
 add_executable(s8asm s8asm.cpp)
 target_include_directories(s8asm PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

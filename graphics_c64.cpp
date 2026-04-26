@@ -26,14 +26,11 @@ static constexpr RGB kC64Palette[16] = {
     { 0xBB, 0xBB, 0xBB }, // F light grey
 };
 
-void graphics_c64_draw_ppm(const uint8_t* gfx_mem, const char* out_path)
+void graphics_c64_render_rgb(const uint8_t* gfx_mem, uint8_t* rgb_out, const size_t rgb_out_size)
 {
-    if (!gfx_mem || !out_path) return;
+    const size_t need = static_cast<size_t>(GraphicsC64::kWidth * GraphicsC64::kHeight * 3);
+    if (!gfx_mem || !rgb_out || rgb_out_size < need) return;
 
-    std::vector<uint8_t> rgb;
-    rgb.resize(static_cast<size_t>(GraphicsC64::kWidth * GraphicsC64::kHeight * 3));
-
-    // Render cell-by-cell
     const uint8_t* p = gfx_mem;
     for (int cy = 0; cy < GraphicsC64::kCellsH; cy++)
     {
@@ -58,13 +55,22 @@ void graphics_c64_draw_ppm(const uint8_t* gfx_mem, const char* out_path)
                     const int x = cx * 8 + col;
                     const size_t idx = static_cast<size_t>((y * GraphicsC64::kWidth + x) * 3);
                     const RGB px = on ? fg_rgb : bg_rgb;
-                    rgb[idx + 0] = px.r;
-                    rgb[idx + 1] = px.g;
-                    rgb[idx + 2] = px.b;
+                    rgb_out[idx + 0] = px.r;
+                    rgb_out[idx + 1] = px.g;
+                    rgb_out[idx + 2] = px.b;
                 }
             }
         }
     }
+}
+
+void graphics_c64_draw_ppm(const uint8_t* gfx_mem, const char* out_path)
+{
+    if (!gfx_mem || !out_path) return;
+
+    std::vector<uint8_t> rgb;
+    rgb.resize(static_cast<size_t>(GraphicsC64::kWidth * GraphicsC64::kHeight * 3));
+    graphics_c64_render_rgb(gfx_mem, rgb.data(), rgb.size());
 
     FILE* f = std::fopen(out_path, "wb");
     if (!f) return;

@@ -746,7 +746,7 @@ Enable graphics rendering when running a raw image:
 sophia8 program.bin --gfx
 ```
 
-Optional output filename (default is `frame.ppm`):
+Optional final-frame snapshot to PPM:
 
 ```bash
 sophia8 program.bin --gfx --gfx-out frame.ppm
@@ -754,10 +754,11 @@ sophia8 program.bin --gfx --gfx-out frame.ppm
 
 Rendering behavior:
 
-- While the VM runs, the renderer refreshes **best-effort ~60 Hz**
-- When the VM stops (`HALT`), the VM always writes a **final frame**
+- While the VM runs, the SDL window refreshes **best-effort ~60 Hz**
+- When the VM stops (`HALT`), the SDL window shows the final frame with a footer that says `PROGRAM ENDED, PRESS ESC`
+- `--gfx-out` writes the final frame to a PPM file
 
-Current backend writes a binary **PPM (P6)** file (dependency-free).
+The PPM output remains dependency-free and is separate from the live window.
 
 ### 15.3 Producing graphics from assembly
 

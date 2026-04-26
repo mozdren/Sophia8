@@ -151,7 +151,7 @@ ctest --test-dir build --output-on-failure
 - `sophia_basic_test_auto.bas` — BASIC integration coverage
 
 ## Graphics
-The VM supports a C64-style graphics mode sourced from memory base `0x8000` (9000 bytes), with PPM frame output via `--gfx`.
+The VM supports a C64-style graphics mode sourced from memory base `0x8000` (9000 bytes). `--gfx` opens a fullscreen SDL window that renders directly from mapped memory, and `--gfx-out <file.ppm>` optionally writes the final frame to PPM.
 
 ## More detail
 For assembler, ISA, memory map, libraries, debugging, and implementation pitfalls, see:
