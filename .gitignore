@@ -21,6 +21,5 @@ bin/
 *.suo
 *.log
 *.tlog
-build
-build-debug
+build*
 debug.img
