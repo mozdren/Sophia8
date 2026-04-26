@@ -82,6 +82,45 @@ int main()
     assert(ppm[pixel11 + 1] == 0xFF);
     assert(ppm[pixel11 + 2] == 0xFF);
 
+    // Text overlay: a custom 4x8 glyph at (0,0).
+    std::vector<uint8_t> text(GraphicsC64::kTextBytes, static_cast<uint8_t>(' '));
+    std::vector<uint8_t> charset(GraphicsC64::kTextCharsetBytes, 0);
+    std::vector<uint8_t> text_state(4, 0);
+    text[0] = static_cast<uint8_t>('A');
+    text_state[0] = 0x01;  // text enabled
+    text_state[1] = 0x00;  // cursor x
+    text_state[2] = 0x00;  // cursor y
+    text_state[3] = 0x00;  // cursor hidden
+
+    const size_t glyph_a = static_cast<size_t>('A' - GraphicsC64::kTextAsciiFirst) * GraphicsC64::kTextCellH;
+    charset[glyph_a + 0] = 0x0C;
+    charset[glyph_a + 1] = 0x0C;
+    charset[glyph_a + 2] = 0x0F;
+
+    std::vector<uint8_t> text_rgb(static_cast<size_t>(GraphicsC64::kWidth * GraphicsC64::kHeight * 3), 0);
+    graphics_c64_render_rgb(
+        gfx.data(),
+        text_rgb.data(),
+        text_rgb.size(),
+        text.data(),
+        charset.data(),
+        text_state.data());
+
+    const size_t text_px00 = 0;
+    assert(text_rgb[text_px00 + 0] == 0xFF);
+    assert(text_rgb[text_px00 + 1] == 0xFF);
+    assert(text_rgb[text_px00 + 2] == 0xFF);
+
+    const size_t text_px20 = static_cast<size_t>((0 * GraphicsC64::kWidth + 2) * 3);
+    assert(text_rgb[text_px20 + 0] == 0x00);
+    assert(text_rgb[text_px20 + 1] == 0x00);
+    assert(text_rgb[text_px20 + 2] == 0x00);
+
+    const size_t text_px02 = static_cast<size_t>((2 * GraphicsC64::kWidth + 0) * 3);
+    assert(text_rgb[text_px02 + 0] == 0xFF);
+    assert(text_rgb[text_px02 + 1] == 0xFF);
+    assert(text_rgb[text_px02 + 2] == 0xFF);
+
     std::printf("test_graphics_c64: OK\n");
     return 0;
 }

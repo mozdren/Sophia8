@@ -214,7 +214,7 @@
       "FOR / NEXT",
       "DO ... WHILE",
       "WHILE ... ENDWHILE",
-      "END / STOP",
+      "END / STOP (return to BASIC prompt), HALT (stop the VM)",
       "REM comments and apostrophe (') comment shorthand",
       "Numeric variables",
       "String variables",

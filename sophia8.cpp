@@ -32,10 +32,15 @@
 #include <filesystem>
 #include <algorithm>
 #include <unordered_map>
+#include <deque>
+#include <atomic>
+#include <mutex>
+#include <condition_variable>
 
 #include <chrono>
 #include <thread>
 #include <cctype>
+#include <cerrno>
 
 #include <SDL.h>
 
@@ -66,11 +71,13 @@
     #define DBG_CMD(...)
 #endif
 
-/* Memory-mapped I/O (0xFF00..0xFF03)
+/* Memory-mapped I/O (0xFF00..0xFF05)
  * 0xFF00 KBD_STATUS (R): bit0=1 if a byte is available
  * 0xFF01 KBD_DATA   (R): pops a byte (7-bit ASCII), returns 0x00 if none
  * 0xFF02 TTY_STATUS (R): bit0=1 always
  * 0xFF03 TTY_DATA   (W): write byte to console
+ * 0xFF04 KBD_WAIT   (R): blocking key read
+ * 0xFF05 GFX_MODE   (R): bit0=1 when SDL frontend is active
  */
 static inline uint8_t mmio_read(uint16_t address);
 static inline void    mmio_write(uint16_t address, uint8_t value);
@@ -94,6 +101,7 @@ static uint8_t  c;              /* carry flag                                */
 /* MEMORY ********************************************************************/
 
 static uint8_t  mem[MEM_SIZE];  /* random access memory                      */
+static std::atomic_bool STOP{false}; /* should stop the machine?              */
 
 
 
@@ -114,9 +122,230 @@ struct SdlGraphicsState
 };
 
 static SdlGraphicsState g_sdl_gfx;
+static std::deque<uint8_t> g_kbd_queue;
+static std::mutex g_kbd_mutex;
+static std::condition_variable g_kbd_cv;
+static std::atomic_bool g_stdin_eof{false};
+static std::atomic_bool g_ui_quit_requested{false};
+static std::atomic_bool g_vm_done{false};
+
+struct GfxSnapshot
+{
+    std::vector<uint8_t> gfx;
+    std::vector<uint8_t> text;
+    std::vector<uint8_t> charset;
+    std::vector<uint8_t> text_state;
+    bool valid = false;
+};
+
+static GfxSnapshot g_gfx_snapshot;
+static std::mutex g_gfx_snapshot_mutex;
 
 static constexpr int kGfxFooterHeight = 16;
 static constexpr int kGfxTextScale = 2;
+
+static inline bool stop_requested()
+{
+    return STOP.load(std::memory_order_acquire);
+}
+
+static inline void request_stop()
+{
+    STOP.store(true, std::memory_order_release);
+    g_kbd_cv.notify_all();
+}
+
+static inline void clear_stop_request()
+{
+    STOP.store(false, std::memory_order_release);
+    g_stdin_eof.store(false, std::memory_order_release);
+}
+
+static constexpr uint16_t kTextModeFlag = GraphicsC64::kTextStateBase + 0;
+static constexpr uint16_t kTextCursorX = GraphicsC64::kTextStateBase + 1;
+static constexpr uint16_t kTextCursorY = GraphicsC64::kTextStateBase + 2;
+static constexpr uint16_t kTextCursorVisible = GraphicsC64::kTextStateBase + 3;
+
+static inline bool text_console_enabled()
+{
+    return mem[kTextModeFlag] != 0;
+}
+
+static inline void text_console_set_enabled(const bool enabled)
+{
+    mem[kTextModeFlag] = enabled ? 0x01 : 0x00;
+    mem[kTextCursorVisible] = enabled ? 0x01 : 0x00;
+}
+
+static inline void text_console_clear_screen()
+{
+    std::fill(
+        &mem[GraphicsC64::kTextBase],
+        &mem[GraphicsC64::kTextBase + GraphicsC64::kTextBytes],
+        static_cast<uint8_t>(' '));
+    mem[kTextCursorX] = 0;
+    mem[kTextCursorY] = 0;
+}
+
+static inline void text_console_put_cell(const uint8_t x, const uint8_t y, const uint8_t ch)
+{
+    const size_t idx = static_cast<size_t>(y) * GraphicsC64::kTextCols + static_cast<size_t>(x);
+    mem[GraphicsC64::kTextBase + idx] = ch;
+}
+
+static void publish_gfx_snapshot()
+{
+    if (!g_gfx_enabled || !g_sdl_gfx.initialized) return;
+
+    GfxSnapshot snap;
+    snap.gfx.assign(&mem[GraphicsC64::kGfxBase],
+                    &mem[GraphicsC64::kGfxBase + GraphicsC64::kTotalBytes]);
+    snap.text.assign(&mem[GraphicsC64::kTextBase],
+                     &mem[GraphicsC64::kTextBase + GraphicsC64::kTextBytes]);
+    snap.charset.assign(&mem[GraphicsC64::kTextCharsetBase],
+                        &mem[GraphicsC64::kTextCharsetBase + GraphicsC64::kTextCharsetBytes]);
+    snap.text_state.assign(&mem[GraphicsC64::kTextStateBase],
+                           &mem[GraphicsC64::kTextStateBase + 4]);
+    snap.valid = true;
+
+    std::lock_guard<std::mutex> lock(g_gfx_snapshot_mutex);
+    g_gfx_snapshot = std::move(snap);
+}
+
+static bool copy_gfx_snapshot(GfxSnapshot& out)
+{
+    std::lock_guard<std::mutex> lock(g_gfx_snapshot_mutex);
+    if (!g_gfx_snapshot.valid) return false;
+    out = g_gfx_snapshot;
+    return true;
+}
+
+static void text_console_scroll_up()
+{
+    const uint16_t base = GraphicsC64::kTextBase;
+    const size_t row_bytes = static_cast<size_t>(GraphicsC64::kTextCols);
+    const size_t total_bytes = static_cast<size_t>(GraphicsC64::kTextBytes);
+    std::memmove(&mem[base], &mem[base + row_bytes], total_bytes - row_bytes);
+    std::fill(
+        &mem[base + total_bytes - row_bytes],
+        &mem[base + total_bytes],
+        static_cast<uint8_t>(' '));
+}
+
+static void text_console_newline()
+{
+    mem[kTextCursorX] = 0;
+    if (mem[kTextCursorY] + 1 >= GraphicsC64::kTextRows)
+    {
+        text_console_scroll_up();
+        mem[kTextCursorY] = GraphicsC64::kTextRows - 1;
+    }
+    else
+    {
+        mem[kTextCursorY] = static_cast<uint8_t>(mem[kTextCursorY] + 1);
+    }
+}
+
+static void text_console_backspace()
+{
+    uint8_t x = mem[kTextCursorX];
+    uint8_t y = mem[kTextCursorY];
+
+    if (x == 0)
+    {
+        if (y == 0) return;
+        y = static_cast<uint8_t>(y - 1);
+        x = static_cast<uint8_t>(GraphicsC64::kTextCols - 1);
+    }
+    else
+    {
+        x = static_cast<uint8_t>(x - 1);
+    }
+
+    mem[kTextCursorX] = x;
+    mem[kTextCursorY] = y;
+    text_console_put_cell(x, y, static_cast<uint8_t>(' '));
+}
+
+static void text_console_putc(const uint8_t value)
+{
+    if (!text_console_enabled())
+    {
+        return;
+    }
+
+    if (value == 0x08)
+    {
+        text_console_backspace();
+        return;
+    }
+
+    if (value == 0x0A || value == 0x0D)
+    {
+        text_console_newline();
+        return;
+    }
+
+    const uint8_t x = mem[kTextCursorX];
+    const uint8_t y = mem[kTextCursorY];
+    if (y >= GraphicsC64::kTextRows) return;
+
+    text_console_put_cell(x, y, value);
+
+    if (x + 1 >= GraphicsC64::kTextCols)
+    {
+        text_console_newline();
+    }
+    else
+    {
+        mem[kTextCursorX] = static_cast<uint8_t>(x + 1);
+    }
+}
+
+static void kbd_queue_push(const uint8_t ch)
+{
+    std::lock_guard<std::mutex> lock(g_kbd_mutex);
+    g_kbd_queue.push_back(static_cast<uint8_t>(ch & 0x7F));
+    g_kbd_cv.notify_one();
+}
+
+static void kbd_queue_push_ascii_text(const char* text)
+{
+    if (!text) return;
+    for (const char* p = text; *p; ++p)
+    {
+        const unsigned char ch = static_cast<unsigned char>(*p);
+        if (ch < 0x80)
+        {
+            kbd_queue_push(static_cast<uint8_t>(ch));
+        }
+    }
+}
+
+static bool kbd_queue_pop(uint8_t& out)
+{
+    std::lock_guard<std::mutex> lock(g_kbd_mutex);
+    if (g_kbd_queue.empty()) return false;
+    out = g_kbd_queue.front();
+    g_kbd_queue.pop_front();
+    return true;
+}
+
+static bool kbd_queue_has_key()
+{
+    std::lock_guard<std::mutex> lock(g_kbd_mutex);
+    return !g_kbd_queue.empty();
+}
+
+static bool kbd_queue_wait_pop(uint8_t& out)
+{
+    std::unique_lock<std::mutex> lock(g_kbd_mutex);
+    g_kbd_cv.wait(lock, [] { return !g_kbd_queue.empty() || stop_requested(); });
+    if (g_kbd_queue.empty()) return false;
+    out = g_kbd_queue.front();
+    g_kbd_queue.pop_front();
+    return true;
+}
 
 static const uint8_t kGlyphSpace[7] = {0, 0, 0, 0, 0, 0, 0};
 static const uint8_t kGlyphComma[7] = {0, 0, 0, 0, 0, 0b00100, 0b01000};
@@ -247,6 +476,10 @@ static bool init_sdl_graphics()
     }
 
     g_sdl_gfx.rgb.resize(static_cast<size_t>(GraphicsC64::kWidth * GraphicsC64::kHeight * 3));
+    SDL_RaiseWindow(g_sdl_gfx.window);
+    SDL_SetWindowGrab(g_sdl_gfx.window, SDL_TRUE);
+    SDL_SetWindowKeyboardGrab(g_sdl_gfx.window, SDL_TRUE);
+    SDL_StartTextInput();
     g_sdl_gfx.initialized = true;
     return true;
 }
@@ -259,6 +492,8 @@ static void shutdown_sdl_graphics()
         return;
     }
 
+    SDL_SetWindowKeyboardGrab(g_sdl_gfx.window, SDL_FALSE);
+    SDL_SetWindowGrab(g_sdl_gfx.window, SDL_FALSE);
     if (g_sdl_gfx.texture) SDL_DestroyTexture(g_sdl_gfx.texture);
     if (g_sdl_gfx.renderer) SDL_DestroyRenderer(g_sdl_gfx.renderer);
     if (g_sdl_gfx.window) SDL_DestroyWindow(g_sdl_gfx.window);
@@ -268,18 +503,47 @@ static void shutdown_sdl_graphics()
     g_sdl_gfx.window = nullptr;
     g_sdl_gfx.rgb.clear();
     g_sdl_gfx.initialized = false;
+    SDL_StopTextInput();
     SDL_Quit();
 }
 
-static void sdl_pump_events_during_run()
+static void sdl_handle_event(const SDL_Event& ev)
+{
+    if (ev.type == SDL_QUIT)
+    {
+        g_ui_quit_requested.store(true, std::memory_order_release);
+        request_stop();
+    }
+    else if (ev.type == SDL_TEXTINPUT)
+    {
+        kbd_queue_push_ascii_text(ev.text.text);
+    }
+    else if (ev.type == SDL_KEYDOWN)
+    {
+        switch (ev.key.keysym.sym)
+        {
+            case SDLK_BACKSPACE:
+                kbd_queue_push(0x08);
+                break;
+            case SDLK_RETURN:
+            case SDLK_KP_ENTER:
+                kbd_queue_push(0x0A);
+                break;
+            case SDLK_ESCAPE:
+                kbd_queue_push(0x1B);
+                break;
+            default:
+                break;
+        }
+    }
+}
+
+static void sdl_pump_events_once()
 {
     SDL_Event ev;
     while (SDL_PollEvent(&ev))
     {
-        if (ev.type == SDL_QUIT)
-        {
-            // Ignore during execution; the window stays alive until the program ends.
-        }
+        sdl_handle_event(ev);
     }
 }
 
@@ -287,10 +551,16 @@ static void render_sdl_frame(const bool show_footer)
 {
     if (!g_sdl_gfx.initialized) return;
 
+    GfxSnapshot snap;
+    if (!copy_gfx_snapshot(snap)) return;
+
     graphics_c64_render_rgb(
-        &mem[GraphicsC64::kGfxBase],
+        snap.gfx.data(),
         g_sdl_gfx.rgb.data(),
-        g_sdl_gfx.rgb.size());
+        g_sdl_gfx.rgb.size(),
+        snap.text.data(),
+        snap.charset.data(),
+        snap.text_state.data());
 
     if (SDL_UpdateTexture(
             g_sdl_gfx.texture,
@@ -392,7 +662,6 @@ static void print_help(const char* prog)
 static termios g_old_term;
 static bool    g_term_configured = false;
 static int     g_old_flags = -1;
-static int     g_kbd_queued = -1;
 
 static void restore_console()
 {
@@ -405,7 +674,6 @@ static void restore_console()
     }
 
     g_term_configured = false;
-    g_kbd_queued = -1;
 }
 
 static void setup_console()
@@ -449,36 +717,96 @@ static bool stdin_readable_now()
     return (rc > 0) && FD_ISSET(STDIN_FILENO, &rfds);
 }
 
-static void fill_kbd_queue_if_needed()
+static void fill_terminal_kbd_queue_if_needed()
 {
-    if (g_kbd_queued != -1) return;
+    {
+        std::lock_guard<std::mutex> lock(g_kbd_mutex);
+        if (!g_kbd_queue.empty()) return;
+    }
+    if (g_stdin_eof.load(std::memory_order_acquire)) return;
     if (!stdin_readable_now()) return;
 
     unsigned char ch = 0;
     const ssize_t n = read(STDIN_FILENO, &ch, 1);
     if (n == 1)
     {
-        g_kbd_queued = static_cast<int>(ch & 0x7F); /* 7-bit ASCII */
+        kbd_queue_push(static_cast<uint8_t>(ch & 0x7F)); /* 7-bit ASCII */
+    }
+    else if (n == 0)
+    {
+        g_stdin_eof.store(true, std::memory_order_release);
     }
 }
 
-static uint8_t pop_kbd_byte()
+static bool terminal_wait_for_key(uint8_t& out)
 {
-    fill_kbd_queue_if_needed();
-    if (g_kbd_queued == -1) return 0x00;
+    setup_console();
 
-    const uint8_t out = static_cast<uint8_t>(g_kbd_queued);
-    g_kbd_queued = -1;
-    return out;
+#ifdef _WIN32
+    int ch = _getch();
+    if (ch == 0 || ch == 0xE0)
+    {
+        /* swallow special key */
+        (void)_getch();
+        return false;
+    }
+    out = static_cast<uint8_t>(ch & 0x7F);
+    return true;
+#else
+    unsigned char ch = 0;
+    while (!stop_requested())
+    {
+        fd_set rfds;
+        FD_ZERO(&rfds);
+        FD_SET(STDIN_FILENO, &rfds);
+
+        const int rc = select(STDIN_FILENO + 1, &rfds, NULL, NULL, NULL);
+        if (rc < 0)
+        {
+            if (errno == EINTR) continue;
+            return false;
+        }
+        if (rc == 0) continue;
+
+        const ssize_t n = read(STDIN_FILENO, &ch, 1);
+        if (n == 1)
+        {
+            out = static_cast<uint8_t>(ch & 0x7F);
+            return true;
+        }
+        if (n == 0)
+        {
+            g_stdin_eof.store(true, std::memory_order_release);
+            request_stop();
+            return false;
+        }
+    }
+    return false;
+#endif
 }
 #endif
 
 static inline uint8_t mmio_read(uint16_t address)
 {
 #ifdef _WIN32
-    if (address == 0xFF00) return _kbhit() ? 0x01 : 0x00;
+    if (address == 0xFF05) return g_gfx_enabled ? 0x01 : 0x00;
+    if (address == 0xFF00)
+    {
+        if (g_gfx_enabled)
+        {
+            return kbd_queue_has_key() ? 0x01 : 0x00;
+        }
+
+        return _kbhit() ? 0x01 : 0x00;
+    }
     if (address == 0xFF01)
     {
+        if (g_gfx_enabled)
+        {
+            uint8_t out = 0x00;
+            return kbd_queue_pop(out) ? out : 0x00;
+        }
+
         if (!_kbhit()) return 0x00;
 
         int ch = _getch();
@@ -492,23 +820,63 @@ static inline uint8_t mmio_read(uint16_t address)
         return static_cast<uint8_t>(ch & 0x7F);
     }
     if (address == 0xFF02) return 0x01;
+    if (address == 0xFF04)
+    {
+        if (g_gfx_enabled)
+        {
+            uint8_t out = 0x00;
+            return kbd_queue_wait_pop(out) ? out : 0x00;
+        }
+
+        uint8_t out = 0x00;
+        return terminal_wait_for_key(out) ? out : 0x00;
+    }
     return 0x00;
 #else
+    if (address == 0xFF05)
+    {
+        return g_gfx_enabled ? 0x01 : 0x00;
+    }
+
     if (address == 0xFF00)
     {
-        fill_kbd_queue_if_needed();
-        return (g_kbd_queued != -1) ? 0x01 : 0x00;
+        if (g_gfx_enabled)
+        {
+            return kbd_queue_has_key() ? 0x01 : 0x00;
+        }
+
+        fill_terminal_kbd_queue_if_needed();
+        return kbd_queue_has_key() ? 0x01 : 0x00;
     }
 
     if (address == 0xFF01)
     {
-        return pop_kbd_byte();
+        uint8_t out = 0x00;
+        if (g_gfx_enabled)
+        {
+            return kbd_queue_pop(out) ? out : 0x00;
+        }
+
+        fill_terminal_kbd_queue_if_needed();
+        return kbd_queue_pop(out) ? out : 0x00;
     }
 
     if (address == 0xFF02)
     {
         /* bit0=1 always (as documented by kernel.s8.asm) */
         return 0x01;
+    }
+
+    if (address == 0xFF04)
+    {
+        if (g_gfx_enabled)
+        {
+            uint8_t out = 0x00;
+            return kbd_queue_wait_pop(out) ? out : 0x00;
+        }
+
+        uint8_t out = 0x00;
+        return terminal_wait_for_key(out) ? out : 0x00;
     }
 
     return 0x00;
@@ -519,8 +887,15 @@ static inline void mmio_write(const uint16_t address, const uint8_t value)
 {
     if (address == 0xFF03)
     {
-        putchar(static_cast<int>(value));
-        fflush(stdout);
+        if (g_gfx_enabled && text_console_enabled())
+        {
+            text_console_putc(value);
+        }
+        else
+        {
+            putchar(static_cast<int>(value));
+            fflush(stdout);
+        }
     }
 }
 
@@ -561,11 +936,6 @@ static inline void mem_write(const uint16_t address, const uint8_t value)
 
     mem[address] = value;
 }
-
-/* SPECIAL TRIGGERS **********************************************************/
-
-static uint8_t  STOP = 0x00;    /* should stop the machine?                  */
-
 
 /* DEBUG / BREAKPOINT SUPPORT ************************************************/
 
@@ -821,7 +1191,9 @@ static bool load_debug_image(const char* path)
     f.read(reinterpret_cast<char*>(mem), MEM_SIZE);
     if (!f) return false;
 
-    STOP = 0;
+    clear_stop_request();
+    g_ui_quit_requested.store(false, std::memory_order_release);
+    g_vm_done.store(false, std::memory_order_release);
     return true;
 }
 
@@ -838,7 +1210,17 @@ static bool load_debug_image(const char* path)
 void init_machine()
 {
     uint32_t i;
-    STOP = 0;
+    clear_stop_request();
+    g_ui_quit_requested.store(false, std::memory_order_release);
+    g_vm_done.store(false, std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> lock(g_kbd_mutex);
+        g_kbd_queue.clear();
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_gfx_snapshot_mutex);
+        g_gfx_snapshot = GfxSnapshot{};
+    }
 
     /* clean all memory */
     for (i = 0; i < MEM_SIZE; i++)
@@ -859,6 +1241,9 @@ void init_machine()
     {
         r[i] = 0;
     }
+
+    text_console_set_enabled(true);
+    text_console_clear_screen();
 }
 
 /**
@@ -2316,9 +2701,9 @@ void run(const bool break_enabled = false,
          const int break_line = 0)
 {
     using clock_t = std::chrono::steady_clock;
-    auto last_gfx = clock_t::now();
+    auto last_snapshot = clock_t::now();
     const auto gfx_period = std::chrono::milliseconds(16); // ~60Hz
-    while (!STOP)
+    while (!stop_requested())
     {
         if (break_enabled && ip == break_addr)
         {
@@ -2328,7 +2713,7 @@ void run(const bool break_enabled = false,
                    static_cast<unsigned>(break_addr));
             print_registers();
             (void)save_debug_image("debug.img");
-            STOP = 1;
+            request_stop();
             break;
         }
 
@@ -2337,29 +2722,51 @@ void run(const bool break_enabled = false,
         if (g_gfx_enabled && g_sdl_gfx.initialized)
         {
             const auto now = clock_t::now();
-            sdl_pump_events_during_run();
-            if (now - last_gfx >= gfx_period)
+            if (now - last_snapshot >= gfx_period)
             {
-                render_sdl_frame(false);
-                last_gfx = now;
+                publish_gfx_snapshot();
+                last_snapshot = now;
             }
         }
     }
 
-    if (g_gfx_enabled)
+    if (g_gfx_enabled && g_sdl_gfx.initialized)
     {
-        if (g_gfx_ppm_enabled)
-        {
-            graphics_c64_draw_ppm(&mem[GraphicsC64::kGfxBase], g_gfx_out_path.c_str());
-        }
-        if (g_sdl_gfx.initialized)
-        {
-            render_sdl_frame(true);
-        }
+        publish_gfx_snapshot();
     }
 
     //print_memory();
     //print_registers();
+}
+
+static void graphics_frontend_loop()
+{
+    if (!g_sdl_gfx.initialized) return;
+
+    using clock_t = std::chrono::steady_clock;
+    auto last_gfx = clock_t::now();
+    const auto gfx_period = std::chrono::milliseconds(16); // ~60Hz
+
+    while (!g_ui_quit_requested.load(std::memory_order_acquire) &&
+           !g_vm_done.load(std::memory_order_acquire))
+    {
+        SDL_Event ev;
+        if (SDL_WaitEventTimeout(&ev, 16))
+        {
+            sdl_handle_event(ev);
+            while (SDL_PollEvent(&ev))
+            {
+                sdl_handle_event(ev);
+            }
+        }
+
+        const auto now = clock_t::now();
+        if (now - last_gfx >= gfx_period)
+        {
+            render_sdl_frame(false);
+            last_gfx = now;
+        }
+    }
 }
 
 void load_test_code()
@@ -2484,6 +2891,11 @@ bool load_bin_file(const char* file_path)
     }
 
     fclose(f);
+
+    // Raw images do not carry the runtime text-console defaults, so restore
+    // the visible text layer after loading the image.
+    text_console_set_enabled(true);
+    text_console_clear_screen();
     return true;
 }
 
@@ -2721,12 +3133,48 @@ int main(int argc, char** argv)
         break_enabled = true;
     }
 
-    run(break_enabled, break_addr, break_file, break_line);
-
     if (g_gfx_enabled && g_sdl_gfx.initialized)
     {
-        wait_for_escape_after_end();
+        publish_gfx_snapshot();
+        g_vm_done.store(false, std::memory_order_release);
+
+        std::thread vm_thread([&]() {
+            run(break_enabled, break_addr, break_file, break_line);
+            g_vm_done.store(true, std::memory_order_release);
+        });
+
+        graphics_frontend_loop();
+
+        if (vm_thread.joinable())
+        {
+            vm_thread.join();
+        }
+
+        if (!g_ui_quit_requested.load(std::memory_order_acquire))
+        {
+            if (g_gfx_ppm_enabled)
+            {
+                GfxSnapshot snap;
+                if (copy_gfx_snapshot(snap))
+                {
+                    graphics_c64_draw_ppm(
+                        snap.gfx.data(),
+                        g_gfx_out_path.c_str(),
+                        snap.text.data(),
+                        snap.charset.data(),
+                        snap.text_state.data());
+                }
+            }
+
+            render_sdl_frame(true);
+            wait_for_escape_after_end();
+        }
+
         shutdown_sdl_graphics();
+    }
+    else
+    {
+        run(break_enabled, break_addr, break_file, break_line);
     }
 
     return 0;

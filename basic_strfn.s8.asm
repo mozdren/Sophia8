@@ -24,7 +24,9 @@
 ; ---------------------------------------------------------------------------
 
 ; Keyword matchers (return R0=1 and store IDLEN = token length)
-.org 0x7000
+; Pack this block into the large free hole after the core libraries so the
+; graphics framebuffer can stay clear of BASIC code/data.
+.org 0x0925
 
 MATCH_KW_LEN:
     LOAD CURPTR_H, R1

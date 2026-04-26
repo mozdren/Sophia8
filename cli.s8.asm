@@ -86,6 +86,10 @@ RL_PTR_BACK_OK:
     DEC R4
     INC R5                 ; give space back
 
+    ; clear the deleted byte so the backing buffer always matches the edit
+    SET #0x00, R0
+    STORER R0, R1, R2
+
     ; erase on screen: "\b \b"
     SET #0x08, R0
     CALL PUTC

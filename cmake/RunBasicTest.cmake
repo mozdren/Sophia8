@@ -2,6 +2,10 @@ if(NOT DEFINED TEST_NAME OR NOT DEFINED ASM OR NOT DEFINED VM OR NOT DEFINED SOU
     message(FATAL_ERROR "RunBasicTest.cmake requires TEST_NAME, ASM, VM, SOURCE_DIR, BINARY_DIR, BASIC_SOURCE, EXPECTED_FILE, and MARKER")
 endif()
 
+if(NOT DEFINED BASIC_TEST_TIMEOUT_SECONDS)
+    set(BASIC_TEST_TIMEOUT_SECONDS 5)
+endif()
+
 string(REPLACE "_" " " marker_text "${MARKER}")
 
 set(bin_path "${BINARY_DIR}/sophia_basic_v1.bin")
@@ -26,6 +30,7 @@ if(DEFINED TEST_INPUT_FILE)
     file(READ "${TEST_INPUT_FILE}" test_input_text)
     file(APPEND "${input_path}" "${test_input_text}")
 endif()
+file(APPEND "${input_path}" "HALT\n")
 
 execute_process(
     COMMAND "${VM}" "${bin_path}"
@@ -33,7 +38,7 @@ execute_process(
     OUTPUT_FILE "${output_path}"
     ERROR_VARIABLE vm_err
     RESULT_VARIABLE vm_rc
-    TIMEOUT 8
+    TIMEOUT "${BASIC_TEST_TIMEOUT_SECONDS}"
 )
 
 file(STRINGS "${output_path}" output_lines)
@@ -43,6 +48,9 @@ set(actual_text "")
 foreach(line IN LISTS output_lines)
     if(found_marker)
         if(line STREQUAL "> ")
+            continue()
+        endif()
+        if(line STREQUAL "> HALT")
             continue()
         endif()
         string(APPEND actual_text "${line}\n")

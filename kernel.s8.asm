@@ -6,6 +6,8 @@
 ;   0xFF01  KBD_DATA   (R) pops next key; returns 0x00 if none
 ;   0xFF02  TTY_STATUS (R) bit0=1 always (ready)
 ;   0xFF03  TTY_DATA   (W) write byte to terminal output
+;   0xFF04  KBD_WAIT   (R) blocking key read
+;   0xFF05  GFX_MODE   (R) bit0=1 if SDL graphics frontend is active
 ;
 ; Calling convention:
 ;   PUTC:  char in R0
@@ -32,6 +34,11 @@ PUTC_WTX:
 ; GETC (blocking)
 ; ---------------------------------------------------------------------------
 GETC:
+    LOAD 0xFF05, R3
+    CMP R3, #0x01
+    JNZ R3, GETC_WKEY
+    LOAD 0xFF04, R0
+    RET
 GETC_WKEY:
     LOAD 0xFF00, R3
     CMP R3, #0x01

@@ -252,6 +252,15 @@ JZ R0, CMD_ENDWHILE
     CMP R0, #0x01
     JZ R0, CMD_END
 
+    ; HALT
+    SET #0x68, R1
+    SET #0x80, R2
+    SET #0x03, R3
+    SET #0x1B, R4
+    CALL STREQ
+    CMP R0, #0x01
+    JZ R0, CMD_HALT
+
     ; LET
     SET #0x68, R1
     SET #0x80, R2
@@ -375,7 +384,6 @@ RZ_DEF:
     RET
 
 ; Keep 0x9600/0x9601 free for BASIC POKE tests (screen/MMIO scratch).
-.org 0xA500
 
 CMD_IF:
 
@@ -635,6 +643,9 @@ CMD_END:
     SET #0x01, R0
     STORE R0, RUN_STOP
     RET
+
+CMD_HALT:
+    HALT
 
 ; DO_PRINT moved to basic_io.s8.asm
 

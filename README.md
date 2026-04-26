@@ -63,7 +63,7 @@ Program lines are stored as packed variable-length records with 16-bit line numb
 - `FOR` / `NEXT`
 - `DO ... WHILE`
 - `WHILE ... ENDWHILE`
-- `END`, `STOP`
+- `END`, `STOP`, `HALT`
 - `REM` and apostrophe (`'`) comments
 
 #### Variables and arrays
@@ -151,7 +151,11 @@ ctest --test-dir build --output-on-failure
 - `sophia_basic_test_auto.bas` — BASIC integration coverage
 
 ## Graphics
-The VM supports a C64-style graphics mode sourced from memory base `0x8000` (9000 bytes). `--gfx` opens a fullscreen SDL window that renders directly from mapped memory, and `--gfx-out <file.ppm>` optionally writes the final frame to PPM.
+The VM supports a C64-style graphics mode sourced from memory base `0x8000` (9000 bytes). `--gfx` opens a fullscreen SDL window that renders directly from mapped memory, captures keyboard input through SDL, and `--gfx-out <file.ppm>` optionally writes the final frame to PPM.
+
+Sophia8 also keeps an 80x25 text console in separate RAM at `0x09C0..0x118F`, with cursor/mode state at `0x09BC..0x09BF`. The 4x8 ASCII charset is packed at `0xD5CA..0xD8B9`. The console is enabled by default, and BASIC starts with the string heap at `0xE000`.
+
+`HALT` stops the VM itself. That is useful in graphics mode, where there is no terminal prompt to return to, and in the BASIC integration harness, which uses `HALT` after `RUN` so tests terminate cleanly.
 
 ## More detail
 For assembler, ISA, memory map, libraries, debugging, and implementation pitfalls, see:

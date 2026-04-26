@@ -72,6 +72,8 @@ K_INPUT: .string "INPUT"
 K_POKE:  .string "POKE"
 .org 0x0310
 K_RANDOMIZE: .string "RANDOMIZE"
+.org 0x031B
+K_HALT:  .string "HALT"
 .org 0x0320
 K_PEEK:  .string "PEEK"
 .org 0x0328

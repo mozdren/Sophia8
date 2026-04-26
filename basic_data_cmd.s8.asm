@@ -6,7 +6,6 @@
 ; does not overwrite the READ string-assignment path.
 ; ---------------------------------------------------------------------------
 
-.org 0xC000
 
 CMD_DATA:
     ; DATA is not executed at runtime (it only provides data for READ).
