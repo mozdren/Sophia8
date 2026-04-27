@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Generate the Sophia8 8x8 ASCII charset as assembler data.
 
-The source font is intentionally compact and blocky so it fits the 40x25
-text console used by Sophia8 graphics mode.
+The source font is intentionally compact and blocky, with a small inset so the
+glyphs read a little more clearly in the 40x25 text console used by graphics
+mode.
 """
 
 from __future__ import annotations
@@ -24,8 +25,13 @@ def expand_row(row: str) -> int:
     for idx, ch in enumerate(row):
         if ch == ".":
             continue
-        shift = 6 - (idx * 2)
-        bits |= 0x03 << shift
+        # Keep the 8x8 cell size, but leave a 1-pixel margin on the right so
+        # adjacent glyphs do not visually run together as much.
+        if idx < 3:
+            shift = 6 - (idx * 2)
+            bits |= 0x03 << shift
+        else:
+            bits |= 0x02
     return bits
 
 
