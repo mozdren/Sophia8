@@ -16,7 +16,7 @@
 ; Fixed-address strings
 ; ---------------------------------------------------------------------------
 .org STR_BANNER
-Banner: .string "Sophia Basic v.1 (2026) by Karel Mozdren\nREADY.\n"
+Banner: .string "        Sophia Basic v.1 (2026)\n            by Karel Mozdren\n"
 .org STR_PROMPT
 Prompt: .string "> "
 .org STR_NL
