@@ -97,6 +97,9 @@ static uint16_t bp;             /* stack frame pointer                       */
 /* flags registers */
 
 static uint8_t  c;              /* carry flag                                */
+static bool     g_cmp_pending = false;
+static uint8_t  g_cmp_reg = 0;
+static bool     g_cmp_equal = false;
 
 /* MEMORY ********************************************************************/
 
@@ -159,6 +162,13 @@ static inline void clear_stop_request()
 {
     STOP.store(false, std::memory_order_release);
     g_stdin_eof.store(false, std::memory_order_release);
+}
+
+static inline void clear_cmp_state()
+{
+    g_cmp_pending = false;
+    g_cmp_reg = 0;
+    g_cmp_equal = false;
 }
 
 static constexpr uint16_t kTextModeFlag = GraphicsC64::kTextStateBase + 0;
@@ -1673,9 +1683,8 @@ void jmp_instruction()
 
 /**
  *
- * compares register to a value. If register value is less than imediate value
- * it sets the carry bit to true. Does subtraction on the backend. Subtracted
- * value is set in the register that has been used for comparison.
+ * compares register to a value. If register value is less than immediate
+ * value it sets the carry bit to true. The compared register is not modified.
  *
  */
 void cmp_instruction()
@@ -1688,26 +1697,27 @@ void cmp_instruction()
     
     switch (source_register) 
     {
-        case IR0: c = r[0] >= value ? 0 : 1; r[0] -= value; break;
-        case IR1: c = r[1] >= value ? 0 : 1; r[1] -= value; break;
-        case IR2: c = r[2] >= value ? 0 : 1; r[2] -= value; break;
-        case IR3: c = r[3] >= value ? 0 : 1; r[3] -= value; break;
-        case IR4: c = r[4] >= value ? 0 : 1; r[4] -= value; break;
-        case IR5: c = r[5] >= value ? 0 : 1; r[5] -= value; break;
-        case IR6: c = r[6] >= value ? 0 : 1; r[6] -= value; break;
-        case IR7: c = r[7] >= value ? 0 : 1; r[7] -= value; break;
+        case IR0: c = r[0] >= value ? 0 : 1; g_cmp_equal = (r[0] == value); break;
+        case IR1: c = r[1] >= value ? 0 : 1; g_cmp_equal = (r[1] == value); break;
+        case IR2: c = r[2] >= value ? 0 : 1; g_cmp_equal = (r[2] == value); break;
+        case IR3: c = r[3] >= value ? 0 : 1; g_cmp_equal = (r[3] == value); break;
+        case IR4: c = r[4] >= value ? 0 : 1; g_cmp_equal = (r[4] == value); break;
+        case IR5: c = r[5] >= value ? 0 : 1; g_cmp_equal = (r[5] == value); break;
+        case IR6: c = r[6] >= value ? 0 : 1; g_cmp_equal = (r[6] == value); break;
+        case IR7: c = r[7] >= value ? 0 : 1; g_cmp_equal = (r[7] == value); break;
         default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
+    g_cmp_pending = true;
+    g_cmp_reg = source_register;
     
     ip += 3;
 }
 
 /**
  *
- * compares register to another register. If register value is less than
- * imediate value it sets the carry bit to true. Does subtraction on the
- * backend. Subtracted value is set in the register that has been used 
- * for comparison.
+ * compares register to another register. If register value is less than the
+ * compared value it sets the carry bit to true. The compared register is not
+ * modified.
  *
  */
 void cmpr_instruction()
@@ -1734,16 +1744,18 @@ void cmpr_instruction()
     
     switch (register0) 
     {
-        case IR0: c = r[0] >= value ? 0 : 1;  r[0] -= value; break;
-        case IR1: c = r[1] >= value ? 0 : 1;  r[1] -= value; break;
-        case IR2: c = r[2] >= value ? 0 : 1;  r[2] -= value; break;
-        case IR3: c = r[3] >= value ? 0 : 1;  r[3] -= value; break;
-        case IR4: c = r[4] >= value ? 0 : 1;  r[4] -= value; break;
-        case IR5: c = r[5] >= value ? 0 : 1;  r[5] -= value; break;
-        case IR6: c = r[6] >= value ? 0 : 1;  r[6] -= value; break;
-        case IR7: c = r[7] >= value ? 0 : 1;  r[7] -= value; break;
+        case IR0: c = r[0] >= value ? 0 : 1; g_cmp_equal = (r[0] == value); break;
+        case IR1: c = r[1] >= value ? 0 : 1; g_cmp_equal = (r[1] == value); break;
+        case IR2: c = r[2] >= value ? 0 : 1; g_cmp_equal = (r[2] == value); break;
+        case IR3: c = r[3] >= value ? 0 : 1; g_cmp_equal = (r[3] == value); break;
+        case IR4: c = r[4] >= value ? 0 : 1; g_cmp_equal = (r[4] == value); break;
+        case IR5: c = r[5] >= value ? 0 : 1; g_cmp_equal = (r[5] == value); break;
+        case IR6: c = r[6] >= value ? 0 : 1; g_cmp_equal = (r[6] == value); break;
+        case IR7: c = r[7] >= value ? 0 : 1; g_cmp_equal = (r[7] == value); break;
         default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
     }
+    g_cmp_pending = true;
+    g_cmp_reg = register0;
     
     ip += 3;
 }
@@ -1763,7 +1775,16 @@ void jz_instruction()
     
     jumpAddress = static_cast<uint16_t>(mem[ip + 2]) << 8;
     jumpAddress += static_cast<uint16_t>(mem[ip + 3]);
-    
+
+    if (g_cmp_pending && sourceRegister == g_cmp_reg)
+    {
+        g_cmp_pending = false;
+        if (g_cmp_equal) { ip = jumpAddress; return; }
+        ip += 4;
+        return;
+    }
+
+    g_cmp_pending = false;
     switch (sourceRegister) 
     {
         case IR0: if (r[0] == 0) {ip = jumpAddress; return;} break;
@@ -1795,7 +1816,16 @@ void jnz_instruction()
     
     jump_address = static_cast<uint16_t>(mem[ip + 2]) << 8;
     jump_address += static_cast<uint16_t>(mem[ip + 3]);
-    
+
+    if (g_cmp_pending && source_register == g_cmp_reg)
+    {
+        g_cmp_pending = false;
+        if (!g_cmp_equal) { ip = jump_address; return; }
+        ip += 4;
+        return;
+    }
+
+    g_cmp_pending = false;
     switch (source_register) 
     {
         case IR0: if (r[0] != 0) {ip = jump_address; return;} break;
@@ -2634,6 +2664,13 @@ void process_instruction()
         case NOP: DBG_CMD("NOP"); ip++; break;
         case HALT: DBG_CMD("HALT"); STOP = 1; break;
         default: DBG_CMD("UNKNOWN 0x%02X", mem[ip]); STOP = 1; break;
+    }
+
+    if (mem[orig_ip] != CMP && mem[orig_ip] != CMPR &&
+        mem[orig_ip] != JZ && mem[orig_ip] != JNZ &&
+        mem[orig_ip] != JC && mem[orig_ip] != JNC)
+    {
+        clear_cmp_state();
     }
 
     if (g_verbose)
