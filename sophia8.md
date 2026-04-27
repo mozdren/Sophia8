@@ -153,18 +153,35 @@ This modular split is important for maintainability. New features should be adde
 
 ### Fixed areas already in use
 - entry stub reserved by assembler: `0x0000..0x0002`
-- BASIC fixed strings: `0x0200+`
-- BASIC code is split across multiple segments; the main body begins at `0x0400` and resumes after runtime state at `0x68FA`
-- BASIC variable table: `0x6000..0x63FF`
+- fixed strings shared by BASIC and runtime: `0x0200+`
+
+### KERNAL / runtime support
+- low helpers and shared text routines: `0x0400..0x43F3`
+- graphics framebuffer: `0x8000..0xA327`
+- late BASIC `DATA/READ/RESTORE` command helpers: `0xD1AA`
+- 8x8 ASCII charset: `0xD5CA..0xD8B9`
+- text cursor / mode state: `0xD8C5..0xD8C8`
+- 40x25 text console buffer: `0xD8C9..0xDCB0`
+
+### BASIC payload
+- small BASIC utility block: `0x43F4..0x4753`
+- variable table: `0x6000..0x63FF`
 - BASIC runtime state and scratch variables: `0x6800..0x68F9`
-- BASIC program storage uses packed variable-length line records in RAM `0x6C5A..0x7FFF`
+- remaining BASIC code resumes at `0x68FA`
+- packed BASIC program storage uses variable-length line records in RAM `0x6C5A..0x7FFF`
 - BASIC string heap start: `0xE000`
-- Sophia8 text charset: `0xD5CA..0xD8B9`
-- Sophia8 text cursor / mode state: `0xD8C5..0xD8C8`
-- Sophia8 text console buffer: `0xD8C9..0xDCB0`
 - `basic_strfn.s8.asm`: `0x0925`
+- `basic_errors.s8.asm` / `basic_helpers.s8.asm` / `basic_vars.s8.asm`: `0x43F4`
 - `basic_data_cmd.s8.asm`: `0xD1AA`
 - VM MMIO: `0xFF00..0xFF03`
+
+### Buffers and scratch
+- REPL live line-edit buffer: `0xA400..0xA47F`
+- REPL stable parse copy: `0xA480..0xA4FF`
+- `INPUT` line-edit buffer: `0x6E80..0x6EFF`
+- token buffer for keyword matching: `0x6880..0x6897`
+- identifier buffer for variable lookup: `0x68A0..0x68A7`
+- BASIC internal state block: `0x6800..0x68F9`
 
 ### Critical reserved BASIC scratch region
 `0x9600` / `0x9601` (decimal `38400` / `38401`) must remain safe for BASIC user `POKE` tests and scratch usage.

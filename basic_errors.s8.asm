@@ -17,6 +17,8 @@
 ;   - Other registers are preserved.
 ; ---------------------------------------------------------------------------
 
+.org BASIC_UTIL_BASE
+
 ; Print "?SYNTAX ERROR\n"
 PRINT_SYNTAX_ERROR:
     PUSH R1

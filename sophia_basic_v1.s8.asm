@@ -28,6 +28,11 @@
 ; before the BASIC state block.
 .include "text.s8.asm"
 
+; Pack the small BASIC utility block into the free hole right after text.s8.
+.include "basic_errors.s8.asm"
+.include "basic_helpers.s8.asm"
+.include "basic_vars.s8.asm"
+
 ; Charset is packed at the end of the BASIC image so the code block can be
 ; moved upward and the graphics framebuffer can use the cleared low block.
 .include "text_charset.s8.asm"

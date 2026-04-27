@@ -1932,11 +1932,10 @@
       ]
     },
     "basic_layout": {
-      "lesson": "Describe BASIC memory as split segments, not one continuous code block.",
+      "lesson": "Describe memory as KERNAL/runtime support plus BASIC payload, not one continuous code block.",
       "notes": [
-        "Low BASIC code and helpers begin at 0x0400.",
-        "Runtime state occupies 0x6800..0x68F9.",
-        "Code resumes at 0x68FA after the state block.",
+        "KERNAL/runtime support includes low helpers at 0x0400..0x43F3, the graphics framebuffer at 0x8000..0xA327, the charset at 0xD5CA..0xD8B9, and the text console buffers/state at 0xD8C5..0xDCB0.",
+        "The BASIC payload includes the utility block at 0x43F4..0x4753, the variable table at 0x6000..0x63FF, runtime state at 0x6800..0x68F9, and later BASIC code from 0x68FA onward.",
         "Packed BASIC program storage begins at 0x6C5A."
       ]
     }

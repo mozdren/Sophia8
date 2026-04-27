@@ -155,22 +155,34 @@ Current CTest coverage is 6 tests because `test_basic_high_lines` is intentional
 ## Graphics
 The VM supports a C64-style graphics mode sourced from memory base `0x8000` (9000 bytes). `--gfx` opens a fullscreen SDL window that renders directly from mapped memory, captures keyboard input through SDL, and `--gfx-out <file.ppm>` optionally writes the final frame to PPM.
 
-Current BASIC memory layout:
+Current memory layout:
 - `0x0000..0x0002`: assembler entry stub
-- `0x0200+`: fixed BASIC strings
-- BASIC code is split across multiple segments, with the main body beginning at `0x0400` and resuming after the runtime state block at `0x68FA`
-- `0x6000..0x63FF`: BASIC variable table
-- `0x6800..0x68F9`: BASIC runtime state and scratch variables
-- `0x6C5A..0x7FFF`: packed BASIC program store
+- `0x0200+`: fixed strings used by the runtime and BASIC
+
+KERNAL / runtime support:
+- `0x0400..0x43F3`: low helpers and shared text routines
 - `0x8000..0xA327`: graphics framebuffer
 - `0xD1AA`: late BASIC `DATA/READ/RESTORE` command helpers
 - `0xD5CA..0xD8B9`: 8x8 ASCII charset
 - `0xD8C5..0xD8C8`: text cursor and mode state
 - `0xD8C9..0xDCB0`: 40x25 text console buffer
+
+BASIC payload:
+- `0x43F4..0x4753`: small BASIC utility block
+- `0x6000..0x63FF`: BASIC variable table
+- `0x6800..0x68F9`: BASIC runtime state and scratch variables
+- `0x68FA..`: remaining BASIC code
+- `0x6C5A..0x7FFF`: packed BASIC program store
 - `0xE000`: BASIC string heap start
 
-The console is enabled by default. Packed program records are kept out of the framebuffer, and the late BASIC helpers live in separate high-memory segments so the low interpreter body can stay compact.
-The BASIC code is intentionally split across low and high memory segments; the packed program store is the only contiguous user-program region.
+Buffer roles:
+- `0xA400..0xA47F`: live REPL line-edit buffer
+- `0xA480..0xA4FF`: stable copy of the typed REPL line
+- `0x6E80..0x6EFF`: `INPUT` line-edit buffer
+- `0x6880..0x6897`: token buffer for keyword matching
+- `0x68A0..0x68A7`: identifier buffer for variable lookup
+
+The console is enabled by default. Packed program records are kept out of the framebuffer, and the BASIC utility helpers are packed into the reclaimed mid-image hole so the interpreter body stays more compact.
 
 Assembler note:
 - `.equ NAME, VALUE` defines a constant after includes are expanded

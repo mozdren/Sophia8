@@ -45,6 +45,9 @@
 .equ BASIC_CODE_RESUME,        0x68FA  ; code resumes after runtime state
 .equ BASIC_CODE_RESUME_H,      0x68    ; high byte of BASIC_CODE_RESUME
 .equ BASIC_CODE_RESUME_L,      0xFA    ; low byte of BASIC_CODE_RESUME
+.equ BASIC_UTIL_BASE,          0x43F4  ; free hole after text.s8, before runtime state
+.equ BASIC_UTIL_BASE_H,        0x43    ; high byte of BASIC_UTIL_BASE
+.equ BASIC_UTIL_BASE_L,        0xF4    ; low byte of BASIC_UTIL_BASE
 .equ BASIC_PROG_BASE,          0x6C5A  ; packed program store start
 .equ BASIC_PROG_BASE_H,        0x6C    ; high byte of BASIC_PROG_BASE
 .equ BASIC_PROG_BASE_L,        0x5A    ; low byte of BASIC_PROG_BASE
