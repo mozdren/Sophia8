@@ -13,10 +13,11 @@ It produces three artifacts:
 - `<output>.deb` — debug map used by the VM for file:line breakpoints and verbose logs
 
 Important rules:
-- `.org <addr>` takes a numeric literal only
+- `.org <addr>` takes a numeric literal or previously defined symbol
 - `.org` without an operand marks the entry point and may appear only once
-- `.byte` accepts numeric literals only
-- `.word` accepts numeric literals or labels
+- `.equ NAME, VALUE` defines a constant after `.include` expansion
+- `.byte` accepts numeric literals or previously defined symbols
+- `.word` accepts numeric literals or labels/symbols
 - `.include` is textual and include-once is enforced
 - overlapping output bytes are an error
 
@@ -178,8 +179,8 @@ When adding new BASIC code, always verify that code growth has not reclaimed `0x
 
 ## 6. Important implementation lessons
 
-### `CMP` / `CMPR` are destructive
-They subtract into the compared register. If you still need the original value after the comparison, copy it first.
+### `CMP` / `CMPR` are non-destructive
+They preserve the compared register. Carry still reflects borrow, so compare-plus-branch sequences keep working through the VM compatibility latch.
 
 This caused a real stack corruption bug in BASIC `GOSUB`/`RETURN` and loop bookkeeping.
 

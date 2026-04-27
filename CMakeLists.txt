@@ -33,6 +33,16 @@ target_include_directories(test_graphics_c64 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
 enable_testing()
 add_test(NAME test_graphics_c64 COMMAND test_graphics_c64)
 
+add_test(
+    NAME test_equ
+    COMMAND ${CMAKE_COMMAND}
+        -DASM=$<TARGET_FILE:s8asm>
+        -DVM=$<TARGET_FILE:sophia8>
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DBINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunEquTest.cmake
+)
+
 # Integration tests (assembler + VM)
 add_test(
     NAME test_libs_s8

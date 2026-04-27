@@ -100,8 +100,8 @@ Program lines are stored as packed variable-length records with 16-bit line numb
 
 ## Important lessons and guardrails
 
-### 1. `CMP`/`CMPR` are destructive
-On Sophia8, compare instructions subtract into the compared register. Do not assume the input register survives a compare.
+### 1. `CMP`/`CMPR` are non-destructive
+On Sophia8, compare instructions preserve the compared register. They still set carry for borrow-based branching, so old compare-plus-branch code continues to work.
 
 This already caused real bugs in BASIC flow-control stacks (`GOSUB`, `RETURN`, `FOR`, `NEXT`). Always compare on a scratch copy if the value is still needed later.
 Also keep BASIC runtime stacks out of assembled code regions: `0x6A00/0x6A20` are no longer safe once the modular BASIC grows. Preserve `0x9600/0x9601` for user `POKE`, and keep `GOSUB`/`FOR` stacks in a dedicated free RAM block instead.
@@ -171,6 +171,11 @@ Current BASIC memory layout:
 
 The console is enabled by default. Packed program records are kept out of the framebuffer, and the late BASIC helpers live in separate high-memory segments so the low interpreter body can stay compact.
 The BASIC code is intentionally split across low and high memory segments; the packed program store is the only contiguous user-program region.
+
+Assembler note:
+- `.equ NAME, VALUE` defines a constant after includes are expanded
+- constants may be used anywhere a numeric literal or label is accepted
+- macros are not implemented
 
 `HALT` stops the VM itself. That is useful in graphics mode, where there is no terminal prompt to return to, and in the BASIC integration harness, which uses `HALT` after `RUN` so tests terminate cleanly.
 

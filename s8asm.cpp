@@ -13,10 +13,11 @@
 //   Path resolution: 1) including file dir, 2) entry file dir, else error.
 //   Include cycles: strict error w/ include chain. Multiple include of same file: strict error.
 // - Labels are global; duplicate labels are strict error.
+// - .equ NAME, VALUE defines a constant symbol after includes are expanded.
 // - Case-sensitive syntax. Comments start with ';' to end-of-line.
 // - Immediates must use '#': #0x.. #123 #0b..
 // - Addresses are plain 0x.... or labels (no '#').
-// - .byte: numeric literals only (no labels, no '#'), trailing comma allowed.
+// - .byte: numeric literals or symbols (no labels, no '#'), trailing comma allowed.
 // - .word: numeric literals or labels (no '#'), trailing comma allowed.
 // - Any overlap emission is a strict error.
 //
@@ -65,10 +66,11 @@ static void print_help(const char* prog)
         << "\n"
         << "Key rules (strict):\n"
         << "  - Implicit entry stub at 0x0000..0x0002: JMP <entry>. User code/data must start >= 0x0003\n"
-        << "  - .org <addr> sets absolute location (numeric literal only); .org (no operand) marks entry (once)\n"
+        << "  - .org <addr> sets absolute location (numeric literal or previously defined symbol); .org (no operand) marks entry (once)\n"
+        << "  - .equ NAME, VALUE defines a constant after includes are expanded\n"
         << "  - .include is textual, include-once is enforced, include cycles are errors\n"
         << "  - Labels are global and case-sensitive; duplicates and undefined labels are errors\n"
-        << "  - .byte: numeric literals only; .word: literals or labels; .string: 7-bit ASCII with escapes\n"
+        << "  - .byte: numeric literals or symbols; .word: literals or labels/symbols; .string: 7-bit ASCII with escapes\n"
         << "  - Any overlapping emission is an error\n"
         << "\n"
         << "Examples:\n"
@@ -430,6 +432,22 @@ static inline void require(bool cond, const std::string& msg, const SrcLine& sl)
     if (!cond) throw_here(msg, sl);
 }
 
+static inline uint32_t resolve_symbol_or_literal(const std::string& tok,
+                                                 const std::unordered_map<std::string, uint32_t>& sym,
+                                                 const SrcLine& sl) {
+    require(!tok.empty(), "Empty numeric operand", sl);
+    if (is_ident(tok)) {
+        auto it = sym.find(tok);
+        require(it != sym.end(), "Undefined symbol '" + tok + "'", sl);
+        return it->second & 0xFFFF;
+    }
+    uint32_t v = 0;
+    try { v = parse_int_literal(tok); }
+    catch (...) { throw AsmError("Invalid numeric literal: " + tok, sl.file, sl.line_no, sl.text, sl.include_stack); }
+    require(v <= 0xFFFF, "Numeric literal out of 16-bit range: " + tok, sl);
+    return v;
+}
+
 static inline void emit_byte(std::vector<uint8_t>& img,
                              std::vector<uint8_t>& used,
                              uint32_t addr,
@@ -493,24 +511,15 @@ static inline uint32_t resolve_addr16(const std::string& tok,
                                       const SrcLine& sl) {
     require(!tok.empty(), "Empty address operand", sl);
     require(tok[0] != '#', "Address operand must not start with '#'", sl);
-    if (is_ident(tok)) {
-        auto it = sym.find(tok);
-        require(it != sym.end(), "Undefined label '" + tok + "'", sl);
-        return it->second & 0xFFFF;
-    }
-    uint32_t v = 0;
-    try { v = parse_int_literal(tok); }
-    catch (...) { throw_here("Invalid address literal: " + tok, sl); }
-    require(v <= 0xFFFF, "Address literal out of 16-bit range: " + tok, sl);
-    return v;
+    return resolve_symbol_or_literal(tok, sym, sl);
 }
 
-static inline uint8_t resolve_imm8(const std::string& tok, const SrcLine& sl) {
+static inline uint8_t resolve_imm8(const std::string& tok,
+                                   const std::unordered_map<std::string, uint32_t>& sym,
+                                   const SrcLine& sl) {
     require(!tok.empty(), "Empty immediate operand", sl);
     require(tok[0] == '#', "Immediate operand must start with '#'", sl);
-    uint32_t v = 0;
-    try { v = parse_int_literal(tok.substr(1)); }
-    catch (...) { throw_here("Invalid immediate literal: " + tok, sl); }
+    uint32_t v = resolve_symbol_or_literal(tok.substr(1), sym, sl);
     require(v <= 0xFF, "Immediate out of 8-bit range: " + tok, sl);
     return (uint8_t)v;
 }
@@ -585,16 +594,22 @@ static std::vector<uint8_t> assemble(const std::vector<SrcLine>& src_lines,
                 } else {
                     require(ops.size() == 1, ".org expects 0 or 1 operand", sl);
                     require(ops[0].size() > 0 && ops[0][0] != '#', ".org operand must not use '#'", sl);
-                    require(!is_ident(ops[0]), ".org operand must be a numeric literal (labels not allowed)", sl);
-                    uint32_t addr = 0;
-                    try { addr = parse_int_literal(ops[0]); }
-                    catch (...) { throw_here("Invalid .org address literal: " + ops[0], sl); }
-                    require(addr <= 0xFFFF, ".org out of 16-bit range", sl);
+                    uint32_t addr = resolve_symbol_or_literal(ops[0], sym, sl);
                     require(addr >= 0x0003, ".org must be >= 0x0003", sl);
                     if (!first_org_addr.has_value()) first_org_addr = addr;
                     lc = addr;
                     items.push_back(Item{Item::Kind::Dir, ".org", ops, lc, 0, sl});
                 }
+            } else if (dname == ".equ") {
+                require(ops.size() == 2, ".equ expects exactly 2 operands: .equ NAME, VALUE", sl);
+                const std::string& name = ops[0];
+                const std::string& value_tok = ops[1];
+                require(is_ident(name), ".equ name must be a valid identifier", sl);
+                require(sym.find(name) == sym.end(), "Duplicate symbol '" + name + "'", sl);
+                require(!value_tok.empty(), ".equ value must not be empty", sl);
+                require(value_tok[0] != '#', ".equ value must not use '#'", sl);
+                uint32_t value = resolve_symbol_or_literal(value_tok, sym, sl);
+                sym[name] = value;
             } else if (dname == ".string") {
                 require(!rest.empty(), R"(.string expects a quoted string operand)", sl);
                 auto bytes = decode_c_string(rest, sl);
@@ -662,6 +677,7 @@ static std::vector<uint8_t> assemble(const std::vector<SrcLine>& src_lines,
     for (const auto& it : items) {
         if (it.kind == Item::Kind::Dir) {
             if (it.name == ".org") continue;
+            if (it.name == ".equ") continue;
 
             uint32_t addr = it.addr;
             if (it.name == ".byte") {
@@ -670,10 +686,7 @@ static std::vector<uint8_t> assemble(const std::vector<SrcLine>& src_lines,
                 for (const auto& op : it.ops) {
                     require(!op.empty(), ".byte empty operand", it.src);
                     require(op[0] != '#', ".byte elements must not use '#'", it.src);
-                    require(!is_ident(op), ".byte does not allow labels", it.src);
-                    uint32_t v = 0;
-                    try { v = parse_int_literal(op); }
-                    catch (...) { throw_here("Invalid .byte literal: " + op, it.src); }
+                    uint32_t v = resolve_symbol_or_literal(op, sym, it.src);
                     require(v <= 0xFF, ".byte value out of 8-bit range: " + op, it.src);
                     span.push_back((uint8_t)v);
                     emit_byte(img, used, addr++, (uint8_t)v, it.src);
@@ -697,16 +710,7 @@ static std::vector<uint8_t> assemble(const std::vector<SrcLine>& src_lines,
                 for (const auto& op : it.ops) {
                     require(!op.empty(), ".word empty operand", it.src);
                     require(op[0] != '#', ".word elements must not use '#'", it.src);
-                    uint32_t v = 0;
-                    if (is_ident(op)) {
-                        auto si = sym.find(op);
-                        require(si != sym.end(), "Undefined label '" + op + "'", it.src);
-                        v = si->second & 0xFFFF;
-                    } else {
-                        try { v = parse_int_literal(op); }
-                        catch (...) { throw_here("Invalid .word literal: " + op, it.src); }
-                        require(v <= 0xFFFF, ".word value out of 16-bit range: " + op, it.src);
-                    }
+                    uint32_t v = resolve_symbol_or_literal(op, sym, it.src);
                     span.push_back((uint8_t)((v >> 8) & 0xFF));
                     span.push_back((uint8_t)(v & 0xFF));
                     emit_u16be(img, used, addr, v, it.src);
@@ -730,7 +734,7 @@ static std::vector<uint8_t> assemble(const std::vector<SrcLine>& src_lines,
         auto spec = SPECS.at(it.name);
 
         auto get_addr = [&](const std::string& t)->uint32_t { return resolve_addr16(t, sym, it.src); };
-        auto get_imm  = [&](const std::string& t)->uint8_t  { return resolve_imm8(t, it.src); };
+        auto get_imm  = [&](const std::string& t)->uint8_t  { return resolve_imm8(t, sym, it.src); };
         auto get_gpr  = [&](const std::string& t)->uint8_t  { return resolve_reg(t, OpKind::Gpr, it.src); };
         auto get_anyr = [&](const std::string& t)->uint8_t  { return resolve_reg(t, OpKind::AnyReg, it.src); };
 

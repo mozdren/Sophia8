@@ -12,20 +12,27 @@
     },
     "directives": {
       ".byte": {
-        "allowed_values": "Numeric literals only (decimal/hex/binary). Labels are not allowed.",
+        "allowed_values": "Numeric literals or previously defined symbols (decimal/hex/binary).",
         "behavior": "Emits each value as one byte.",
         "range": "0..255",
         "syntax": ".byte <v0>, <v1>, ..."
+      },
+      ".equ": {
+        "behavior": [
+          "Defines a constant symbol after includes are expanded.",
+          "Constants share the normal symbol namespace with labels."
+        ],
+        "syntax": ".equ NAME, VALUE"
       },
       ".org": {
         "behavior": [
           "Location counter (LC) starts at 0x0003 (0x0000..0x0002 reserved for implicit entry JMP).",
           ".org with no operand marks an entry point at current LC and does not change LC (allowed at most once).",
-          ".org <addr> sets LC to <addr> (numeric literal only; labels are not allowed)."
+          ".org <addr> sets LC to <addr> (numeric literal or previously defined symbol)."
         ],
         "constraints": [
           "At least one .org (either form) must appear in the program.",
-          ".org <addr> must be a numeric literal in [0x0003..0xFFFF].",
+          ".org <addr> must resolve to a value in [0x0003..0xFFFF].",
           "Multiple .org <addr> are allowed.",
           "Overlapping writes across segments are forbidden.",
           "Only one entry marker (.org with no operand) may exist."
@@ -57,7 +64,7 @@
         "syntax": ".string \"text\""
       },
       ".word": {
-        "allowed_values": "Numeric literals or labels.",
+        "allowed_values": "Numeric literals or labels/symbols.",
         "behavior": "Emits each value as two bytes: high then low.",
         "endianness": "big-endian",
         "range": "0..65535",
@@ -92,14 +99,14 @@
         "topic": "Immediate vs address syntax"
       },
       {
-        "lesson": ".org with an operand moves the location counter. '.org' with no operand is treated as an entry-point marker (and may appear only once). The operand must be a numeric literal (labels not allowed).",
-        "pitfall": "Trying to write '.org start' or '.org #0x200' will fail by design.",
+        "lesson": ".org with an operand moves the location counter. '.org' with no operand is treated as an entry-point marker (and may appear only once). The operand may be a numeric literal or a previously defined symbol.",
+        "pitfall": "Trying to write '.org #0x200' will fail by design. Forward references to symbols in .org are not supported.",
         "reason": "Keeps entry-point explicit and avoids forward-reference ambiguity for the image layout.",
         "topic": ".org semantics and entry mark"
       },
       {
-        "lesson": ".byte accepts numeric literals only (no labels, no '#'). .word accepts numeric literals or labels (no '#'). Keep data widths explicit to avoid accidental truncation.",
-        "pitfall": "Using labels in .byte or using immediates in .word/.byte.",
+        "lesson": ".equ defines a constant symbol after includes are expanded. .byte accepts numeric literals or previously defined symbols (no '#'). .word accepts numeric literals or labels/symbols (no '#').",
+        "pitfall": "Using '#' in data directives, or referencing an undefined symbol.",
         "topic": "Byte/word emission rules"
       },
       {
@@ -123,8 +130,8 @@
         "topic": "Overlap detection"
       },
       {
-        "lesson": "Pass 1 builds layout and label addresses; pass 2 emits. Forward references are fine for instructions and .word, but not allowed where the assembler requires literal-only operands (e.g., .org operand, .byte).",
-        "prevention": "When in doubt, choose .word for label-bearing data and keep control directives literal.",
+        "lesson": "Pass 1 builds layout and label addresses; pass 2 emits. Forward references are fine for instructions and .word, but literal-only directives must already have a resolved value. With .equ, constants are available after includes and may be used anywhere a numeric literal or label is accepted.",
+        "prevention": "When in doubt, choose .word for symbol-bearing data and keep control directives literal unless the symbol is already defined. Use .equ for assembly-time constants, not macros.",
         "topic": "Two-pass assembly expectations"
       },
       {
@@ -133,9 +140,9 @@
         "topic": "Error reporting"
       },
       {
-        "topic": "Destructive CMP/CMPR semantics",
-        "lesson": "CMP/CMPR subtract into the compared register. Never compare a live value in-place if it is still needed afterward; compare on a scratch copy instead.",
-        "reason": "This caused real stack/index corruption bugs in BASIC control-flow code."
+        "topic": "CMP/CMPR compare semantics",
+        "lesson": "CMP/CMPR are non-destructive. Existing compare-plus-branch sequences continue to work through the VM compatibility latch.",
+        "reason": "The opcodes preserve the compared register while keeping legacy assembly behavior intact."
       },
       {
         "topic": "Reserved BASIC scratch region at 0x9600/0x9601",
@@ -261,11 +268,11 @@
   },
   "codegen_rules": {
     "gotchas": [
-      "CMP/CMPR are destructive (they subtract into the compared register).",
+      "CMP/CMPR are non-destructive; the VM keeps compare results separate from register contents.",
       "DIV/DIVR overwrite the quotient register before writing remainder; do not use the same register for both outputs.",
       "Include-once is enforced (including the same file twice is an assembler error).",
-      ".org operands must be numeric literals (no labels).",
-      ".byte does not allow labels.",
+      ".org operands must be numeric literals or previously defined symbols.",
+      ".byte accepts numeric literals or symbols.",
       "MUL/MULR destination register order: encoded as (dst_high, dst_low). If you want low in R6 and high in R7, write: MUL #imm, R7, R6.",
       "Preserve 0x9600/0x9601 as reserved BASIC scratch/test-safe addresses unless the layout is intentionally redesigned."
     ],
@@ -278,7 +285,7 @@
     ],
     "strict": [
       "Never invent new instructions, directives, or registers.",
-      "Do not assume macros like .equ exist (they do not).",
+      ".equ exists for constants; macros are still not implemented.",
       "Immediates must use '#'.",
       "One instruction per line."
     ]
@@ -304,7 +311,7 @@
           "SUB/SUBR (borrow)",
           "INC (wrap 0xFF->0x00)",
           "DEC (wrap 0x00->0xFF)",
-          "CMP/CMPR (borrow)",
+          "CMP/CMPR (borrow flag only; non-destructive)",
           "SHL/SHR (last shifted-out bit)",
           "MUL/MULR (high byte != 0)"
         ],
@@ -584,9 +591,9 @@
       },
       {
         "effects": [
-          "DESTRUCTIVE compare implemented as subtraction.",
-          "Rn = Rn - imm8 (8-bit wrap).",
-          "Carry=1 on borrow (original Rn < imm8)."
+          "Non-destructive compare against imm8.",
+          "Carry=1 on borrow (original Rn < imm8).",
+          "Rn is unchanged."
         ],
         "len": 3,
         "m": "CMP",
@@ -598,9 +605,9 @@
       },
       {
         "effects": [
-          "DESTRUCTIVE compare implemented as subtraction.",
-          "Rn = Rn - Rm (8-bit wrap).",
-          "Carry=1 on borrow (original Rn < Rm)."
+          "Non-destructive compare against Rm.",
+          "Carry=1 on borrow (original Rn < Rm).",
+          "Rn is unchanged."
         ],
         "len": 3,
         "m": "CMPR",
