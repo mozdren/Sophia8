@@ -776,7 +776,7 @@
       "routines": [
         {
           "args": {},
-          "behavior": "Copies NUL-terminated line from 0x6C00 to 0x6D00.",
+          "behavior": "Copies the current REPL input line from 0xA400 to 0xA480 so parsing can safely modify the working buffer.",
           "clobbers": [
             "R0",
             "R1",
@@ -784,7 +784,7 @@
             "R3",
             "R4"
           ],
-          "name": "COPY_INBUF_6C00_TO_6D00",
+          "name": "COPY_INBUF_A400_TO_A480",
           "returns": {}
         },
         {
@@ -1922,6 +1922,15 @@
       "current_mitigation": [
         "basic_stmt.s8.asm leaves a gap before later code continues at 0x9700.",
         "basic_data_cmd.s8.asm is placed at 0xC000 to reduce growth pressure near 0x9600."
+      ]
+    },
+    "basic_layout": {
+      "lesson": "Describe BASIC memory as split segments, not one continuous code block.",
+      "notes": [
+        "Low BASIC code and helpers begin at 0x0400.",
+        "Runtime state occupies 0x6800..0x68F9.",
+        "Code resumes at 0x68FA after the state block.",
+        "Packed BASIC program storage begins at 0x6C5A."
       ]
     }
   }

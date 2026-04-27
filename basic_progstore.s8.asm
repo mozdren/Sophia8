@@ -6,15 +6,43 @@
 ;   +3..  line text
 ;   +N    trailing NUL for PUTS/text scans
 ;
-; Program records are kept in insertion order in RAM `0x4000..0x67FF`.
+; Program records are kept in insertion order in RAM `0x6C5A..0x7FFF`.
 ; `PROG_END_*` points just past the last record.
+
+; PROG_FIRST_PTR
+;   Output: R1:R2 = first program record pointer.
+PROG_FIRST_PTR:
+    SET #0x6C, R1
+    SET #0x5A, R2
+    RET
+
+; PROG_IS_AT_END
+;   Input : R1:R2 = current record pointer
+;   Output: R0 = 1 if current pointer equals PROG_END_*, else 0
+PROG_IS_AT_END:
+    LOAD PROG_END_H, R3
+    LOAD PROG_END_L, R4
+    SET #0x00, R0
+    ADDR R1, R0
+    CMPR R0, R3
+    JNZ R0, PIE_NOT
+    SET #0x00, R0
+    ADDR R2, R0
+    CMPR R0, R4
+    JNZ R0, PIE_NOT
+    SET #0x01, R0
+    RET
+PIE_NOT:
+    SET #0x00, R0
+    RET
 
 PROG_RESET:
     SET #0x00, R0
     STORE R0, LINECOUNT
-    SET #0x40, R0
+    CALL PROG_CLEAR_LAST_LINE_CACHE
+    SET #0x6C, R0
     STORE R0, PROG_END_H
-    SET #0x00, R0
+    SET #0x5A, R0
     STORE R0, PROG_END_L
     RET
 
@@ -75,36 +103,34 @@ BPS_NP1:
 BPS_NP2:
     RET
 
+; PROG_GET_RECORD_INFO
+;   Input : R1:R2 = record start
+;   Output: R6:R7 = line number, R0 = text length, R1:R2 = text start
+PROG_GET_RECORD_INFO:
+    LOADR R6, R1, R2
+    INC R2
+    JNZ R2, BPS_RI1
+    INC R1
+BPS_RI1:
+    LOADR R7, R1, R2
+    CALL PROG_GET_TEXT_PTR
+    RET
+
 ; FIND_LINE
 ;   Input : TMP_LINENO_H/L
 ;   Output: R0 = 1 if found, 0 otherwise
 ;           R1:R2 = matching record ptr or PROG_END when not found
 FIND_LINE:
-    SET #0x40, R1
-    SET #0x00, R2
+    CALL PROG_FIRST_PTR
 BPS_FL_LOOP:
-    LOAD PROG_END_H, R3
-    LOAD PROG_END_L, R4
-    SET #0x00, R5
-    ADDR R1, R5
-    CMPR R5, R3
-    JNZ R5, BPS_FL_HAVE
-    SET #0x00, R5
-    ADDR R2, R5
-    CMPR R5, R4
-    JZ R5, BPS_FL_NO
+    CALL PROG_IS_AT_END
+    CMP R0, #0x01
+    JZ R0, BPS_FL_NO
 
 BPS_FL_HAVE:
-    LOADR R6, R1, R2
-    INC R2
-    JNZ R2, BPS_FL1
-    INC R1
-BPS_FL1:
-    LOADR R7, R1, R2
-    DEC R2
-    JNC BPS_FL2
-    DEC R1
-BPS_FL2:
+    STORE R1, TMP_PTR_H
+    STORE R2, TMP_PTR_L
+    CALL PROG_GET_RECORD_INFO
 
     LOAD TMP_LINENO_H, R0
     SET #0x00, R5
@@ -119,12 +145,16 @@ BPS_FL2:
     JZ R5, BPS_FL_YES
 
 BPS_FL_ADVANCE:
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
     CALL PROG_NEXT_PTR
     JMP BPS_FL_LOOP
 BPS_FL_NO:
     SET #0x00, R0
     RET
 BPS_FL_YES:
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
     SET #0x01, R0
     RET
 
@@ -198,7 +228,7 @@ BPS_INS1:
     STORE R6, DIVL
     SET #0x00, R7
     ADDR R5, R7
-    CMP R7, #0x68
+    CMP R7, #0x80
     JC BPS_INS_SPACE
     JNZ R7, BPS_INS_FAIL
     SET #0x00, R7
@@ -340,7 +370,78 @@ BPS_WR_DONE:
     STORER R0, R1, R2
     RET
 
+; PROG_CLEAR_LAST_LINE_CACHE
+;   Reset the fast append cache used by STORE_LINE.
+PROG_CLEAR_LAST_LINE_CACHE:
+    SET #0x00, R0
+    STORE R0, PROG_LAST_VALID
+    STORE R0, PROG_LAST_H
+    STORE R0, PROG_LAST_L
+    RET
+
+; PROG_UPDATE_LAST_LINE_CACHE
+;   Cache TMP_LINENO_* as the most recent inserted line.
+PROG_UPDATE_LAST_LINE_CACHE:
+    LOAD TMP_LINENO_H, R0
+    STORE R0, PROG_LAST_H
+    LOAD TMP_LINENO_L, R0
+    STORE R0, PROG_LAST_L
+    SET #0x01, R0
+    STORE R0, PROG_LAST_VALID
+    RET
+
+; PROG_CAN_APPEND_LINE
+;   Return R0=1 if TMP_LINENO_* is strictly greater than the cached last line.
+;   Otherwise return R0=0.
+PROG_CAN_APPEND_LINE:
+    LOAD PROG_LAST_VALID, R0
+    CMP R0, #0x01
+    JNZ R0, PAL_NO
+
+    LOAD TMP_LINENO_H, R1
+    LOAD PROG_LAST_H, R3
+    SET #0x00, R5
+    ADDR R1, R5
+    CMPR R5, R3
+    JNZ R5, PAL_HDIFF
+
+    LOAD TMP_LINENO_L, R1
+    LOAD PROG_LAST_L, R3
+    SET #0x00, R5
+    ADDR R1, R5
+    CMPR R5, R3
+    JZ R5, PAL_NO
+    JNC PAL_NO
+    SET #0x01, R0
+    RET
+
+PAL_HDIFF:
+    JNC PAL_NO
+    SET #0x01, R0
+    RET
+
+PAL_NO:
+    SET #0x00, R0
+    RET
+
 STORE_LINE:
+    CALL PROG_CAN_APPEND_LINE
+    CMP R0, #0x01
+    JNZ R0, BPS_SL_FIND
+    JMP BPS_SL_APPEND
+
+BPS_SL_APPEND:
+    LOAD PROG_END_H, R1
+    LOAD PROG_END_L, R2
+    CALL PROG_CALC_TEXT_SIZE
+    CALL PROG_INSERT_SPACE_AT
+    CMP R0, #0x01
+    JNZ R0, BPS_SL_FAIL
+    CALL PROG_WRITE_RECORD
+    CALL PROG_UPDATE_LAST_LINE_CACHE
+    RET
+
+BPS_SL_FIND:
     CALL FIND_LINE
     STORE R1, TMP_PTR_H
     STORE R2, TMP_PTR_L
@@ -360,6 +461,10 @@ BPS_SL_NEW:
     JZ R0, BPS_SL_FAIL
 
 BPS_SL_SIZE:
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+    CALL PROG_IS_AT_END
+    STORE R0, TMPL
     CALL PROG_CALC_TEXT_SIZE
     LOAD TMP_PTR_H, R1
     LOAD TMP_PTR_L, R2
@@ -370,6 +475,14 @@ BPS_SL_SIZE:
     LOAD TMP_PTR_H, R1
     LOAD TMP_PTR_L, R2
     CALL PROG_WRITE_RECORD
+    LOAD TMPL, R0
+    CMP R0, #0x01
+    JNZ R0, BPS_SL_CLEAR
+    CALL PROG_UPDATE_LAST_LINE_CACHE
+    RET
+
+BPS_SL_CLEAR:
+    CALL PROG_CLEAR_LAST_LINE_CACHE
     RET
 
 BPS_SL_FAIL:
@@ -381,33 +494,21 @@ DELETE_BY_LINENO:
     CMP R0, #0x01
     JNZ R0, BPS_DB_DONE
     CALL PROG_DELETE_AT
+    CALL PROG_CLEAR_LAST_LINE_CACHE
 BPS_DB_DONE:
     RET
 
 LIST_ALL:
-    SET #0x40, R1
-    SET #0x00, R2
+    CALL PROG_FIRST_PTR
 BPS_LA_LOOP:
-    LOAD PROG_END_H, R3
-    LOAD PROG_END_L, R4
-    SET #0x00, R5
-    ADDR R1, R5
-    CMPR R5, R3
-    JNZ R5, BPS_LA_HAVE
-    SET #0x00, R5
-    ADDR R2, R5
-    CMPR R5, R4
-    JZ R5, BPS_LA_DONE
+    CALL PROG_IS_AT_END
+    CMP R0, #0x01
+    JZ R0, BPS_LA_DONE
 
 BPS_LA_HAVE:
     STORE R1, TMP_PTR_H
     STORE R2, TMP_PTR_L
-    LOADR R6, R1, R2
-    INC R2
-    JNZ R2, BPS_LA1
-    INC R1
-BPS_LA1:
-    LOADR R7, R1, R2
+    CALL PROG_GET_RECORD_INFO
     PUSH R1
     PUSH R2
     CALL PUTDEC16U

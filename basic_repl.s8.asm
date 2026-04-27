@@ -10,7 +10,7 @@
 ; Expected include order / dependencies:
 ;   - kernel.s8.asm + cli.s8.asm (PUTS, READLINE_ECHO, etc.)
 ;   - text.s8.asm (TOUPPER_Z, SKIPSP, ISDIGIT)
-;   - basic_helpers.s8.asm (COPY_INBUF_6C00_TO_6D00, ADD_ENTRY_OFFSET, etc.)
+;   - basic_helpers.s8.asm (COPY_INBUF_A400_TO_A480, ADD_ENTRY_OFFSET, etc.)
 ;   - basic_state.s8.asm (LINECOUNT, CURPTR_*, RUN_* state)
 ;   - basic_init.s8.asm (INIT_VARS)
 ;   - basic_progstore.s8.asm (HANDLE_PROGLINE)
@@ -36,15 +36,15 @@ REPL:
     SET #0x40, R2
     CALL PUTS
 
-    ; read line to 0x6F00 (CLI buffer) - kept above current BASIC code
-    SET #0x6F, R1
+    ; read line to 0xA400 (CLI buffer) - kept outside program storage
+    SET #0xA4, R1
     SET #0x00, R2
     SET #96, R3
     CALL READLINE_ECHO
 
-    ; make a stable copy to 0x6F80 so parsing is not affected by any
+    ; make a stable copy to 0xA480 so parsing is not affected by any
     ; input/echo side-effects or stray terminators
-    CALL COPY_INBUF_6C00_TO_6D00
+    CALL COPY_INBUF_A400_TO_A480
 
     ; newline
     SET #0x02, R1
@@ -52,12 +52,12 @@ REPL:
     CALL PUTS
 
     ; uppercase stable copy
-    SET #0x6F, R1
+    SET #0xA4, R1
     SET #0x80, R2
     CALL TOUPPER_Z
 
     ; skip spaces
-    SET #0x6F, R1
+    SET #0xA4, R1
     SET #0x80, R2
     CALL SKIPSP
     LOADR R0, R1, R2
@@ -81,9 +81,9 @@ REPL:
 RUN_PROG:
     LOAD PROG_END_H, R1
     LOAD PROG_END_L, R2
-    CMP R1, #0x40
+    CMP R1, #0x6C
     JNZ R1, RP_HAVE_PROG
-    CMP R2, #0x00
+    CMP R2, #0x5A
     JZ R2, RUN_NOP
 
 RP_HAVE_PROG:
@@ -96,10 +96,9 @@ RP_HAVE_PROG:
     ; reset DATA/READ pointer for each RUN
     CALL DATA_RESET
 
-    SET #0x40, R0
-    STORE R0, RUN_PTR_H
-    SET #0x00, R0
-    STORE R0, RUN_PTR_L
+    CALL PROG_FIRST_PTR
+    STORE R1, RUN_PTR_H
+    STORE R2, RUN_PTR_L
 
 RP_LOOP:
     LOAD RUN_STOP, R0
@@ -108,16 +107,9 @@ RP_LOOP:
 
     LOAD RUN_PTR_H, R1
     LOAD RUN_PTR_L, R2
-    LOAD PROG_END_H, R3
-    LOAD PROG_END_L, R4
-    SET #0x00, R5
-    ADDR R1, R5
-    CMPR R5, R3
-    JNZ R5, RP_HAVE_LINE
-    SET #0x00, R5
-    ADDR R2, R5
-    CMPR R5, R4
-    JZ R5, RP_DONE
+    CALL PROG_IS_AT_END
+    CMP R0, #0x01
+    JZ R0, RP_DONE
 
 RP_HAVE_LINE:
     STORE R1, TMP_PTR_H

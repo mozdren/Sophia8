@@ -5,7 +5,7 @@
 ; variables (e.g., CURPTR_H/CURPTR_L) or BASIC data layout.
 ;
 ; Exported:
-; - COPY_INBUF_6C00_TO_6D00
+; - COPY_INBUF_A400_TO_A480
 ; - GETTOKEN
 ; - PARSE_INT16
 ; - PARSE_U16_DEC
@@ -15,14 +15,14 @@
 ; NOTE: SKIPSP / ISDIGIT / PARSE_UINT8 / TOUPPER_Z were moved to text.s8.asm.
 
 ; ---------------------------------------------------------------------------
-; COPY_INBUF_6C00_TO_6D00
-;   Copy NUL-terminated string from BASIC REPL input buffer 0x6F00
-;   to stable parse buffer 0x6F80 (incl terminator).
+; COPY_INBUF_A400_TO_A480
+;   Copy NUL-terminated string from BASIC REPL input buffer 0xA400
+;   to stable parse buffer 0xA480 (incl terminator).
 ; ---------------------------------------------------------------------------
-COPY_INBUF_6C00_TO_6D00:
-    SET #0x6F, R1
+COPY_INBUF_A400_TO_A480:
+    SET #0xA4, R1
     SET #0x00, R2
-    SET #0x6F, R3
+    SET #0xA4, R3
     SET #0x80, R4
 CIB_L0:
     LOADR R0, R1, R2

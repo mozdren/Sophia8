@@ -31,10 +31,9 @@ DATA_RESET:
     SET #0x00, R0
     STORE R0, DATA_VALID
     STORE R0, DATA_INDEX
-    SET #0x40, R0
-    STORE R0, DATA_LINE_H
-    SET #0x00, R0
-    STORE R0, DATA_LINE_L
+    CALL PROG_FIRST_PTR
+    STORE R1, DATA_LINE_H
+    STORE R2, DATA_LINE_L
     STORE R0, DATA_PTR_H
     STORE R0, DATA_PTR_L
     RET
@@ -46,31 +45,16 @@ DATA_RESET:
 ;   Sets DATA_LINE_* and clears DATA_VALID so next READ will rescan.
 ; ---------------------------------------------------------------------------
 DATA_RESTORE_TO_LINE:
-    SET #0x40, R1
-    SET #0x00, R2
+    CALL PROG_FIRST_PTR
 DRTL_LOOP:
-    LOAD PROG_END_H, R3
-    LOAD PROG_END_L, R4
-    SET #0x00, R5
-    ADDR R1, R5
-    CMPR R5, R3
-    JNZ R5, DRTL_HAVE
-    SET #0x00, R5
-    ADDR R2, R5
-    CMPR R5, R4
-    JZ R5, DRTL_DONE
+    CALL PROG_IS_AT_END
+    CMP R0, #0x01
+    JZ R0, DRTL_DONE
 
 DRTL_HAVE:
     STORE R1, TMP_PTR_H
     STORE R2, TMP_PTR_L
-
-    ; read line number
-    LOADR R6, R1, R2       ; high
-    INC R2
-    JNZ R2, DRTL1
-    INC R1
-DRTL1:
-    LOADR R7, R1, R2       ; low
+    CALL PROG_GET_RECORD_INFO
 
     LOAD TMP_LINENO_H, R0
     SET #0x00, R5
@@ -125,21 +109,14 @@ DATA_FIND_NEXT_STATEMENT:
     LOAD DATA_LINE_H, R1
     LOAD DATA_LINE_L, R2
 DFNS_LOOP:
-    LOAD PROG_END_H, R3
-    LOAD PROG_END_L, R4
-    SET #0x00, R5
-    ADDR R1, R5
-    CMPR R5, R3
-    JNZ R5, DFNS_HAVE
-    SET #0x00, R5
-    ADDR R2, R5
-    CMPR R5, R4
-    JZ R5, DFNS_FAIL
+    CALL PROG_IS_AT_END
+    CMP R0, #0x01
+    JZ R0, DFNS_FAIL
 
 DFNS_HAVE:
     STORE R1, TMP_PTR_H
     STORE R2, TMP_PTR_L
-    CALL PROG_GET_TEXT_PTR
+    CALL PROG_GET_RECORD_INFO
     ; skip spaces
     CALL SKIPSP
 

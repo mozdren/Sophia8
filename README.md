@@ -141,6 +141,8 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
+Current CTest coverage is 6 tests because `test_basic_high_lines` is intentionally disabled while the DATA/RESTORE path is being refactored.
+
 ## Main project files
 - `s8asm.cpp` — assembler
 - `sophia8.cpp` — VM
@@ -153,7 +155,22 @@ ctest --test-dir build --output-on-failure
 ## Graphics
 The VM supports a C64-style graphics mode sourced from memory base `0x8000` (9000 bytes). `--gfx` opens a fullscreen SDL window that renders directly from mapped memory, captures keyboard input through SDL, and `--gfx-out <file.ppm>` optionally writes the final frame to PPM.
 
-Sophia8 also keeps an 80x25 text console in separate RAM at `0x09C0..0x118F`, with cursor/mode state at `0x09BC..0x09BF`. The 4x8 ASCII charset is packed at `0xD5CA..0xD8B9`. The console is enabled by default, and BASIC starts with the string heap at `0xE000`.
+Current BASIC memory layout:
+- `0x0000..0x0002`: assembler entry stub
+- `0x0200+`: fixed BASIC strings
+- BASIC code is split across multiple segments, with the main body beginning at `0x0400` and resuming after the runtime state block at `0x68FA`
+- `0x6000..0x63FF`: BASIC variable table
+- `0x6800..0x68F9`: BASIC runtime state and scratch variables
+- `0x6C5A..0x7FFF`: packed BASIC program store
+- `0x8000..0xA327`: graphics framebuffer
+- `0xD1AA`: late BASIC `DATA/READ/RESTORE` command helpers
+- `0xD5CA..0xD8B9`: 8x8 ASCII charset
+- `0xD8C5..0xD8C8`: text cursor and mode state
+- `0xD8C9..0xDCB0`: 40x25 text console buffer
+- `0xE000`: BASIC string heap start
+
+The console is enabled by default. Packed program records are kept out of the framebuffer, and the late BASIC helpers live in separate high-memory segments so the low interpreter body can stay compact.
+The BASIC code is intentionally split across low and high memory segments; the packed program store is the only contiguous user-program region.
 
 `HALT` stops the VM itself. That is useful in graphics mode, where there is no terminal prompt to return to, and in the BASIC integration harness, which uses `HALT` after `RUN` so tests terminate cleanly.
 

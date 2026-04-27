@@ -82,7 +82,7 @@ int main()
     assert(ppm[pixel11 + 1] == 0xFF);
     assert(ppm[pixel11 + 2] == 0xFF);
 
-    // Text overlay: a custom 4x8 glyph at (0,0).
+    // Text overlay: a custom 8x8 glyph at (0,0).
     std::vector<uint8_t> text(GraphicsC64::kTextBytes, static_cast<uint8_t>(' '));
     std::vector<uint8_t> charset(GraphicsC64::kTextCharsetBytes, 0);
     std::vector<uint8_t> text_state(4, 0);
@@ -93,9 +93,9 @@ int main()
     text_state[3] = 0x00;  // cursor hidden
 
     const size_t glyph_a = static_cast<size_t>('A' - GraphicsC64::kTextAsciiFirst) * GraphicsC64::kTextCellH;
-    charset[glyph_a + 0] = 0x0C;
-    charset[glyph_a + 1] = 0x0C;
-    charset[glyph_a + 2] = 0x0F;
+    charset[glyph_a + 0] = 0xC0;
+    charset[glyph_a + 1] = 0xC0;
+    charset[glyph_a + 2] = 0xF0;
 
     std::vector<uint8_t> text_rgb(static_cast<size_t>(GraphicsC64::kWidth * GraphicsC64::kHeight * 3), 0);
     graphics_c64_render_rgb(

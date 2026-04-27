@@ -6,6 +6,9 @@
 LINECOUNT: .byte 0
 PROG_END_H: .byte 0
 PROG_END_L: .byte 0
+PROG_LAST_VALID: .byte 0
+PROG_LAST_H: .byte 0
+PROG_LAST_L: .byte 0
 TMP_LINENO_H: .byte 0
 TMP_LINENO_L: .byte 0
 CURPTR_H: .byte 0

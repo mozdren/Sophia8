@@ -28,12 +28,13 @@ struct GraphicsC64
     static constexpr int kBytesPerCell = 9;
     static constexpr int kTotalBytes = kCellsW * kCellsH * kBytesPerCell; // 9000
 
-    // Sophia8 text console buffer, separate from the graphics framebuffer.
-    static constexpr uint16_t kTextStateBase = 0x09BC;
-    static constexpr uint16_t kTextBase = 0x09C0;
-    static constexpr int kTextCols = 80;
+    // Sophia8 text console buffer, one glyph per graphics cell.
+    // Packed into the free tail after the assembled BASIC image.
+    static constexpr uint16_t kTextStateBase = 0xD8C5;
+    static constexpr uint16_t kTextBase = 0xD8C9;
+    static constexpr int kTextCols = 40;
     static constexpr int kTextRows = 25;
-    static constexpr int kTextCellW = 4;
+    static constexpr int kTextCellW = 8;
     static constexpr int kTextCellH = 8;
     static constexpr int kTextBytes = kTextCols * kTextRows;
     static constexpr uint16_t kTextCharsetBase = 0xD5CA;

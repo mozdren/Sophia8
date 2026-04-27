@@ -53,16 +53,11 @@ static void render_text_into_framebuffer(uint8_t* gfx_frame,
         for (int cx = 0; cx < GraphicsC64::kTextCols; cx++)
         {
             const uint8_t ch = text_mem[static_cast<size_t>(cy * GraphicsC64::kTextCols + cx)];
-            const int gfx_cell_x = cx / 2;
-            const int gfx_cell_y = cy;
-            const size_t cell_index = static_cast<size_t>(gfx_cell_y * GraphicsC64::kCellsW + gfx_cell_x);
+            const size_t cell_index = static_cast<size_t>(cy * GraphicsC64::kCellsW + cx);
             uint8_t* cell = gfx_frame + cell_index * GraphicsC64::kBytesPerCell;
             const bool is_cursor = cursor_visible &&
                                    cx == static_cast<int>(cursor_x) &&
                                    cy == static_cast<int>(cursor_y);
-
-            const bool left_half = (cx % 2) == 0;
-            const uint8_t shift_base = left_half ? 4u : 0u;
 
             if (!is_cursor && (ch < GraphicsC64::kTextAsciiFirst || ch >= 0x7F))
             {
@@ -80,14 +75,13 @@ static void render_text_into_framebuffer(uint8_t* gfx_frame,
             }
             for (int row = 0; row < GraphicsC64::kTextCellH; row++)
             {
-                uint8_t bits = is_cursor ? 0x0F : 0x00;
-                if (glyph) bits = static_cast<uint8_t>(glyph[row] & 0x0F);
-                if (is_cursor) bits = 0x0F;
+                uint8_t bits = is_cursor ? 0xFF : 0x00;
+                if (glyph) bits = glyph[row];
+                if (is_cursor) bits = 0xFF;
                 for (int col = 0; col < GraphicsC64::kTextCellW; col++)
                 {
-                    if ((bits & (0x08u >> col)) == 0) continue;
-                    const uint8_t bit = static_cast<uint8_t>(0x80u >> (left_half ? col : (4 + col)));
-                    cell[row] |= bit;
+                    if ((bits & (0x80u >> col)) == 0) continue;
+                    cell[row] |= static_cast<uint8_t>(0x80u >> col);
                 }
             }
         }

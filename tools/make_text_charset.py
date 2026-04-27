@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Generate the Sophia8 4x8 ASCII charset as assembler data.
+"""Generate the Sophia8 8x8 ASCII charset as assembler data.
 
-The source font is intentionally compact and blocky so it fits the 80x25
+The source font is intentionally compact and blocky so it fits the 40x25
 text console used by Sophia8 graphics mode.
 """
 
@@ -17,6 +17,16 @@ def glyph(*rows: str) -> tuple[str, ...]:
         if len(row) != 4:
             raise ValueError(f"bad row width in {rows!r}")
     return tuple(rows)
+
+
+def expand_row(row: str) -> int:
+    bits = 0
+    for idx, ch in enumerate(row):
+        if ch == ".":
+            continue
+        shift = 6 - (idx * 2)
+        bits |= 0x03 << shift
+    return bits
 
 
 SPACE = glyph(
@@ -145,21 +155,17 @@ GLYPHS.update({
 
 
 def encode_row(row: str) -> int:
-    bits = 0
-    for i, ch in enumerate(row):
-        if ch != ".":
-            bits |= 1 << (3 - i)
-    return bits
+    return expand_row(row)
 
 
 def main() -> int:
     out_path = Path("text_charset.s8.asm")
     lines: list[str] = []
-    lines.append("; Auto-generated 4x8 ASCII charset for Sophia8")
+    lines.append("; Auto-generated 8x8 ASCII charset for Sophia8")
     lines.append("; Source: tools/make_text_charset.py")
-    lines.append("; Layout: printable ASCII 0x20..0x7E, 8 bytes per glyph, low nibble used")
+    lines.append("; Layout: printable ASCII 0x20..0x7E, 8 bytes per glyph")
     lines.append("")
-    lines.append(".org 0xD000")
+    lines.append(".org 0xD5CA")
     lines.append("TEXT_CHARSET:")
 
     for code in range(0x20, 0x7F):
@@ -176,7 +182,7 @@ def main() -> int:
         if code == 0x20:
             g = SPACE
 
-        bytes_ = [encode_row(row) & 0x0F for row in g]
+        bytes_ = [encode_row(row) for row in g]
         for idx in range(0, len(bytes_), 16):
             chunk = bytes_[idx:idx + 16]
             line = "    .byte " + ", ".join(f"0x{b:02X}" for b in chunk)

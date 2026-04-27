@@ -152,15 +152,16 @@ This modular split is important for maintainability. New features should be adde
 
 ### Fixed areas already in use
 - entry stub reserved by assembler: `0x0000..0x0002`
-- core libraries and BASIC composition start around `0x0400`
 - BASIC fixed strings: `0x0200+`
-- BASIC state blocks: `0x6800+`
-- Sophia8 text console buffer: `0x09C0..0x118F`
-- Sophia8 text cursor / mode state: `0x09BC..0x09BF`
-- Sophia8 text charset: `0xD5CA..0xD8B9`
+- BASIC code is split across multiple segments; the main body begins at `0x0400` and resumes after runtime state at `0x68FA`
+- BASIC variable table: `0x6000..0x63FF`
+- BASIC runtime state and scratch variables: `0x6800..0x68F9`
+- BASIC program storage uses packed variable-length line records in RAM `0x6C5A..0x7FFF`
 - BASIC string heap start: `0xE000`
-- BASIC program storage uses packed variable-length line records in RAM
-- `basic_strfn.s8.asm`: `0x9B2E`
+- Sophia8 text charset: `0xD5CA..0xD8B9`
+- Sophia8 text cursor / mode state: `0xD8C5..0xD8C8`
+- Sophia8 text console buffer: `0xD8C9..0xDCB0`
+- `basic_strfn.s8.asm`: `0x0925`
 - `basic_data_cmd.s8.asm`: `0xD1AA`
 - VM MMIO: `0xFF00..0xFF03`
 
@@ -205,6 +206,7 @@ BASIC regressions are often integration issues, not isolated parser bugs. Every 
 
 The current CTest integration is platform-neutral and avoids shell-only features such as `bash`, `awk`, `grep`, `diff`, and `timeout`.
 It appends `HALT` after `RUN` in the BASIC integration tests so each run exits the VM cleanly instead of waiting at the prompt.
+Current CTest coverage is 6 tests because `test_basic_high_lines` is intentionally disabled while the DATA/RESTORE path is being refactored.
 
 ## 8. Notes and pitfalls carried forward
 
