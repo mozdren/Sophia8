@@ -118,7 +118,7 @@ E8_DONE:
 ; Identifier parsing
 ; ----------------------
 PARSE_IDENT:
-    ; Parse identifier into IDBUF (0x2090), max 8 chars.
+    ; Parse identifier into IDBUF (BASIC_IDBUF_BASE), max 8 chars.
     ; Accepts A-Z as first char, then A-Z or 0-9, optional trailing '$' to mark string var.
     ; Input pointer: R1:R2, advanced on return. Returns R0=1 success else 0.
     LOADR R0, R1, R2
@@ -140,8 +140,8 @@ PI_START:
     STORE R5, IDTYPE
 
     ; ensure IDBUF is zero-padded (VAR_FIND compares full 8 bytes)
-    SET #0x68, R3
-    SET #0xA0, R4
+    SET #BASIC_IDBUF_BASE_H, R3
+    SET #BASIC_IDBUF_BASE_L, R4
     SET #8, R7
     SET #0x00, R0
 PI_ZPAD:
@@ -199,8 +199,8 @@ PI_STORE:
     CMP R7, #8
     JZ R7, PI_ADV
 
-    SET #0x68, R3
-    SET #0xA0, R4
+    SET #BASIC_IDBUF_BASE_H, R3
+    SET #BASIC_IDBUF_BASE_L, R4
     ADDR R5, R4
     ; store original char in R0 (not clobbered)
     STORER R0, R3, R4
@@ -234,8 +234,8 @@ PI_PAD:
     ADDR R5, R7
     CMP R7, #8
     JZ R7, PI_OK
-    SET #0x68, R3
-    SET #0xA0, R4
+    SET #BASIC_IDBUF_BASE_H, R3
+    SET #BASIC_IDBUF_BASE_L, R4
     ADDR R5, R4
     SET #0x00, R7
     STORER R7, R3, R4

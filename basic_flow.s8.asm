@@ -43,7 +43,7 @@ CMD_GOSUB:
     STORE R1, TMP_PTR_H
     STORE R2, TMP_PTR_L
 
-    ; push return ptr to 0x6E00 + sp*2
+    ; push return ptr to the GOSUB return stack
     LOAD GOSUB_SP, R0
     SET #0x00, R3
     ADDR R0, R3
@@ -52,8 +52,8 @@ CMD_GOSUB:
     SET #0x00, R3
     ADDR R0, R3
     SHL #1, R3
-    SET #0x6E, R1
-    SET #0x00, R2
+    SET #BASIC_GOSUB_STACK_BASE_H, R1
+    SET #BASIC_GOSUB_STACK_BASE_L, R2
     ADDR R3, R2
     LOAD RUN_NEXT_H, R7
     STORER R7, R1, R2
@@ -89,8 +89,8 @@ CMD_RETURN:
     DEC R0
     STORE R0, GOSUB_SP
     SHL #1, R0
-    SET #0x6E, R1
-    SET #0x00, R2
+    SET #BASIC_GOSUB_STACK_BASE_H, R1
+    SET #BASIC_GOSUB_STACK_BASE_L, R2
     ADDR R0, R2
     LOADR R7, R1, R2
     STORE R7, RUN_PTR_H
@@ -103,7 +103,7 @@ CMD_RETURN:
 
 ; ------------------------------------------------------------
 ; CMD_FOR: only valid while RUNNING (program execution)
-; Stack record layout at 0x6E20 + idx*8:
+; Stack record layout at BASIC_FOR_STACK_BASE + idx*8:
 ;   +0..1 var ptr (H,L)
 ;   +2..3 end value (H,L)
 ;   +4..5 step value (H,L)
@@ -186,12 +186,12 @@ FOR_PUSH:
     CMP R3, #8
     JZ R3, FLOW_SYNTAX
 
-    ; addr = 0x6E20 + sp*8
+    ; addr = BASIC_FOR_STACK_BASE + sp*8
     SET #0x00, R3
     ADDR R0, R3
     SHL #3, R3
-    SET #0x6E, R1
-    SET #0x20, R2
+    SET #BASIC_FOR_STACK_BASE_H, R1
+    SET #BASIC_FOR_STACK_BASE_L, R2
     ADDR R3, R2
     JNC FOR_AOK
     INC R1
@@ -244,12 +244,12 @@ CMD_NEXT:
     JZ R3, FLOW_SYNTAX
     DEC R0              ; top index in R0
 
-    ; addr = 0x6E20 + top*8
+    ; addr = BASIC_FOR_STACK_BASE + top*8
     SET #0x00, R3
     ADDR R0, R3
     SHL #3, R3
-    SET #0x6E, R1
-    SET #0x20, R2
+    SET #BASIC_FOR_STACK_BASE_H, R1
+    SET #BASIC_FOR_STACK_BASE_L, R2
     ADDR R3, R2
     JNC NX_AOK
     INC R1
@@ -454,28 +454,28 @@ FLOW_RAW_CLASS_AT:
     CALL GETTOKEN
 
     ; DO
-    SET #0x68, R1
-    SET #0x80, R2
-    SET #0x03, R3
-    SET #0x68, R4
+    SET #BASIC_TOKENBUF_BASE_H, R1
+    SET #BASIC_TOKENBUF_BASE_L, R2
+    SET #KW_DO_H, R3
+    SET #KW_DO_L, R4
     CALL STREQ
     CMP R0, #0x01
     JZ R0, FRCA_DO
 
     ; WHILE
-    SET #0x68, R1
-    SET #0x80, R2
-    SET #0x03, R3
-    SET #0x70, R4
+    SET #BASIC_TOKENBUF_BASE_H, R1
+    SET #BASIC_TOKENBUF_BASE_L, R2
+    SET #KW_WHILE_H, R3
+    SET #KW_WHILE_L, R4
     CALL STREQ
     CMP R0, #0x01
     JZ R0, FRCA_WHILE
 
     ; ENDWHILE
-    SET #0x68, R1
-    SET #0x80, R2
-    SET #0x03, R3
-    SET #0x78, R4
+    SET #BASIC_TOKENBUF_BASE_H, R1
+    SET #BASIC_TOKENBUF_BASE_L, R2
+    SET #KW_ENDWHILE_H, R3
+    SET #KW_ENDWHILE_L, R4
     CALL STREQ
     CMP R0, #0x01
     JZ R0, FRCA_ENDWHILE
@@ -518,8 +518,8 @@ FLOW_PUSH_CLASS:
     ADDR R1, R2
     CMP R2, #16
     JZ R2, FPC_DONE
-    SET #0x68, R3
-    SET #0xB0, R4
+    SET #BASIC_CLS_STACK_BASE_H, R3
+    SET #BASIC_CLS_STACK_BASE_L, R4
     ADDR R1, R4
     STORER R0, R3, R4
     INC R1
@@ -535,8 +535,8 @@ FLOW_POP_CLASS:
     JZ R1, FPO_EMPTY
     DEC R1
     STORE R1, CLS_SP
-    SET #0x68, R3
-    SET #0xB0, R4
+    SET #BASIC_CLS_STACK_BASE_H, R3
+    SET #BASIC_CLS_STACK_BASE_L, R4
     ADDR R1, R4
     LOADR R0, R3, R4
     RET
@@ -551,8 +551,8 @@ FLOW_TOP_CLASS:
     CMP R1, #0x00
     JZ R1, FTC_EMPTY
     DEC R1
-    SET #0x68, R3
-    SET #0xB0, R4
+    SET #BASIC_CLS_STACK_BASE_H, R3
+    SET #BASIC_CLS_STACK_BASE_L, R4
     ADDR R1, R4
     LOADR R0, R3, R4
     RET
@@ -569,13 +569,13 @@ FLOW_MATCH_PUSH_PTR:
     CMP R3, #16
     JZ R3, FMPP_DONE
 
-    SET #0x68, R3
-    SET #0xC0, R4
+    SET #BASIC_MATCH_STACK_H_BASE_H, R3
+    SET #BASIC_MATCH_STACK_H_BASE_L, R4
     ADDR R0, R4
     STORER R1, R3, R4
 
-    SET #0x68, R3
-    SET #0xD0, R4
+    SET #BASIC_MATCH_STACK_L_BASE_H, R3
+    SET #BASIC_MATCH_STACK_L_BASE_L, R4
     ADDR R0, R4
     STORER R2, R3, R4
 
@@ -602,13 +602,13 @@ FLOW_MATCH_TOP_PTR:
     JZ R0, FMT_EMPTY
     DEC R0
 
-    SET #0x68, R3
-    SET #0xC0, R4
+    SET #BASIC_MATCH_STACK_H_BASE_H, R3
+    SET #BASIC_MATCH_STACK_H_BASE_L, R4
     ADDR R0, R4
     LOADR R1, R3, R4
 
-    SET #0x68, R3
-    SET #0xD0, R4
+    SET #BASIC_MATCH_STACK_L_BASE_H, R3
+    SET #BASIC_MATCH_STACK_L_BASE_L, R4
     ADDR R0, R4
     LOADR R2, R3, R4
 
@@ -837,9 +837,9 @@ FLOW_FIND_MATCHING_DO:
     STORE R2, MATCH_PTR_L
     SET #0x00, R0
     STORE R0, MATCH_SP
-    SET #0x6C, R0
+    SET #BASIC_PROG_BASE_H, R0
     STORE R0, SCAN_PTR_H
-    SET #0x5A, R0
+    SET #BASIC_PROG_BASE_L, R0
     STORE R0, SCAN_PTR_L
 FFD_LOOP:
     LOAD SCAN_PTR_H, R1
@@ -939,9 +939,9 @@ FLOW_FIND_MATCHING_WHILE:
     STORE R2, MATCH_PTR_L
     SET #0x00, R0
     STORE R0, MATCH_SP
-    SET #0x6C, R0
+    SET #BASIC_PROG_BASE_H, R0
     STORE R0, SCAN_PTR_H
-    SET #0x5A, R0
+    SET #BASIC_PROG_BASE_L, R0
     STORE R0, SCAN_PTR_L
 FFW_LOOP:
     LOAD SCAN_PTR_H, R1

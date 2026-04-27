@@ -74,8 +74,8 @@ SCAN_PTR_H: .byte 0
 SCAN_PTR_L: .byte 0
 PRINT_SEP_KIND: .byte 0
 
-; GOSUB stack: 16 return pointers (H,L pairs) stored sequentially at 0x6E00
-; FOR stack entries at 0x6E20, max 8 entries:
+; GOSUB stack: 16 return pointers (H,L pairs) stored sequentially at BASIC_GOSUB_STACK_BASE
+; FOR stack entries at BASIC_FOR_STACK_BASE, max 8 entries:
 ;   +0..1 var entry ptr (H,L)
 ;   +2..3 end value (H,L)
 ;   +4..5 step value (H,L)

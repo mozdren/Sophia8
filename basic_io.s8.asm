@@ -132,9 +132,9 @@ IN_DEF_PROMPT:
 IN_PARSE_VAR:
     CALL INPUT_PARSE_VARLIST
 
-    ; read full input line into 0x6E80 and assign fields
-    SET #0x6E, R1
-    SET #0x80, R2
+    ; read full input line into the dedicated INPUT buffer and assign fields
+    SET #BASIC_INPUT_LINE_BASE_H, R1
+    SET #BASIC_INPUT_LINE_BASE_L, R2
     SET #96, R3
     CALL READLINE_ECHO
 
@@ -143,9 +143,9 @@ IN_PARSE_VAR:
     SET #0x44, R2
     CALL PUTS
 
-    SET #0x6E, R0
+    SET #BASIC_INPUT_LINE_BASE_H, R0
     STORE R0, CURPTR_H
-    SET #0x80, R0
+    SET #BASIC_INPUT_LINE_BASE_L, R0
     STORE R0, CURPTR_L
     CALL INPUT_ASSIGN_FIELDS
 
@@ -183,20 +183,20 @@ IPV_LOOP:
     JZ R5, IN_SYNTAX
 
     LOAD INPUT_VAR_COUNT, R6
-    SET #0x68, R3
-    SET #0xE0, R4
+    SET #BASIC_INPUT_VAR_H_BASE_H, R3
+    SET #BASIC_INPUT_VAR_H_BASE_L, R4
     ADDR R6, R4
     STORER R1, R3, R4
 
     LOAD INPUT_VAR_COUNT, R6
-    SET #0x68, R3
-    SET #0xE8, R4
+    SET #BASIC_INPUT_VAR_L_BASE_H, R3
+    SET #BASIC_INPUT_VAR_L_BASE_L, R4
     ADDR R6, R4
     STORER R2, R3, R4
 
     LOAD INPUT_VAR_COUNT, R6
-    SET #0x68, R3
-    SET #0xF0, R4
+    SET #BASIC_INPUT_VAR_T_BASE_H, R3
+    SET #BASIC_INPUT_VAR_T_BASE_L, R4
     ADDR R6, R4
     LOAD IDTYPE, R5
     STORER R5, R3, R4
@@ -232,23 +232,23 @@ IAF_LOOP:
 
     ; load current entry pointer into TMP_PTR
     LOAD INPUT_VAR_INDEX, R6
-    SET #0x68, R3
-    SET #0xE0, R4
+    SET #BASIC_INPUT_VAR_H_BASE_H, R3
+    SET #BASIC_INPUT_VAR_H_BASE_L, R4
     ADDR R6, R4
     LOADR R1, R3, R4
     STORE R1, TMP_PTR_H
 
     LOAD INPUT_VAR_INDEX, R6
-    SET #0x68, R3
-    SET #0xE8, R4
+    SET #BASIC_INPUT_VAR_L_BASE_H, R3
+    SET #BASIC_INPUT_VAR_L_BASE_L, R4
     ADDR R6, R4
     LOADR R2, R3, R4
     STORE R2, TMP_PTR_L
 
     ; dispatch by stored type
     LOAD INPUT_VAR_INDEX, R6
-    SET #0x68, R3
-    SET #0xF0, R4
+    SET #BASIC_INPUT_VAR_T_BASE_H, R3
+    SET #BASIC_INPUT_VAR_T_BASE_L, R4
     ADDR R6, R4
     LOADR R0, R3, R4
     CMP R0, #0x01

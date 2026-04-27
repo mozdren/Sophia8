@@ -12,8 +12,8 @@
 ;
 ; Depends on:
 ;   - basic_state.s8.asm
-;       IDTYPE at 0x6820
-;       IDBUF  at 0x68A0 (8-byte padded, uppercase)
+;       IDTYPE at BASIC_STATE_BASE + 0x20
+;       IDBUF  at BASIC_IDBUF_BASE (8-byte padded, uppercase)
 ;
 ; Variable table layout (fixed):
 ;   Base 0x6000, 64 entries x 16 bytes
@@ -54,8 +54,8 @@ VF_T1:
     ; compare names
     PUSH R1
     PUSH R2
-    SET #0x68, R5
-    SET #0xA0, R6
+    SET #BASIC_IDBUF_BASE_H, R5
+    SET #BASIC_IDBUF_BASE_L, R6
     SET #8, R4
 VF_CMP:
     LOADR R0, R1, R2
@@ -142,8 +142,8 @@ VFC_NC:
 
 VFC_USE:
     ; copy name[8]
-    SET #0x68, R5
-    SET #0xA0, R6
+    SET #BASIC_IDBUF_BASE_H, R5
+    SET #BASIC_IDBUF_BASE_L, R6
     SET #8, R7
 VFC_CPY:
     LOADR R0, R5, R6

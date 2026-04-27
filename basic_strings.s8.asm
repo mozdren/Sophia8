@@ -31,80 +31,80 @@ ErrUndefLine: .string "?UNDEFINED LINE\n"
 ; ---------------------------------------------------------------------------
 ; Keywords at stable addresses
 ; ---------------------------------------------------------------------------
-.org 0x0280
+.org KW_NEW
 K_NEW:   .string "NEW"
-.org 0x0288
+.org KW_LIST
 K_LIST:  .string "LIST"
-.org 0x0290
+.org KW_RUN
 K_RUN:   .string "RUN"
-.org 0x0298
+.org KW_PRINT
 K_PRINT: .string "PRINT"
-.org 0x02A0
+.org KW_GOTO
 K_GOTO:  .string "GOTO"
-.org 0x02A8
+.org KW_IF
 K_IF:    .string "IF"
-.org 0x02B0
+.org KW_THEN
 K_THEN:  .string "THEN"
-.org 0x02B8
+.org KW_END
 K_END:   .string "END"
-.org 0x02C0
+.org KW_STOP
 K_STOP:  .string "STOP"
 
-.org 0x02C8
+.org KW_LET
 K_LET:   .string "LET"
 
 ; Phase 5 keywords
-.org 0x02D0
+.org KW_GOSUB
 K_GOSUB: .string "GOSUB"
-.org 0x02D8
+.org KW_RETURN
 K_RETURN:.string "RETURN"
-.org 0x02E0
+.org KW_FOR
 K_FOR:   .string "FOR"
-.org 0x02E8
+.org KW_TO
 K_TO:    .string "TO"
-.org 0x02F0
+.org KW_STEP
 K_STEP:  .string "STEP"
-.org 0x02F8
+.org KW_NEXT
 K_NEXT:  .string "NEXT"
-.org 0x0300
+.org KW_INPUT
 K_INPUT: .string "INPUT"
-.org 0x0308
+.org KW_POKE
 K_POKE:  .string "POKE"
-.org 0x0310
+.org KW_RANDOMIZE
 K_RANDOMIZE: .string "RANDOMIZE"
-.org 0x031B
+.org KW_HALT
 K_HALT:  .string "HALT"
-.org 0x0320
+.org KW_PEEK
 K_PEEK:  .string "PEEK"
-.org 0x0328
+.org KW_RND
 K_RND:   .string "RND"
 
 ; Phase 6 keyword
-.org 0x0330
+.org KW_ELSE
 K_ELSE:  .string "ELSE"
 
 ; Phase 7 keyword
-.org 0x0338
+.org KW_REM
 K_REM:   .string "REM"
 
 ; Phase 13 keyword (arrays)
-.org 0x0340
+.org KW_DIM
 K_DIM:   .string "DIM"
 
 ; Phase 14 keywords (DATA / READ / RESTORE)
-.org 0x0348
+.org KW_DATA
 K_DATA:  .string "DATA"
-.org 0x0350
+.org KW_READ
 K_READ:  .string "READ"
-.org 0x0358
+.org KW_RESTORE
 K_RESTORE: .string "RESTORE"
 
 ; Phase 15 keywords (loop blocks)
-.org 0x0368
+.org KW_DO
 K_DO: .string "DO"
-.org 0x0370
+.org KW_WHILE
 K_WHILE: .string "WHILE"
-.org 0x0378
+.org KW_ENDWHILE
 K_ENDWHILE: .string "ENDWHILE"
 
 ; Phase 14 error

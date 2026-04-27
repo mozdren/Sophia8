@@ -48,6 +48,12 @@
 .equ BASIC_PROG_BASE,          0x6C5A  ; packed program store start
 .equ BASIC_PROG_BASE_H,        0x6C    ; high byte of BASIC_PROG_BASE
 .equ BASIC_PROG_BASE_L,        0x5A    ; low byte of BASIC_PROG_BASE
+.equ BASIC_GOSUB_STACK_BASE,   0x6E00  ; GOSUB return stack
+.equ BASIC_GOSUB_STACK_BASE_H, 0x6E    ; high byte of BASIC_GOSUB_STACK_BASE
+.equ BASIC_GOSUB_STACK_BASE_L, 0x00    ; low byte of BASIC_GOSUB_STACK_BASE
+.equ BASIC_FOR_STACK_BASE,     0x6E20  ; FOR/NEXT frame stack
+.equ BASIC_FOR_STACK_BASE_H,   0x6E    ; high byte of BASIC_FOR_STACK_BASE
+.equ BASIC_FOR_STACK_BASE_L,   0x20    ; low byte of BASIC_FOR_STACK_BASE
 
 ; Runtime scratch / heap
 .equ BASIC_STRFREE_BASE,       0xE000  ; string heap start
@@ -61,6 +67,9 @@
 .equ BASIC_CLI_COPY_BASE,      0xA480  ; stable parse copy of the input line
 .equ BASIC_CLI_COPY_BASE_H,    0xA4    ; high byte of BASIC_CLI_COPY_BASE
 .equ BASIC_CLI_COPY_BASE_L,    0x80    ; low byte of BASIC_CLI_COPY_BASE
+.equ BASIC_INPUT_LINE_BASE,    0x6E80  ; INPUT line-edit buffer
+.equ BASIC_INPUT_LINE_BASE_H,  0x6E    ; high byte of BASIC_INPUT_LINE_BASE
+.equ BASIC_INPUT_LINE_BASE_L,  0x80    ; low byte of BASIC_INPUT_LINE_BASE
 
 ; Graphics/text layout
 .equ BASIC_GFX_BASE,           0x8000  ; graphics framebuffer start
@@ -75,6 +84,9 @@
 .equ BASIC_TEXT_BUF_BASE,      0xD8C9  ; 40x25 text console buffer
 .equ BASIC_TEXT_BUF_BASE_H,    0xD8    ; high byte of BASIC_TEXT_BUF_BASE
 .equ BASIC_TEXT_BUF_BASE_L,    0xC9    ; low byte of BASIC_TEXT_BUF_BASE
+.equ BASIC_RNG_SEED_H_ADDR,    0x681F  ; fixed address of RNG_SEED_H
+.equ BASIC_RNG_SEED_H_ADDR_H,  0x68    ; high byte of BASIC_RNG_SEED_H_ADDR
+.equ BASIC_RNG_SEED_H_ADDR_L,  0x1F    ; low byte of BASIC_RNG_SEED_H_ADDR
 
 ; Fixed strings
 .equ STR_BANNER,               0x0200  ; startup banner / READY text
@@ -98,3 +110,98 @@
 .equ STR_ERR_OUTOFDATA,        0x0388  ; out-of-data message
 .equ STR_ERR_OUTOFDATA_H,      0x03    ; high byte of STR_ERR_OUTOFDATA
 .equ STR_ERR_OUTOFDATA_L,      0x88    ; low byte of STR_ERR_OUTOFDATA
+
+; Keyword strings used by the statement dispatcher
+.equ KW_NEW,                   0x0280  ; NEW
+.equ KW_NEW_H,                 0x02
+.equ KW_NEW_L,                 0x80
+.equ KW_LIST,                  0x0288  ; LIST
+.equ KW_LIST_H,                0x02
+.equ KW_LIST_L,                0x88
+.equ KW_RUN,                   0x0290  ; RUN
+.equ KW_RUN_H,                 0x02
+.equ KW_RUN_L,                 0x90
+.equ KW_PRINT,                 0x0298  ; PRINT
+.equ KW_PRINT_H,               0x02
+.equ KW_PRINT_L,               0x98
+.equ KW_GOTO,                  0x02A0  ; GOTO
+.equ KW_GOTO_H,                0x02
+.equ KW_GOTO_L,                0xA0
+.equ KW_IF,                    0x02A8  ; IF
+.equ KW_IF_H,                  0x02
+.equ KW_IF_L,                  0xA8
+.equ KW_THEN,                  0x02B0  ; THEN
+.equ KW_THEN_H,                0x02
+.equ KW_THEN_L,                0xB0
+.equ KW_END,                   0x02B8  ; END
+.equ KW_END_H,                 0x02
+.equ KW_END_L,                 0xB8
+.equ KW_STOP,                  0x02C0  ; STOP
+.equ KW_STOP_H,                0x02
+.equ KW_STOP_L,                0xC0
+.equ KW_LET,                   0x02C8  ; LET
+.equ KW_LET_H,                 0x02
+.equ KW_LET_L,                 0xC8
+.equ KW_GOSUB,                 0x02D0  ; GOSUB
+.equ KW_GOSUB_H,               0x02
+.equ KW_GOSUB_L,               0xD0
+.equ KW_RETURN,                0x02D8  ; RETURN
+.equ KW_RETURN_H,              0x02
+.equ KW_RETURN_L,              0xD8
+.equ KW_FOR,                   0x02E0  ; FOR
+.equ KW_FOR_H,                 0x02
+.equ KW_FOR_L,                 0xE0
+.equ KW_TO,                    0x02E8  ; TO
+.equ KW_TO_H,                  0x02
+.equ KW_TO_L,                  0xE8
+.equ KW_STEP,                  0x02F0  ; STEP
+.equ KW_STEP_H,                0x02
+.equ KW_STEP_L,                0xF0
+.equ KW_NEXT,                  0x02F8  ; NEXT
+.equ KW_NEXT_H,                0x02
+.equ KW_NEXT_L,                0xF8
+.equ KW_INPUT,                 0x0300  ; INPUT
+.equ KW_INPUT_H,               0x03
+.equ KW_INPUT_L,               0x00
+.equ KW_POKE,                  0x0308  ; POKE
+.equ KW_POKE_H,                0x03
+.equ KW_POKE_L,                0x08
+.equ KW_RANDOMIZE,             0x0310  ; RANDOMIZE
+.equ KW_RANDOMIZE_H,           0x03
+.equ KW_RANDOMIZE_L,           0x10
+.equ KW_HALT,                  0x031B  ; HALT
+.equ KW_HALT_H,                0x03
+.equ KW_HALT_L,                0x1B
+.equ KW_PEEK,                  0x0320  ; PEEK
+.equ KW_PEEK_H,                0x03
+.equ KW_PEEK_L,                0x20
+.equ KW_RND,                   0x0328  ; RND
+.equ KW_RND_H,                 0x03
+.equ KW_RND_L,                 0x28
+.equ KW_ELSE,                  0x0330  ; ELSE
+.equ KW_ELSE_H,                0x03
+.equ KW_ELSE_L,                0x30
+.equ KW_REM,                   0x0338  ; REM
+.equ KW_REM_H,                 0x03
+.equ KW_REM_L,                 0x38
+.equ KW_DIM,                   0x0340  ; DIM
+.equ KW_DIM_H,                 0x03
+.equ KW_DIM_L,                 0x40
+.equ KW_DATA,                  0x0348  ; DATA
+.equ KW_DATA_H,                0x03
+.equ KW_DATA_L,                0x48
+.equ KW_READ,                  0x0350  ; READ
+.equ KW_READ_H,                0x03
+.equ KW_READ_L,                0x50
+.equ KW_RESTORE,               0x0358  ; RESTORE
+.equ KW_RESTORE_H,             0x03
+.equ KW_RESTORE_L,             0x58
+.equ KW_DO,                    0x0368  ; DO
+.equ KW_DO_H,                  0x03
+.equ KW_DO_L,                  0x68
+.equ KW_WHILE,                 0x0370  ; WHILE
+.equ KW_WHILE_H,               0x03
+.equ KW_WHILE_L,               0x70
+.equ KW_ENDWHILE,              0x0378  ; ENDWHILE
+.equ KW_ENDWHILE_H,            0x03
+.equ KW_ENDWHILE_L,            0x78

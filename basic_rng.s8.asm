@@ -11,12 +11,11 @@
 ;   16-bit helpers: ADD16, MUL16U
 ;
 ; NOTE: Sophia8 assembler currently has limited support for computing label addresses.
-;       We therefore use the fixed address of RNG_SEED_H (0x681F), which is defined
-;       by the layout in basic_state.s8.asm.
+;       We therefore use the named fixed address of RNG_SEED_H from basic_layout.s8.asm.
 
 RNG_NEXT:
-    ; point R1:R2 at RNG_SEED_H (0x681F)
-    SET #0x68, R1
-    SET #0x1F, R2
+    ; point R1:R2 at RNG_SEED_H
+    SET #BASIC_RNG_SEED_H_ADDR_H, R1
+    SET #BASIC_RNG_SEED_H_ADDR_L, R2
     CALL RNG_NEXT16
     RET
