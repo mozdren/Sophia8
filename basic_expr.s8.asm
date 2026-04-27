@@ -19,7 +19,7 @@
 ;  - rng.s8.asm + basic_rng.s8.asm (RNG_NEXT wrapper) for RND()
 ;
 ; Notes:
-;  - CMPR/CMP are destructive on Sophia8: compare on a temp copy when needed.
+;  - CMPR/CMP are non-destructive on Sophia8.
 ; ---------------------------------------------------------------------------
 
 SKIPSP_CUR:
@@ -193,11 +193,8 @@ PI_CHK_DIG:
 
 PI_STORE:
     LOAD IDLEN, R5
-    ; CMP is destructive, compare on a temp copy
-    SET #0x00, R7
-    ADDR R5, R7
-    CMP R7, #8
-    JZ R7, PI_ADV
+    CMP R5, #8
+    JZ R5, PI_ADV
 
     SET #BASIC_IDBUF_BASE_H, R3
     SET #BASIC_IDBUF_BASE_L, R4
@@ -229,11 +226,8 @@ PI_DONE:
     ; zero-pad name to 8 bytes
     LOAD IDLEN, R5
 PI_PAD:
-    ; CMP is destructive, compare on a temp copy
-    SET #0x00, R7
-    ADDR R5, R7
-    CMP R7, #8
-    JZ R7, PI_OK
+    CMP R5, #8
+    JZ R5, PI_OK
     SET #BASIC_IDBUF_BASE_H, R3
     SET #BASIC_IDBUF_BASE_L, R4
     ADDR R5, R4
@@ -371,15 +365,11 @@ P16U_DIGIT:
 P16U_DLOOP:
     ; if value < denom => stop
     ; compare hi
-    SET #0, R0
-    ADDR R6, R0
-    CMPR R0, R2          ; destructive on R0
+    CMPR R6, R2
     JC P16U_DDONE        ; carry => value_hi < denom_hi
-    JNZ R0, P16U_SUBOK   ; non-zero => value_hi > denom_hi
+    JNZ R6, P16U_SUBOK   ; non-zero => value_hi > denom_hi
     ; hi equal, compare lo
-    SET #0, R0
-    ADDR R7, R0
-    CMPR R0, R3
+    CMPR R7, R3
     JC P16U_DDONE
 
 P16U_SUBOK:
@@ -927,7 +917,7 @@ DIV16U:
     ; remainder discarded
     ; naive repeated subtraction (slow but OK for small BASIC)
     ;
-    ; IMPORTANT: CMPR/CMP are destructive, and SUB16/ADD16 use R6:R7 as accumulator.
+    ; IMPORTANT: CMPR/CMP are non-destructive, and SUB16/ADD16 use R6:R7 as accumulator.
     ; Keep the divisor in DIVH:DIVL, and the running quotient in TMPH:TMPL.
 
     ; stash divisor
@@ -999,7 +989,7 @@ MOD16U:
     ; Uses naive repeated subtraction (slow but acceptable for BASIC).
     ; If divisor is 0, returns 0.
     ;
-    ; IMPORTANT: CMPR/CMP are destructive; SUB16 uses R6:R7 as accumulator.
+    ; IMPORTANT: CMPR/CMP are non-destructive; SUB16 uses R6:R7 as accumulator.
 
     ; divisor == 0 ?
     SET #0x00, R0
@@ -1275,7 +1265,8 @@ PARSE_REL:
     ; NOTE: program lines are tokenized. Relational operators can appear
     ; either as ASCII ('<','=', '>') or as single-byte tokens:
     ;   '<' => 0x1C, '=' => 0x1D, '>' => 0x1E
-    ; CMP/CMPR are destructive on Sophia8, so we must re-peek before each check.
+    ; CMP/CMPR are non-destructive on Sophia8; we still re-peek because the
+    ; operator may be ASCII or a token and the cursor must remain unchanged.
 
     ; '='
     CALL PEEKCHAR_CUR

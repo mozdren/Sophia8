@@ -81,11 +81,8 @@ CMD_RETURN:
     JNZ R0, FLOW_SYNTAX
 
     LOAD GOSUB_SP, R0
-    ; CMP is destructive on Sophia8, so compare a scratch copy.
-    SET #0x00, R3
-    ADDR R0, R3
-    CMP R3, #0x00
-    JZ R3, FLOW_SYNTAX
+    CMP R0, #0x00
+    JZ R0, FLOW_SYNTAX
     DEC R0
     STORE R0, GOSUB_SP
     SHL #1, R0
@@ -180,11 +177,8 @@ CMD_FOR:
 
 FOR_PUSH:
     LOAD FOR_SP, R0
-    ; CMP is destructive on Sophia8, so compare a scratch copy.
-    SET #0x00, R3
-    ADDR R0, R3
-    CMP R3, #8
-    JZ R3, FLOW_SYNTAX
+    CMP R0, #8
+    JZ R0, FLOW_SYNTAX
 
     ; addr = BASIC_FOR_STACK_BASE + sp*8
     SET #0x00, R3
@@ -237,11 +231,8 @@ CMD_NEXT:
     JNZ R0, FLOW_SYNTAX
 
     LOAD FOR_SP, R0
-    ; CMP is destructive on Sophia8, so compare a scratch copy.
-    SET #0x00, R3
-    ADDR R0, R3
-    CMP R3, #0x00
-    JZ R3, FLOW_SYNTAX
+    CMP R0, #0x00
+    JZ R0, FLOW_SYNTAX
     DEC R0              ; top index in R0
 
     ; addr = BASIC_FOR_STACK_BASE + top*8

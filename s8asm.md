@@ -297,8 +297,8 @@ Notes:
 
 | Instruction | Encoding | Description |
 |------------|----------|-------------|
-| CMP Rn, #imm8 | `08 reg imm` | **Destructive compare**: `Rn -= imm8`; carry=1 if borrow (Rn < imm8) |
-| CMPR Rn, Rm | `09 rn rm` | **Destructive compare**: `Rn -= Rm`; carry=1 if borrow (Rn < Rm) |
+| CMP Rn, #imm8 | `08 reg imm` | Compare `Rn` with `imm8` without modifying `Rn`; carry=1 if borrow (Rn < imm8) |
+| CMPR Rn, Rm | `09 rn rm` | Compare `Rn` with `Rm` without modifying `Rn`; carry=1 if borrow (Rn < Rm) |
 | JMP addr16 | `07 hi lo` | `IP = addr16` |
 | JZ Rn, addr16 | `0A reg hi lo` | jump if `Rn == 0` |
 | JNZ Rn, addr16 | `0B reg hi lo` | jump if `Rn != 0` |
@@ -308,8 +308,7 @@ Notes:
 | HALT | `00` | stop the VM |
 
 Important:
-- `CMP/CMPR` modify the compared register (they subtract). If you need a non-destructive compare,
-  copy the value to a scratch register first.
+- `CMP/CMPR` are non-destructive. The carry flag indicates whether the left operand was smaller.
 
 ---
 

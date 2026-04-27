@@ -117,26 +117,22 @@ PUTDEC8_ONES:
 ;     R1 = nibble value 0..15
 ;   Output:
 ;     prints corresponding ASCII hex digit
-;   Clobbers: R0, R1, R4
+;   Clobbers: R0, R1
 ; ---------------------------------------------------------------------------
 HEX_NIBBLE_TO_ASCII_PUTC:
-    ; R4 = original nibble
-    SET #0x00, R4
-    ADDR R1, R4
-
-    ; CMP is destructive: R1 -= 10, carry=1 if nibble < 10
+    ; compare nibble against 10 without modifying it
     CMP R1, #10
     JC HEX_DIGIT
 
-    ; nibble >= 10: R1 is (nibble-10), so 'A'+R1
+    ; nibble >= 10: 'A' + (nibble - 10)
     SET #0x41, R0
     ADDR R1, R0
     CALL PUTC
     RET
 
 HEX_DIGIT:
-    ; nibble < 10: use original in R4
+    ; nibble < 10: '0' + nibble
     SET #0x30, R0
-    ADDR R4, R0
+    ADDR R1, R0
     CALL PUTC
     RET

@@ -540,17 +540,10 @@ DP_STR:
 DS1:
 DS_LOOP:
     LOADR R0, R1, R2
-    ; IMPORTANT: Sophia8 CMP is destructive (it subtracts into the left operand).
-    ; We must not CMP directly on R0 because we still need the original byte
-    ; for output. Compare on a temp copy instead.
-    SET #0x00, R7
-    ADDR R0, R7
-    CMP R7, #0x00
-    JZ R7, DP_STR_DONE_NUL
-    SET #0x00, R7
-    ADDR R0, R7
-    CMP R7, #0x22
-    JZ R7, DP_STR_DONE_QUOTE
+    CMP R0, #0x00
+    JZ R0, DP_STR_DONE_NUL
+    CMP R0, #0x22
+    JZ R0, DP_STR_DONE_QUOTE
     CALL PUTC
     INC R2
     JNZ R2, DS_LOOP

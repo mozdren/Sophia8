@@ -1253,24 +1253,36 @@ STRS_Z1:
 
 STRS_LOOP:
     ; while value != 0: emit digits in reverse order
-    ; save original value
-    PUSH R6
-    PUSH R7
-
-    ; remainder = value % 10
+    ; quotient accumulator in TMPH:TMPL
     SET #0x00, R4
-    ADDR R6, R4           ; dividend hi
-    SET #0x00, R5
-    ADDR R7, R5           ; dividend lo
-    SET #0x00, R6
-    SET #10, R7
-    ; preserve destination pointer across MOD16U (it may clobber R1)
-    PUSH R1
-    PUSH R2
-    CALL MOD16U           ; remainder -> R6:R7 (<=9)
-    POP R2
-    POP R1
+    STORE R4, TMPH
+    STORE R4, TMPL
 
+STRS_DIV10_LOOP:
+    ; stop when value < 10
+    CMP R6, #0x00
+    JNZ R6, STRS_SUB10
+    CMP R7, #10
+    JC STRS_DIV10_DONE
+
+STRS_SUB10:
+    ; value -= 10
+    SET #0x00, R4
+    SET #10, R5
+    CALL SUB16
+
+    ; quotient++
+    LOAD TMPH, R4
+    LOAD TMPL, R5
+    INC R5
+    JNZ R5, STRS_QOK
+    INC R4
+STRS_QOK:
+    STORE R4, TMPH
+    STORE R5, TMPL
+    JMP STRS_DIV10_LOOP
+
+STRS_DIV10_DONE:
     ; digit char in R0 = remainder_lo + '0'
     SET #0x00, R0
     ADDR R7, R0
@@ -1282,23 +1294,9 @@ STRS_LOOP:
 STRS_D1:
     INC R3
 
-    ; restore original value for division
-    POP R7
-    POP R6
-
-    ; value = value / 10
-    SET #0x00, R4
-    ADDR R6, R4
-    SET #0x00, R5
-    ADDR R7, R5
-    SET #0x00, R6
-    SET #10, R7
-    ; preserve destination pointer across DIV16U (it clobbers R1)
-    PUSH R1
-    PUSH R2
-    CALL DIV16U           ; quotient -> R6:R7
-    POP R2
-    POP R1
+    ; value = quotient
+    LOAD TMPH, R6
+    LOAD TMPL, R7
 
     ; loop condition
     SET #0x00, R0
