@@ -15,17 +15,17 @@
 ; ---------------------------------------------------------------------------
 ; Fixed-address strings
 ; ---------------------------------------------------------------------------
-.org 0x0200
+.org STR_BANNER
 Banner: .string "Sophia Basic v.1 (2026) by Karel Mozdren\nREADY.\n"
-.org 0x0240
+.org STR_PROMPT
 Prompt: .string "> "
-.org 0x0244
+.org STR_NL
 NL: .string "\n"
-.org 0x0248
+.org STR_ERR_SYNTAX
 ErrSyntax: .string "?SYNTAX ERROR\n"
-.org 0x0260
+.org STR_ERR_NOPROG
 ErrNoProg: .string "?NO PROGRAM\n"
-.org 0x026E
+.org STR_ERR_UNDEFLINE
 ErrUndefLine: .string "?UNDEFINED LINE\n"
 
 ; ---------------------------------------------------------------------------
@@ -108,5 +108,5 @@ K_WHILE: .string "WHILE"
 K_ENDWHILE: .string "ENDWHILE"
 
 ; Phase 14 error
-.org 0x0388
+.org STR_ERR_OUTOFDATA
 ErrOutOfData: .string "?OUT OF DATA\n"

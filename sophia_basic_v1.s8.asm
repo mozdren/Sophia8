@@ -2,8 +2,11 @@
 ; Composition unit (wiring + includes).
 ; Implementation lives in basic_*.s8.asm modules.
 
+; --- Shared layout constants ---
+.include "basic_layout.s8.asm"
+
 ; --- Core libs ---
-.org 0x0400
+.org BASIC_CODE_BASE
 .include "kernel.s8.asm"
 .include "cli.s8.asm"
 .include "mem.s8.asm"
@@ -15,7 +18,7 @@
 .include "basic_state.s8.asm"
 
 ; Restore the original BASIC code layout after the data-only charset block.
-.org 0x68FA
+.org BASIC_CODE_RESUME
 
 ; --- BASIC modules ---
 .include "basic_all.s8.asm"

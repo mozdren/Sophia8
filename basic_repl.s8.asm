@@ -26,39 +26,39 @@ START:
     CALL INIT_VARS
 
     ; banner
-    SET #0x02, R1
-    SET #0x00, R2
+    SET #STR_BANNER_H, R1
+    SET #STR_BANNER_L, R2
     CALL PUTS
 
 REPL:
     ; prompt
-    SET #0x02, R1
-    SET #0x40, R2
+    SET #STR_PROMPT_H, R1
+    SET #STR_PROMPT_L, R2
     CALL PUTS
 
-    ; read line to 0xA400 (CLI buffer) - kept outside program storage
-    SET #0xA4, R1
-    SET #0x00, R2
+    ; read line to CLI buffer - kept outside program storage
+    SET #BASIC_CLI_INBUF_BASE_H, R1
+    SET #BASIC_CLI_INBUF_BASE_L, R2
     SET #96, R3
     CALL READLINE_ECHO
 
-    ; make a stable copy to 0xA480 so parsing is not affected by any
+    ; make a stable copy so parsing is not affected by any
     ; input/echo side-effects or stray terminators
     CALL COPY_INBUF_A400_TO_A480
 
     ; newline
-    SET #0x02, R1
-    SET #0x44, R2
+    SET #STR_NL_H, R1
+    SET #STR_NL_L, R2
     CALL PUTS
 
     ; uppercase stable copy
-    SET #0xA4, R1
-    SET #0x80, R2
+    SET #BASIC_CLI_COPY_BASE_H, R1
+    SET #BASIC_CLI_COPY_BASE_L, R2
     CALL TOUPPER_Z
 
     ; skip spaces
-    SET #0xA4, R1
-    SET #0x80, R2
+    SET #BASIC_CLI_COPY_BASE_H, R1
+    SET #BASIC_CLI_COPY_BASE_L, R2
     CALL SKIPSP
     LOADR R0, R1, R2
     CMP R0, #0x00
@@ -81,9 +81,9 @@ REPL:
 RUN_PROG:
     LOAD PROG_END_H, R1
     LOAD PROG_END_L, R2
-    CMP R1, #0x6C
+    CMP R1, #BASIC_PROG_BASE_H
     JNZ R1, RP_HAVE_PROG
-    CMP R2, #0x5A
+    CMP R2, #BASIC_PROG_BASE_L
     JZ R2, RUN_NOP
 
 RP_HAVE_PROG:

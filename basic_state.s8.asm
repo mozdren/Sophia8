@@ -2,7 +2,7 @@
 ; Extracted BASIC runtime state variables and scratch buffers from sophia_basic_v1.s8.asm
 ; Keeps BASIC core file focused on control flow and statement implementations.
 
-.org 0x6800
+.org BASIC_STATE_BASE
 LINECOUNT: .byte 0
 PROG_END_H: .byte 0
 PROG_END_L: .byte 0
@@ -85,34 +85,34 @@ PRINT_SEP_KIND: .byte 0
 ; Scratch buffers (must NOT overlap with code)
 ; ---------------------------------------------------------------------------
 ; Token buffer used by GETTOKEN and keyword matching (24 bytes incl NUL)
-.org 0x6880
+.org BASIC_TOKENBUF_BASE
 TOKENBUF: .byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 
 ; Identifier buffer used by PARSE_IDENT / VAR_FIND (8 bytes, zero-padded)
-.org 0x68A0
+.org BASIC_IDBUF_BASE
 IDBUF: .byte 0,0,0,0,0,0,0,0
 
 ; Block classifier stack used by DO/WHILE/ENDWHILE scans.
 ; Each entry is 1 byte: 1=DO, 2=WHILE. Max nesting depth 16.
-.org 0x68B0
+.org BASIC_CLS_STACK_BASE
 CLS_STACK: .byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 
 ; Pointer stack for matching DO/WHILE/ENDWHILE blocks while scanning.
-.org 0x68C0
+.org BASIC_MATCH_STACK_H_BASE
 MATCH_STACK_H: .byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 
-.org 0x68D0
+.org BASIC_MATCH_STACK_L_BASE
 MATCH_STACK_L: .byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 
-.org 0x68E0
+.org BASIC_INPUT_VAR_H_BASE
 INPUT_VAR_H: .byte 0,0,0,0,0,0,0,0
 
-.org 0x68E8
+.org BASIC_INPUT_VAR_L_BASE
 INPUT_VAR_L: .byte 0,0,0,0,0,0,0,0
 
-.org 0x68F0
+.org BASIC_INPUT_VAR_T_BASE
 INPUT_VAR_T: .byte 0,0,0,0,0,0,0,0
 
-.org 0x68F8
+.org BASIC_INPUT_VAR_COUNT_BASE
 INPUT_VAR_COUNT: .byte 0
 INPUT_VAR_INDEX: .byte 0

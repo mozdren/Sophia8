@@ -10,9 +10,7 @@
 ; Dependencies:
 ;   - PUTS routine from kernel.s8.asm / cli.s8.asm.
 ;   - Fixed-address strings live in basic_strings.s8.asm:
-;       ErrSyntax     @ 0x0248
-;       ErrNoProg     @ 0x0260
-;       ErrUndefLine  @ 0x026E
+;       STR_ERR_SYNTAX, STR_ERR_NOPROG, STR_ERR_UNDEFLINE, STR_ERR_OUTOFDATA
 ;
 ; Calling convention:
 ;   - These routines clobber R1 and R2 (string pointer registers for PUTS).
@@ -23,8 +21,8 @@
 PRINT_SYNTAX_ERROR:
     PUSH R1
     PUSH R2
-    SET #0x02, R1
-    SET #0x48, R2
+    SET #STR_ERR_SYNTAX_H, R1
+    SET #STR_ERR_SYNTAX_L, R2
     CALL PUTS
     POP R2
     POP R1
@@ -34,8 +32,8 @@ PRINT_SYNTAX_ERROR:
 PRINT_NO_PROGRAM:
     PUSH R1
     PUSH R2
-    SET #0x02, R1
-    SET #0x60, R2
+    SET #STR_ERR_NOPROG_H, R1
+    SET #STR_ERR_NOPROG_L, R2
     CALL PUTS
     POP R2
     POP R1
@@ -45,8 +43,8 @@ PRINT_NO_PROGRAM:
 PRINT_UNDEF_LINE:
     PUSH R1
     PUSH R2
-    SET #0x02, R1
-    SET #0x6E, R2
+    SET #STR_ERR_UNDEFLINE_H, R1
+    SET #STR_ERR_UNDEFLINE_L, R2
     CALL PUTS
     POP R2
     POP R1
@@ -56,8 +54,8 @@ PRINT_UNDEF_LINE:
 PRINT_OUT_OF_DATA:
     PUSH R1
     PUSH R2
-    SET #0x03, R1
-    SET #0x60, R2
+    SET #STR_ERR_OUTOFDATA_H, R1
+    SET #STR_ERR_OUTOFDATA_L, R2
     CALL PUTS
     POP R2
     POP R1

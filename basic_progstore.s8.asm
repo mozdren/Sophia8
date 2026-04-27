@@ -6,14 +6,14 @@
 ;   +3..  line text
 ;   +N    trailing NUL for PUTS/text scans
 ;
-; Program records are kept in insertion order in RAM `0x6C5A..0x7FFF`.
+; Program records are kept in insertion order in RAM `BASIC_PROG_BASE..0x7FFF`.
 ; `PROG_END_*` points just past the last record.
 
 ; PROG_FIRST_PTR
 ;   Output: R1:R2 = first program record pointer.
 PROG_FIRST_PTR:
-    SET #0x6C, R1
-    SET #0x5A, R2
+    SET #BASIC_PROG_BASE_H, R1
+    SET #BASIC_PROG_BASE_L, R2
     RET
 
 ; PROG_IS_AT_END
@@ -40,9 +40,9 @@ PROG_RESET:
     SET #0x00, R0
     STORE R0, LINECOUNT
     CALL PROG_CLEAR_LAST_LINE_CACHE
-    SET #0x6C, R0
+    SET #BASIC_PROG_BASE_H, R0
     STORE R0, PROG_END_H
-    SET #0x5A, R0
+    SET #BASIC_PROG_BASE_L, R0
     STORE R0, PROG_END_L
     RET
 

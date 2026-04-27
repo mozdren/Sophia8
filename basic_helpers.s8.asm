@@ -16,14 +16,14 @@
 
 ; ---------------------------------------------------------------------------
 ; COPY_INBUF_A400_TO_A480
-;   Copy NUL-terminated string from BASIC REPL input buffer 0xA400
-;   to stable parse buffer 0xA480 (incl terminator).
+;   Copy NUL-terminated string from BASIC REPL input buffer to the stable
+;   parse buffer (incl terminator).
 ; ---------------------------------------------------------------------------
 COPY_INBUF_A400_TO_A480:
-    SET #0xA4, R1
-    SET #0x00, R2
-    SET #0xA4, R3
-    SET #0x80, R4
+    SET #BASIC_CLI_INBUF_BASE_H, R1
+    SET #BASIC_CLI_INBUF_BASE_L, R2
+    SET #BASIC_CLI_COPY_BASE_H, R3
+    SET #BASIC_CLI_COPY_BASE_L, R4
 CIB_L0:
     LOADR R0, R1, R2
     STORER R0, R3, R4
@@ -45,7 +45,7 @@ CIB_DONE:
 ; GETTOKEN
 ;   Read the next space-delimited token from CURPTR into TOKENBUF.
 ;   Leading spaces are skipped.
-;   TOKENBUF is fixed at 0x6880 and is max 23 chars + NUL.
+;   TOKENBUF is fixed at BASIC_TOKENBUF_BASE and is max 23 chars + NUL.
 ;
 ;   Returns: TOKENBUF updated, CURPTR advanced.
 ; ---------------------------------------------------------------------------
@@ -53,8 +53,8 @@ GETTOKEN:
     LOAD CURPTR_H, R1
     LOAD CURPTR_L, R2
     CALL SKIPSP
-    SET #0x68, R3
-    SET #0x80, R4
+    SET #BASIC_TOKENBUF_BASE_H, R3
+    SET #BASIC_TOKENBUF_BASE_L, R4
     SET #0x00, R5
 GT_LOOP:
     LOADR R0, R1, R2

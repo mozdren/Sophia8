@@ -17,13 +17,13 @@
 ; ---------------------------------------------------------------------------
 
 INIT_VARS:
-    ; STRFREE = 0xE000
+    ; STRFREE = BASIC_STRFREE_BASE
     ; Keep the heap above the relocated BASIC code segments and the
     ; separate text-console buffer. Check the .deb map after code growth
     ; before moving this back down.
-    SET #0xE0, R0
+    SET #BASIC_STRFREE_BASE_H, R0
     STORE R0, STRFREE_H
-    SET #0x00, R0
+    SET #BASIC_STRFREE_BASE_L, R0
     STORE R0, STRFREE_L
 
     ; RNG seed default = 0x1234
