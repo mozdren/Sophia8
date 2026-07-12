@@ -78,6 +78,10 @@ AML4:
 ;   OUT R6:R7 = element value, or 0 if not found/out of range
 ; ---------------------------------------------------------------------------
 ARRAY_LOAD_INT_ELEM:
+    ; preserve the incoming index while lookup/metadata helpers use scratch regs
+    STORE R6, TMPH
+    STORE R7, TMPL
+
     ; lookup array entry (IDTYPE=2)
     LOAD IDTYPE, R4
     SET #0x02, R0
@@ -90,22 +94,25 @@ ARRAY_LOAD_INT_ELEM:
     ; load metadata
     CALL ARRAY_META_LOAD          ; R3:R4 base, R5:R0 max
 
+    ; restore index from scratch
+    LOAD TMPH, R6
+    LOAD TMPL, R7
+
     ; bounds check: index <= max
     ; compare high
     SET #0x00, R1
     ADDR R6, R1                   ; idxH
     CMPR R1, R5                   ; idxH - maxH
-    JNZ R1, ALE_CH
-    ; high equal -> compare low
+    JC ALE_INR                    ; idxH < maxH
+    JZ R1, ALE_CH                 ; idxH == maxH -> compare low
+    JMP ALE_ZERO                  ; idxH > maxH
+ALE_CH:
     SET #0x00, R1
     ADDR R7, R1                   ; idxL
     CMPR R1, R0                   ; idxL - maxL
-    JNC ALE_INR                   ; idxL <= maxL
-    JMP ALE_ZERO
-ALE_CH:
-    ; if idxH < maxH then in range, else out
-    JNC ALE_INR
-    JMP ALE_ZERO
+    JC ALE_INR                    ; idxL < maxL
+    JZ R1, ALE_INR                ; idxL == maxL
+    JMP ALE_ZERO                  ; idxL > maxL
 
 ALE_INR:
     ; address = base + index*2
@@ -147,6 +154,10 @@ ALE_ZERO:
 ;   index is already validated.
 ; ---------------------------------------------------------------------------
 ARRAY_STORE_INT_ELEM:
+    ; preserve value while we look up the array entry
+    PUSH R6
+    PUSH R7
+
     ; lookup array entry (IDTYPE=2)
     LOAD IDTYPE, R2
     SET #0x02, R0
@@ -176,6 +187,8 @@ ASE_I1:
 ASE_A1:
     ADDR R2, R3
 
+    POP R7
+    POP R6
     STORER R6, R3, R4
     INC R4
     JNZ R4, ASE_A2
@@ -186,6 +199,8 @@ ASE_A2:
     RET
 
 ASE_FAIL:
+    POP R7
+    POP R6
     SET #0x00, R0
     RET
 

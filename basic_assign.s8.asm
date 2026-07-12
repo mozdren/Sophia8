@@ -145,15 +145,17 @@ CA_ARRAY:
     LOAD TMPH, R1
     LOAD DIVH, R2
     CMPR R1, R2                  ; idxH - maxH
-    JNZ R1, CA_AH
+    JC CA_ABOK                   ; idxH < maxH
+    JZ R1, CA_AH_EQ             ; idxH == maxH -> compare low
+    JMP CA_FAIL                  ; idxH > maxH
+CA_AH_EQ:
     LOAD TMPL, R1
     LOAD DIVL, R2
     CMPR R1, R2                  ; idxL - maxL
-    JNC CA_ABOK
-    JMP CA_FAIL
+    JC CA_ABOK                   ; idxL < maxL
+    JZ R1, CA_ABOK               ; idxL == maxL
+    JMP CA_FAIL                  ; idxL > maxL
 CA_AH:
-    JNC CA_ABOK
-    JMP CA_FAIL
 CA_ABOK:
     ; eval RHS value
     LOAD TMPH, R1
