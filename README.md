@@ -7,7 +7,7 @@ The VM has:
 - 16-bit `IP`, `SP`, `BP`
 - 64 KiB address space (`0x0000..0xFFFF`, image size `0x10000` bytes)
 - memory-mapped console I/O at `0xFF00..0xFF03`
-- optional debug-map driven breakpoints and verbose execution logging
+- optional debug-map driven breakpoints, snapshots, and verbose execution logging
 
 ## Toolchain overview
 
@@ -28,9 +28,9 @@ The VM can:
 - run a `.bin` image directly
 - run from a `.deb` file and automatically load the referenced `.bin`
 - stop on a source breakpoint (`file:line`)
-- show a small source window, registers, and last memory writes when a breakpoint hits
-- save `debug.img` snapshots and resume from them
-- emit verbose instruction logs with `-v`
+- show a small source window, call depth, registers, and last memory writes when a breakpoint hits
+- save `debug.img` snapshots and resume from them; snapshots preserve call depth
+- emit multi-line verbose instruction logs with `-v` (source, call depth, before/after registers, delta, writes)
 - widen or shrink the breakpoint source window with `--break-context <n>`
 
 Useful commands:

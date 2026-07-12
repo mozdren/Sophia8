@@ -926,12 +926,31 @@ struct MemWriteEvent {
     uint8_t newv;
 };
 
+struct RegSnapshot {
+    uint8_t r[8];
+    uint16_t ip;
+    uint16_t sp;
+    uint16_t bp;
+    uint8_t c;
+};
+
 static bool g_verbose = false;
 static std::ofstream g_vlog;
 static uint64_t g_step_counter = 0;
 static int g_break_context_radius = 2;
+static int g_call_depth = 0;
 static std::vector<MemWriteEvent> g_mem_writes;
 
+static inline RegSnapshot capture_regs()
+{
+    RegSnapshot s{};
+    for (int i = 0; i < 8; i++) s.r[i] = r[i];
+    s.ip = ip;
+    s.sp = sp;
+    s.bp = bp;
+    s.c = c;
+    return s;
+}
 static inline void mem_write(const uint16_t address, const uint8_t value)
 {
     if (address >= 0xFF00 && address <= 0xFF03) { mmio_write(address, value); return; }
@@ -949,10 +968,107 @@ static inline void mem_write(const uint16_t address, const uint8_t value)
     mem[address] = value;
 }
 
-/* DEBUG / BREAKPOINT SUPPORT ************************************************/
+static void write_u16_be(std::ofstream& f, const uint16_t v) {
+    const uint8_t b[2] = { static_cast<uint8_t>((v >> 8) & 0xFF), static_cast<uint8_t>(v & 0xFF) };
+    f.write(reinterpret_cast<const char*>(b), 2);
+}
+
+static bool read_u16_be(std::ifstream& f, uint16_t& out) {
+    uint8_t b[2];
+    f.read(reinterpret_cast<char*>(b), 2);
+    if (!f) return false;
+    out = static_cast<uint16_t>((static_cast<uint16_t>(b[0]) << 8) | static_cast<uint16_t>(b[1]));
+    return true;
+}
+
+static bool save_debug_image(const char* path)
+{
+    std::ofstream f(path, std::ios::binary);
+    if (!f) {
+        printf("Failed to write debug image: %s\n", path);
+        return false;
+    }
+
+    // Layout:
+    //   magic[4] = "S8DI"
+    //   version  = 0x02
+    //   r[8]
+    //   ip, sp, bp (u16 big-endian)
+    //   c (u8)
+    //   call_depth (u16 big-endian)
+    //   reserved[5]
+    //   mem[MEM_SIZE]
+    const char magic[4] = { 'S', '8', 'D', 'I' };
+    f.write(magic, 4);
+    const uint8_t ver = 0x02;
+    f.write(reinterpret_cast<const char*>(&ver), 1);
+    f.write(reinterpret_cast<const char*>(r), 8);
+    write_u16_be(f, ip);
+    write_u16_be(f, sp);
+    write_u16_be(f, bp);
+    f.write(reinterpret_cast<const char*>(&c), 1);
+    write_u16_be(f, static_cast<uint16_t>(g_call_depth < 0 ? 0 : g_call_depth));
+    const uint8_t zeros[5] = {0,0,0,0,0};
+    f.write(reinterpret_cast<const char*>(zeros), 5);
+    f.write(reinterpret_cast<const char*>(mem), MEM_SIZE);
+
+    if (!f) {
+        printf("Failed while writing debug image: %s\n", path);
+        return false;
+    }
+    return true;
+}
+
+static bool load_debug_image(const char* path)
+{
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return false;
+
+    char magic[4] = {0,0,0,0};
+    f.read(magic, 4);
+    if (!f) return false;
+    if (!(magic[0]=='S' && magic[1]=='8' && magic[2]=='D' && magic[3]=='I')) {
+        return false;
+    }
+    uint8_t ver = 0;
+    f.read(reinterpret_cast<char*>(&ver), 1);
+    if (!f) return false;
+    if (ver != 0x01 && ver != 0x02) return false;
+
+    f.read(reinterpret_cast<char*>(r), 8);
+    if (!f) return false;
+    if (!read_u16_be(f, ip)) return false;
+    if (!read_u16_be(f, sp)) return false;
+    if (!read_u16_be(f, bp)) return false;
+    f.read(reinterpret_cast<char*>(&c), 1);
+    if (!f) return false;
+
+    if (ver >= 0x02)
+    {
+        uint16_t depth = 0;
+        if (!read_u16_be(f, depth)) return false;
+        g_call_depth = static_cast<int>(depth);
+        char tmp[5];
+        f.read(tmp, 5);
+        if (!f) return false;
+    }
+    else
+    {
+        char tmp[7];
+        f.read(tmp, 7);
+        if (!f) return false;
+    }
+
+    f.read(reinterpret_cast<char*>(mem), MEM_SIZE);
+    if (!f) return false;
+
+    clear_stop_request();
+    g_ui_quit_requested.store(false, std::memory_order_release);
+    g_vm_done.store(false, std::memory_order_release);
+    return true;
+}
 
 namespace fs = std::filesystem;
-
 struct DebLine {
     uint16_t addr = 0;
     bool is_code = false;
@@ -962,7 +1078,6 @@ struct DebLine {
 };
 
 static std::unordered_map<uint16_t, const DebLine*> g_code_by_addr;
-
 
 static bool ends_with(const std::string& s, const std::string& suf) {
     return s.size() >= suf.size() && s.compare(s.size() - suf.size(), suf.size(), suf) == 0;
@@ -1226,111 +1341,12 @@ static void print_source_window(const std::vector<DebLine>& lines,
     }
 }
 
-static void print_mem_writes_block(const std::vector<MemWriteEvent>& writes)
+static const DebLine* deb_lookup_by_addr(const std::unordered_map<uint16_t, const DebLine*>& m, const uint16_t addr)
 {
-    printf("Last memory writes:\n");
-    if (writes.empty())
-    {
-        printf("  <none>\n");
-        return;
-    }
-
-    for (const auto& w : writes)
-    {
-        printf("  0x%04X: %02X -> %02X\n",
-               static_cast<unsigned>(w.addr),
-               static_cast<unsigned>(w.oldv),
-               static_cast<unsigned>(w.newv));
-    }
+    const auto it = m.find(addr);
+    if (it == m.end()) return nullptr;
+    return it->second;
 }
-
-
-static void write_u16_be(std::ofstream& f, const uint16_t v) {
-    const uint8_t b[2] = { static_cast<uint8_t>((v >> 8) & 0xFF), static_cast<uint8_t>(v & 0xFF) };
-    f.write(reinterpret_cast<const char*>(b), 2);
-}
-
-static bool read_u16_be(std::ifstream& f, uint16_t& out) {
-    uint8_t b[2];
-    f.read(reinterpret_cast<char*>(b), 2);
-    if (!f) return false;
-    out = static_cast<uint16_t>((static_cast<uint16_t>(b[0]) << 8) | static_cast<uint16_t>(b[1]));
-    return true;
-}
-
-static bool save_debug_image(const char* path)
-{
-    std::ofstream f(path, std::ios::binary);
-    if (!f) {
-        printf("Failed to write debug image: %s\n", path);
-        return false;
-    }
-
-    // Layout:
-    //   magic[4] = "S8DI"
-    //   version  = 0x01
-    //   r[8]
-    //   ip, sp, bp (u16 big-endian)
-    //   c (u8)
-    //   reserved[7]
-    //   mem[MEM_SIZE]
-    const char magic[4] = { 'S', '8', 'D', 'I' };
-    f.write(magic, 4);
-    const uint8_t ver = 0x01;
-    f.write(reinterpret_cast<const char*>(&ver), 1);
-    f.write(reinterpret_cast<const char*>(r), 8);
-    write_u16_be(f, ip);
-    write_u16_be(f, sp);
-    write_u16_be(f, bp);
-    f.write(reinterpret_cast<const char*>(&c), 1);
-    const uint8_t zeros[7] = {0,0,0,0,0,0,0};
-    f.write(reinterpret_cast<const char*>(zeros), 7);
-    f.write(reinterpret_cast<const char*>(mem), MEM_SIZE);
-
-    if (!f) {
-        printf("Failed while writing debug image: %s\n", path);
-        return false;
-    }
-    return true;
-}
-
-static bool load_debug_image(const char* path)
-{
-    std::ifstream f(path, std::ios::binary);
-    if (!f) return false;
-
-    char magic[4] = {0,0,0,0};
-    f.read(magic, 4);
-    if (!f) return false;
-    if (!(magic[0]=='S' && magic[1]=='8' && magic[2]=='D' && magic[3]=='I')) {
-        return false;
-    }
-    uint8_t ver = 0;
-    f.read(reinterpret_cast<char*>(&ver), 1);
-    if (!f || ver != 0x01) return false;
-
-    f.read(reinterpret_cast<char*>(r), 8);
-    if (!f) return false;
-    if (!read_u16_be(f, ip)) return false;
-    if (!read_u16_be(f, sp)) return false;
-    if (!read_u16_be(f, bp)) return false;
-    f.read(reinterpret_cast<char*>(&c), 1);
-    if (!f) return false;
-
-    char tmp[7];
-    f.read(tmp, 7);
-    if (!f) return false;
-
-    f.read(reinterpret_cast<char*>(mem), MEM_SIZE);
-    if (!f) return false;
-
-    clear_stop_request();
-    g_ui_quit_requested.store(false, std::memory_order_release);
-    g_vm_done.store(false, std::memory_order_release);
-    return true;
-}
-
-/* MACHINE CODE **************************************************************/
 
 /**
  *
@@ -1346,6 +1362,7 @@ void init_machine()
     clear_stop_request();
     g_ui_quit_requested.store(false, std::memory_order_release);
     g_vm_done.store(false, std::memory_order_release);
+    g_call_depth = 0;
     {
         std::lock_guard<std::mutex> lock(g_kbd_mutex);
         g_kbd_queue.clear();
@@ -2100,10 +2117,10 @@ void call_instruction()
     mem_write(static_cast<uint16_t>(sp - 2), static_cast<uint8_t>((returnAddress & 0xFF00) >> 8));
     mem_write(static_cast<uint16_t>(sp - 1), static_cast<uint8_t>(returnAddress & 0x00FF));
     sp -= 2;
+    g_call_depth++;
     
     ip = callAddress;
 }
-
 /**
  *
  * Ret instruction. Returns from a procedure using the top of the stack as a
@@ -2115,8 +2132,8 @@ void ret_instruction()
     ip = static_cast<uint16_t>(mem[sp]) << 8;
     ip += static_cast<uint16_t>(mem[sp + 1]);
     sp += 2;
+    if (g_call_depth > 0) g_call_depth--;
 }
-
 /**
  *
  * Sub instruction. Subtracts a value from a register.
@@ -2521,14 +2538,6 @@ void shl_instruction()
  * Processes instruction. If unknown instruction or halt, then the VM stops.
  *
  */
-/* VERBOSE TRACE HELPERS *****************************************************/
-
-static const DebLine* deb_lookup_by_addr(const std::unordered_map<uint16_t, const DebLine*>& m, const uint16_t addr)
-{
-    const auto it = m.find(addr);
-    return (it == m.end()) ? nullptr : it->second;
-}
-
 static std::string reg_code_to_name(const uint8_t code)
 {
     switch (code)
@@ -2720,14 +2729,57 @@ static void vlog_append_line(const std::string& s)
     g_vlog.flush();
 }
 
-static std::string format_regs()
+static std::string format_regs(const RegSnapshot& s)
 {
     char buf[256];
     std::snprintf(buf, sizeof(buf),
                   "R0=%02X R1=%02X R2=%02X R3=%02X R4=%02X R5=%02X R6=%02X R7=%02X IP=%04X SP=%04X BP=%04X C=%d",
-                  r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7],
-                  static_cast<unsigned>(ip), static_cast<unsigned>(sp), static_cast<unsigned>(bp), c ? 1 : 0);
+                  s.r[0], s.r[1], s.r[2], s.r[3], s.r[4], s.r[5], s.r[6], s.r[7],
+                  static_cast<unsigned>(s.ip), static_cast<unsigned>(s.sp), static_cast<unsigned>(s.bp), s.c ? 1 : 0);
     return std::string(buf);
+}
+
+static std::string format_regs()
+{
+    return format_regs(capture_regs());
+}
+
+static std::string format_reg_delta(const RegSnapshot& before, const RegSnapshot& after)
+{
+    std::ostringstream oss;
+    bool first = true;
+    auto append_u8 = [&](const char* name, uint8_t oldv, uint8_t newv) {
+        if (!first) oss << ", ";
+        first = false;
+        oss << name << ":" << std::hex << std::uppercase
+            << std::setw(2) << std::setfill('0') << static_cast<unsigned>(oldv)
+            << "->"
+            << std::setw(2) << static_cast<unsigned>(newv);
+    };
+    auto append_u16 = [&](const char* name, uint16_t oldv, uint16_t newv) {
+        if (!first) oss << ", ";
+        first = false;
+        oss << name << ":" << std::hex << std::uppercase
+            << std::setw(4) << std::setfill('0') << static_cast<unsigned>(oldv)
+            << "->"
+            << std::setw(4) << static_cast<unsigned>(newv);
+    };
+
+    for (int i = 0; i < 8; i++)
+    {
+        if (before.r[i] != after.r[i])
+        {
+            char name[4];
+            std::snprintf(name, sizeof(name), "R%d", i);
+            append_u8(name, before.r[i], after.r[i]);
+        }
+    }
+    if (before.ip != after.ip) append_u16("IP", before.ip, after.ip);
+    if (before.sp != after.sp) append_u16("SP", before.sp, after.sp);
+    if (before.bp != after.bp) append_u16("BP", before.bp, after.bp);
+    if (before.c != after.c) append_u8("C", before.c, after.c);
+
+    return first ? std::string() : oss.str();
 }
 
 static std::string format_mem_writes()
@@ -2751,6 +2803,7 @@ static std::string format_mem_writes()
 void process_instruction()
 {
     const uint16_t orig_ip = ip;
+    const RegSnapshot before = capture_regs();
     const std::string decoded = (g_verbose ? decode_instruction_at(orig_ip) : std::string());
     g_mem_writes.clear();
 
@@ -2798,20 +2851,28 @@ void process_instruction()
 
     if (g_verbose)
     {
+        const RegSnapshot after = capture_regs();
         const std::string src_loc = format_source_label(deb_lookup_by_addr(g_code_by_addr, orig_ip));
+        const std::string delta = format_reg_delta(before, after);
+        const std::string writes = format_mem_writes();
 
         std::ostringstream oss;
-        oss << std::dec << g_step_counter++ << " PC=0x"
+        oss << std::dec << g_step_counter++ << " DEPTH=" << g_call_depth << " PC=0x"
             << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << static_cast<unsigned>(orig_ip)
             << " SRC=" << src_loc
-            << " INST=\"" << decoded << "\""
-            << format_mem_writes()
-            << " REGS{" << format_regs() << "}";
+            << " INST=\"" << decoded << "\"";
         vlog_append_line(oss.str());
+        vlog_append_line(std::string("    BEFORE: ") + format_regs(before));
+        vlog_append_line(std::string("    AFTER : ") + format_regs(after));
+        vlog_append_line(std::string("    DELTA : ") + (delta.empty() ? std::string("<none>") : delta));
+        if (!writes.empty())
+        {
+            vlog_append_line(std::string("    WRITES:") + writes);
+        }
+        vlog_append_line(std::string());
     }
 
 }
-
 /**
  *
  * Prints Memory
@@ -2840,6 +2901,7 @@ void print_memory()
  */
 void print_registers()
 {
+    printf("Call depth = %d\n", g_call_depth);
     for (uint8_t i = 0; i < 8; i++)
     {
         printf("R%d = 0x%02x ", i, r[i]);
@@ -2849,6 +2911,24 @@ void print_registers()
     printf("SP = 0x%04x ", sp);
     printf("BP = 0x%04x ", bp);
     printf("C = %d\n", c ? 1 : 0);
+}
+
+static void print_mem_writes_block(const std::vector<MemWriteEvent>& writes)
+{
+    printf("Last memory writes (%zu):\n", writes.size());
+    if (writes.empty())
+    {
+        printf("  <none>\n");
+        return;
+    }
+
+    for (const auto& w : writes)
+    {
+        printf("  0x%04X: %02X -> %02X\n",
+               static_cast<unsigned>(w.addr),
+               static_cast<unsigned>(w.oldv),
+               static_cast<unsigned>(w.newv));
+    }
 }
 
 void run(const bool break_enabled = false,

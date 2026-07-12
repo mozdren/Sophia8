@@ -1859,12 +1859,12 @@
       "On breakpoint hit, VM prints BREAK <file>:<line> (0xADDR).",
       "Then prints a small source window around the line when .deb mapping is available.",
       "Use --break-context <n> to change the source window radius (default 2).",
-      "Then prints registers (R0..R7, IP, SP, BP, C) and the last memory writes.",
-      "Then saves debug.img and stops."
+      "Then prints call depth, registers (R0..R7, IP, SP, BP, C), and the last memory writes.",
+      "Then saves debug.img and stops. Debug snapshots preserve call depth."
     ],
     "debug_snapshot": {
       "file": "debug.img",
-      "format": "Binary snapshot: magic 'S8DI', version 0x01, registers, IP/SP/BP, carry, then full 0x10000-byte memory image."
+      "format": "Binary snapshot: magic 'S8DI', version 0x02, registers, IP/SP/BP, carry, call depth, then full 0x10000-byte memory image."
     },
     "graphics": {
       "enabled_flag": "--gfx",
@@ -1910,11 +1910,11 @@
         "pattern": "sophia8 <program.deb>"
       },
       {
-        "meaning": "Runs and stops when IP reaches address mapped from source location (file:line). Writes debug.img snapshot, prints a source window, registers, and last memory writes.",
+        "meaning": "Runs and stops when IP reaches address mapped from source location (file:line). Writes debug.img snapshot, prints a source window, call depth, registers, and last memory writes.",
         "pattern": "sophia8 <program.deb> <break_file> <break_line>"
       },
       {
-        "meaning": "Resumes execution from a saved debug snapshot (written on breakpoint).",
+        "meaning": "Resumes execution from a saved debug snapshot (written on breakpoint). Snapshot state includes call depth.",
         "pattern": "sophia8 debug.img"
       },
       {
@@ -1926,15 +1926,15 @@
         "pattern": "sophia8 debug.img <program.deb> <break_file> <break_line>"
       },
       {
-        "meaning": "Runs using the .deb debug map and appends a per-instruction trace to verbose.log (flush after each instruction).",
+        "meaning": "Runs using the .deb debug map and appends a multi-line per-instruction trace to verbose.log (flush after each instruction).",
         "pattern": "sophia8 -v <program.deb>"
       },
       {
-        "meaning": "Loads a raw .bin image, uses <program.deb> only for source mapping, and writes verbose.log.",
+        "meaning": "Loads a raw .bin image, uses <program.deb> only for source mapping, and writes verbose.log with before/after register state and deltas.",
         "pattern": "sophia8 -v --deb <program.deb> <image.bin>"
       },
       {
-        "meaning": "Resumes from debug.img, uses <program.deb> for source mapping, and writes verbose.log.",
+        "meaning": "Resumes from debug.img, uses <program.deb> for source mapping, and writes verbose.log with before/after register state and deltas.",
         "pattern": "sophia8 -v debug.img <program.deb>"
       },
       {
@@ -1957,7 +1957,7 @@
         "source location resolved from .deb (file:line) for the IP when available",
         "decoded instruction mnemonic + operands",
         "memory writes performed by the instruction (addr, old byte, new byte) when any",
-        "register dump after execution: R0..R7, IP, SP, BP, C"
+        "register snapshots before/after execution, plus a register delta"
       ],
       "requires_deb": true
     }
