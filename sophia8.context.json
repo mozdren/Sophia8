@@ -301,7 +301,8 @@
       "test_basic_halt covers HALT stopping the VM directly from BASIC code.",
       "test_basic_print covers PRINT separators and trailing semicolon newline suppression.",
       "test_basic_mixed_flow covers GOSUB / RETURN together with FOR / NEXT and block-loop nesting.",
-      "If behavior changes in a refactor, inspect both the .pre.s8.asm and .deb outputs before assuming the VM is wrong."
+      "If behavior changes in a refactor, inspect both the .pre.s8.asm and .deb outputs before assuming the VM is wrong.",
+      "test_basic_ordered_lines covers sorted program storage and duplicate replacement."
     ]
   },
   "binary_image": {
@@ -1515,7 +1516,7 @@
       ]
     },
     "stdio_console.s8.asm": {
-      "purpose": "Console-only stdio-like façade",
+      "purpose": "Console-only stdio-like fa\u00e7ade",
       "routines": [
         {
           "args": {

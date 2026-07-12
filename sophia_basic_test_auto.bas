@@ -51,7 +51,7 @@
 79 IF A$="HELLO" THEN PRINT 1 ELSE PRINT 0
 80 IF LEFT$(A$,2)="HE" THEN PRINT 1 ELSE PRINT 0
 81 PRINT "GOSUB"
-82 GOSUB 100
+82 GOSUB 200
 83 PRINT "AFTER"
 84 REM this whole line is a comment and must be ignored
 85 PRINT "REMOK": REM inline comment after statement
@@ -83,5 +83,5 @@ REM DATA / READ / RESTORE tests
 
 180 END
 
-100 PRINT "IN SUB"
-110 RETURN
+200 PRINT "IN SUB"
+210 RETURN

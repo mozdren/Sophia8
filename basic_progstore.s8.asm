@@ -6,7 +6,7 @@
 ;   +3..  line text
 ;   +N    trailing NUL for PUTS/text scans
 ;
-; Program records are kept in insertion order in RAM `BASIC_PROG_BASE..0x7FFF`.
+; Program records are kept in ascending line-number order in RAM `BASIC_PROG_BASE..0x7FFF`.
 ; `PROG_END_*` points just past the last record.
 
 ; PROG_FIRST_PTR
@@ -158,6 +158,58 @@ BPS_FL_NO:
     SET #0x00, R0
     RET
 BPS_FL_YES:
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+    SET #0x01, R0
+    RET
+
+; PROG_FIND_INSERT_POS
+;   Input : TMP_LINENO_H/L
+;   Output: R0 = 1 if exact line was found, 0 otherwise
+;           R1:R2 = matching record ptr or insertion point
+PROG_FIND_INSERT_POS:
+    CALL PROG_FIRST_PTR
+BPS_FIP_LOOP:
+    CALL PROG_IS_AT_END
+    CMP R0, #0x01
+    JZ R0, BPS_FIP_END
+
+BPS_FIP_HAVE:
+    STORE R1, TMP_PTR_H
+    STORE R2, TMP_PTR_L
+    CALL PROG_GET_RECORD_INFO
+
+    LOAD TMP_LINENO_H, R0
+    SET #0x00, R5
+    ADDR R6, R5
+    CMPR R5, R0
+    JC BPS_FIP_ADVANCE
+    JNZ R5, BPS_FIP_BEFORE
+
+    LOAD TMP_LINENO_L, R0
+    SET #0x00, R5
+    ADDR R7, R5
+    CMPR R5, R0
+    JC BPS_FIP_ADVANCE
+    JZ R5, BPS_FIP_YES
+
+BPS_FIP_BEFORE:
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+    SET #0x00, R0
+    RET
+
+BPS_FIP_ADVANCE:
+    LOAD TMP_PTR_H, R1
+    LOAD TMP_PTR_L, R2
+    CALL PROG_NEXT_PTR
+    JMP BPS_FIP_LOOP
+
+BPS_FIP_END:
+    SET #0x00, R0
+    RET
+
+BPS_FIP_YES:
     LOAD TMP_PTR_H, R1
     LOAD TMP_PTR_L, R2
     SET #0x01, R0
@@ -408,6 +460,7 @@ PROG_CAN_APPEND_LINE:
     SET #0x00, R5
     ADDR R1, R5
     CMPR R5, R3
+    JC PAL_NO
     JNZ R5, PAL_HDIFF
 
     LOAD TMP_LINENO_L, R1
@@ -415,13 +468,12 @@ PROG_CAN_APPEND_LINE:
     SET #0x00, R5
     ADDR R1, R5
     CMPR R5, R3
+    JC PAL_NO
     JZ R5, PAL_NO
-    JNC PAL_NO
     SET #0x01, R0
     RET
 
 PAL_HDIFF:
-    JNC PAL_NO
     SET #0x01, R0
     RET
 
@@ -447,7 +499,7 @@ BPS_SL_APPEND:
     RET
 
 BPS_SL_FIND:
-    CALL FIND_LINE
+    CALL PROG_FIND_INSERT_POS
     STORE R1, TMP_PTR_H
     STORE R2, TMP_PTR_L
     STORE R0, TMPL
@@ -458,14 +510,8 @@ BPS_SL_FIND:
     LOAD TMP_PTR_H, R1
     LOAD TMP_PTR_L, R2
     CALL PROG_DELETE_AT
-    JMP BPS_SL_SIZE
 
 BPS_SL_NEW:
-    LOAD LINECOUNT, R0
-    CMP R0, #0xFF
-    JZ R0, BPS_SL_FAIL
-
-BPS_SL_SIZE:
     LOAD TMP_PTR_H, R1
     LOAD TMP_PTR_L, R2
     CALL PROG_IS_AT_END

@@ -210,6 +210,20 @@ add_test(
 )
 
 add_test(
+    NAME test_basic_ordered_lines
+    COMMAND ${CMAKE_COMMAND}
+        -DTEST_NAME=test_basic_ordered_lines
+        -DASM=$<TARGET_FILE:s8asm>
+        -DVM=$<TARGET_FILE:sophia8>
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DBINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+        -DBASIC_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/sophia_basic_test_ordered_lines.bas
+        -DEXPECTED_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/expected/basic_ordered_lines.txt
+        -DMARKER=SOPHIA_BASIC_ORDERED_LINES_TEST
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBasicTest.cmake
+)
+
+add_test(
     NAME test_basic_print
     COMMAND ${CMAKE_COMMAND}
         -DTEST_NAME=test_basic_print
