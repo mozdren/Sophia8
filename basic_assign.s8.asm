@@ -108,8 +108,8 @@ CA_ARRAY:
     ; consume '(' and parse index
     CALL GETCHAR_CUR
     CALL EVAL_EXPR              ; index in R6:R7
-    STORE R7, TMPH
-    STORE R6, TMPL
+    STORE R6, TMPH
+    STORE R7, TMPL
     CALL SKIPSP_CUR
     CALL PEEKCHAR_CUR
     CMP R0, #0x29
@@ -156,7 +156,15 @@ CA_AH:
     JMP CA_FAIL
 CA_ABOK:
     ; eval RHS value
+    LOAD TMPH, R1
+    LOAD TMPL, R2
+    PUSH R1
+    PUSH R2
     CALL EVAL_EXPR               ; value in R6:R7
+    POP R2
+    POP R1
+    STORE R1, TMPH
+    STORE R2, TMPL
 
     ; store element using helper (index in TMPH/TMPL)
     CALL ARRAY_STORE_INT_ELEM

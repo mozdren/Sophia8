@@ -252,8 +252,48 @@
       "top_level_file": "sophia_basic_v1.s8.asm",
       "top_level_role": "Composition/wiring only: core libs, fixed BASIC strings/state, aggregate include, entry point.",
       "aggregate_include": "basic_all.s8.asm",
-      "rule": "Implement features in focused basic_*.s8.asm modules and wire them through basic_all.s8.asm instead of growing the top-level BASIC file."
-    }
+      "rule": "Implement features in focused basic_*.s8.asm modules and wire them through basic_all.s8.asm instead of growing the top-level BASIC file.",
+      "module_map": {
+        "basic_repl.s8.asm": "Interactive REPL and RUN loop",
+        "basic_stmt.s8.asm": "Statement dispatcher and built-in commands",
+        "basic_flow.s8.asm": "GOSUB, RETURN, FOR, NEXT",
+        "basic_io.s8.asm": "PRINT, INPUT, and related I/O helpers",
+        "basic_expr.s8.asm": "Expression engine, parsing, and operator handling",
+        "basic_assign.s8.asm": "LET and implicit assignment",
+        "basic_array.s8.asm": "DIM and 1D integer arrays",
+        "basic_data.s8.asm": "DATA / READ / RESTORE support",
+        "basic_data_cmd.s8.asm": "Late DATA/READ/RESTORE command handlers",
+        "basic_progstore.s8.asm": "Packed program storage and listing",
+        "basic_vars.s8.asm": "Variable table management",
+        "basic_helpers.s8.asm": "BASIC-specific helper routines",
+        "basic_init.s8.asm": "Interpreter startup/reset state",
+        "basic_rng.s8.asm": "BASIC RNG wrapper",
+        "basic_strfn.s8.asm": "String functions such as LEN, LEFT$, MID$, INSTR, VAL",
+        "basic_all.s8.asm": "Aggregate include list for feature modules"
+      },
+      "composition_order": [
+        "basic_layout.s8.asm",
+        "kernel.s8.asm",
+        "cli.s8.asm",
+        "mem.s8.asm",
+        "fmt.s8.asm",
+        "str.s8.asm",
+        "basic_strings.s8.asm",
+        "basic_state.s8.asm",
+        "basic_all.s8.asm",
+        "text.s8.asm",
+        "basic_errors.s8.asm",
+        "basic_helpers.s8.asm",
+        "basic_vars.s8.asm",
+        "text_charset.s8.asm"
+      ]
+    },
+    "working_notes": [
+      "Start BASIC changes in the focused module that owns the behavior, then wire new code through basic_all.s8.asm if needed.",
+      "Check the final .deb map after any code growth that might affect layout-sensitive addresses.",
+      "Treat 0x9600/0x9601 as reserved BASIC scratch/test-safe addresses unless the memory map and tests are intentionally redesigned.",
+      "If behavior changes in a refactor, inspect both the .pre.s8.asm and .deb outputs before assuming the VM is wrong."
+    ]
   },
   "binary_image": {
     "entry_stub": {
@@ -1466,7 +1506,7 @@
       ]
     },
     "stdio_console.s8.asm": {
-      "purpose": "Console-only stdio-like fa\u00e7ade",
+      "purpose": "Console-only stdio-like façade",
       "routines": [
         {
           "args": {

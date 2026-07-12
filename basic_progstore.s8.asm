@@ -113,6 +113,11 @@ PROG_GET_RECORD_INFO:
     INC R1
 BPS_RI1:
     LOADR R7, R1, R2
+    ; Restore the original record start before decoding the text payload.
+    DEC R2
+    JNC BPS_RI2
+    DEC R1
+BPS_RI2:
     CALL PROG_GET_TEXT_PTR
     RET
 

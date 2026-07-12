@@ -93,12 +93,12 @@ ARRAY_LOAD_INT_ELEM:
     ; bounds check: index <= max
     ; compare high
     SET #0x00, R1
-    ADDR R7, R1                   ; idxH
+    ADDR R6, R1                   ; idxH
     CMPR R1, R5                   ; idxH - maxH
     JNZ R1, ALE_CH
     ; high equal -> compare low
     SET #0x00, R1
-    ADDR R6, R1                   ; idxL
+    ADDR R7, R1                   ; idxL
     CMPR R1, R0                   ; idxL - maxL
     JNC ALE_INR                   ; idxL <= maxL
     JMP ALE_ZERO
@@ -110,11 +110,11 @@ ALE_CH:
 ALE_INR:
     ; address = base + index*2
     SET #0x00, R1
-    ADDR R6, R1
-    ADDR R6, R1                   ; idxL*2
+    ADDR R7, R1
+    ADDR R7, R1                   ; idxL*2
     SET #0x00, R2
-    ADDR R7, R2
-    ADDR R7, R2                   ; idxH*2
+    ADDR R6, R2
+    ADDR R6, R2                   ; idxH*2
     ; add to base (R3:R4)
     ADDR R1, R4
     JNC ALE_A1
@@ -223,6 +223,8 @@ CMD_DIM:
     CALL GETCHAR_CUR
 
     CALL EVAL_EXPR              ; max index in R6:R7
+    STORE R6, INPUT_VAR_COUNT
+    STORE R7, INPUT_VAR_INDEX
 
     CALL SKIPSP_CUR
     CALL PEEKCHAR_CUR
@@ -241,6 +243,9 @@ CMD_DIM:
 
     ; Allocate (max+1)*2 bytes at STRFREE
     ; bytes = (maxIndex + 1) * 2
+    ; restore the parsed max from scratch storage
+    LOAD INPUT_VAR_COUNT, R6
+    LOAD INPUT_VAR_INDEX, R7
     ; compute elems = max+1 in R4:R5
     SET #0x00, R4
     ADDR R6, R4
@@ -280,12 +285,12 @@ DIM_P2:
     JNZ R2, DIM_P3
     INC R1
 DIM_P3:
-    STORER R7, R1, R2           ; maxH
+    STORER R6, R1, R2           ; maxH
     INC R2
     JNZ R2, DIM_P4
     INC R1
 DIM_P4:
-    STORER R6, R1, R2           ; maxL
+    STORER R7, R1, R2           ; maxL
     POP R2
     POP R1
 
