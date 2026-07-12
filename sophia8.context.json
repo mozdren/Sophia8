@@ -1898,10 +1898,10 @@
         "indexes": "0..15",
         "source": "graphics_c64.cpp palette table (must match converters)"
       },
-      "refresh": "best-effort ~60 Hz while running; SDL window stays open after stop until Esc; optional PPM snapshot via --gfx-out",
+      "refresh": "best-effort ~60 Hz while running; SDL window stays open after stop until Esc; optional PPM or PNG snapshot via --gfx-out",
       "renderer": {
         "current_backend": "SDL fullscreen window from mapped memory",
-        "window_backend_note": "Optional PPM snapshot via --gfx-out; future windowed mode can scale to fit while preserving 320x200 aspect ratio (letterbox/pillarbox)."
+        "window_backend_note": "Optional PPM or PNG snapshot via --gfx-out; future windowed mode can scale to fit while preserving 320x200 aspect ratio (letterbox/pillarbox)."
       },
       "scale_flag": "--gfx-scale"
     },
@@ -1952,8 +1952,8 @@
         "pattern": "sophia8 <image.bin> --gfx"
       },
       {
-        "meaning": "Runs with graphics enabled and optionally writes the final frame to the specified PPM output file.",
-        "pattern": "sophia8 <image.bin> --gfx --gfx-out <frame.ppm>"
+        "meaning": "Runs with graphics enabled and optionally writes the final frame to the specified PPM or PNG output file.",
+        "pattern": "sophia8 <image.bin> --gfx --gfx-out <frame.ppm|frame.png>"
       }
     ],
     "verbose_logging": {
