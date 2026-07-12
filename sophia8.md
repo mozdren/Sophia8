@@ -226,7 +226,7 @@ BASIC regressions are often integration issues, not isolated parser bugs. Every 
 
 The current CTest integration is platform-neutral and avoids shell-only features such as `bash`, `awk`, `grep`, `diff`, and `timeout`.
 It appends `HALT` after `RUN` in the BASIC integration tests so each run exits the VM cleanly instead of waiting at the prompt.
-Current CTest coverage is 14 tests, including the `test_basic_high_lines` DATA/RESTORE regression, `test_basic_for` coverage for `FOR / NEXT`, `test_basic_data` coverage for mixed `DATA` / `READ` / `RESTORE`, `test_basic_rng` coverage for `RANDOMIZE` / `RND()`, `test_basic_stop` coverage for returning to the BASIC prompt, and `test_basic_goto` coverage for plain `GOTO`.
+Current CTest coverage is 15 tests, including the `test_basic_high_lines` DATA/RESTORE regression, `test_basic_for` coverage for `FOR / NEXT`, `test_basic_data` coverage for mixed `DATA` / `READ` / `RESTORE`, `test_basic_rng` coverage for `RANDOMIZE` / `RND()`, `test_basic_stop` coverage for returning to the BASIC prompt, `test_basic_goto` coverage for plain `GOTO`, and `test_basic_halt` coverage for direct VM termination.
 
 ## 8. Notes and pitfalls carried forward
 

@@ -144,7 +144,7 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Current CTest coverage is 14 tests, including the `test_basic_high_lines` DATA/RESTORE regression, `test_basic_for` coverage for `FOR / NEXT`, `test_basic_data` coverage for mixed `DATA` / `READ` / `RESTORE`, `test_basic_rng` coverage for `RANDOMIZE` / `RND()`, `test_basic_stop` coverage for returning to the BASIC prompt, and `test_basic_goto` coverage for plain `GOTO`.
+Current CTest coverage is 15 tests, including the `test_basic_high_lines` DATA/RESTORE regression, `test_basic_for` coverage for `FOR / NEXT`, `test_basic_data` coverage for mixed `DATA` / `READ` / `RESTORE`, `test_basic_rng` coverage for `RANDOMIZE` / `RND()`, `test_basic_stop` coverage for returning to the BASIC prompt, `test_basic_goto` coverage for plain `GOTO`, and `test_basic_halt` coverage for direct VM termination.
 
 ## Main project files
 - `s8asm.cpp` — assembler
