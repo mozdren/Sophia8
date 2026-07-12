@@ -42,7 +42,127 @@
 #include <cctype>
 #include <cerrno>
 
+#if defined(SOPHIA8_USE_SDL3) && SOPHIA8_USE_SDL3
+#include <SDL3/SDL.h>
+#else
 #include <SDL.h>
+#endif
+
+static inline bool sophia8_sdl_init_video()
+{
+#if SOPHIA8_USE_SDL3
+    return SDL_Init(SDL_INIT_VIDEO);
+#else
+    return SDL_Init(SDL_INIT_VIDEO) == 0;
+#endif
+}
+
+static inline SDL_Window* sophia8_sdl_create_window(const char* title,
+                                                     const int w,
+                                                     const int h,
+                                                     const SDL_WindowFlags flags)
+{
+#if SOPHIA8_USE_SDL3
+    return SDL_CreateWindow(title, w, h, flags);
+#else
+    return SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w, h, flags);
+#endif
+}
+
+static inline SDL_Renderer* sophia8_sdl_create_renderer(SDL_Window* window)
+{
+#if SOPHIA8_USE_SDL3
+    return SDL_CreateRenderer(window, nullptr);
+#else
+    return SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+#endif
+}
+
+static inline bool sophia8_sdl_set_logical_presentation(SDL_Renderer* renderer, const int w, const int h)
+{
+#if SOPHIA8_USE_SDL3
+    return SDL_SetRenderLogicalPresentation(renderer, w, h, SDL_LOGICAL_PRESENTATION_INTEGER_SCALE);
+#else
+    const bool ok = SDL_RenderSetLogicalSize(renderer, w, h) == 0;
+    const bool scale_ok = SDL_RenderSetIntegerScale(renderer, SDL_TRUE) == 0;
+    return ok && scale_ok;
+#endif
+}
+
+static inline bool sophia8_sdl_update_texture(SDL_Texture* texture, const void* pixels, const int pitch)
+{
+#if SOPHIA8_USE_SDL3
+    return SDL_UpdateTexture(texture, nullptr, pixels, pitch);
+#else
+    return SDL_UpdateTexture(texture, nullptr, pixels, pitch) == 0;
+#endif
+}
+
+static inline bool sophia8_sdl_render_clear(SDL_Renderer* renderer)
+{
+#if SOPHIA8_USE_SDL3
+    return SDL_RenderClear(renderer);
+#else
+    return SDL_RenderClear(renderer) == 0;
+#endif
+}
+
+static inline bool sophia8_sdl_render_texture(SDL_Renderer* renderer, SDL_Texture* texture)
+{
+#if SOPHIA8_USE_SDL3
+    return SDL_RenderTexture(renderer, texture, nullptr, nullptr);
+#else
+    return SDL_RenderCopy(renderer, texture, nullptr, nullptr) == 0;
+#endif
+}
+
+static inline bool sophia8_sdl_render_fill_rect(SDL_Renderer* renderer, const float x, const float y, const float w, const float h)
+{
+#if SOPHIA8_USE_SDL3
+    SDL_FRect rect{x, y, w, h};
+    return SDL_RenderFillRect(renderer, &rect);
+#else
+    SDL_Rect rect{static_cast<int>(x), static_cast<int>(y), static_cast<int>(w), static_cast<int>(h)};
+    return SDL_RenderFillRect(renderer, &rect) == 0;
+#endif
+}
+
+static inline void sophia8_sdl_set_mouse_grab(SDL_Window* window, const bool grabbed)
+{
+#if SOPHIA8_USE_SDL3
+    SDL_SetWindowMouseGrab(window, grabbed);
+#else
+    SDL_SetWindowMouseGrab(window, grabbed ? SDL_TRUE : SDL_FALSE);
+#endif
+}
+
+static inline SDL_Keycode sophia8_sdl_event_keycode(const SDL_Event& ev)
+{
+#if SOPHIA8_USE_SDL3
+    return ev.key.key;
+#else
+    return ev.key.keysym.sym;
+#endif
+}
+
+static constexpr Uint32 kSdlEventQuit =
+#if SOPHIA8_USE_SDL3
+    SDL_EVENT_QUIT;
+#else
+    SDL_QUIT;
+#endif
+static constexpr Uint32 kSdlEventTextInput =
+#if SOPHIA8_USE_SDL3
+    SDL_EVENT_TEXT_INPUT;
+#else
+    SDL_TEXTINPUT;
+#endif
+static constexpr Uint32 kSdlEventKeyDown =
+#if SOPHIA8_USE_SDL3
+    SDL_EVENT_KEY_DOWN;
+#else
+    SDL_KEYDOWN;
+#endif
 
 #include "graphics_c64.h"
 
@@ -396,7 +516,6 @@ static void draw_text(SDL_Renderer* renderer, int x, int y, const char* text, co
 {
     if (!renderer || !text || scale < 1) return;
 
-    SDL_Rect px {0, 0, scale, scale};
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
 
     int cx = x;
@@ -409,9 +528,11 @@ static void draw_text(SDL_Renderer* renderer, int x, int y, const char* text, co
             for (int col = 0; col < 5; ++col)
             {
                 if ((bits & (1u << (4 - col))) == 0) continue;
-                px.x = cx + col * scale;
-                px.y = y + row * scale;
-                SDL_RenderFillRect(renderer, &px);
+                sophia8_sdl_render_fill_rect(renderer,
+                                               static_cast<float>(cx + col * scale),
+                                               static_cast<float>(y + row * scale),
+                                               static_cast<float>(scale),
+                                               static_cast<float>(scale));
             }
         }
         cx += 6 * scale;
@@ -422,19 +543,15 @@ static bool init_sdl_graphics()
 {
     if (g_sdl_gfx.initialized) return true;
 
-    if (SDL_Init(SDL_INIT_VIDEO) != 0)
+    if (!sophia8_sdl_init_video())
     {
         printf("SDL_Init failed: %s\n", SDL_GetError());
         return false;
     }
 
-    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
-
-    const Uint32 window_flags = SDL_WINDOW_SHOWN | SDL_WINDOW_FULLSCREEN_DESKTOP;
-    g_sdl_gfx.window = SDL_CreateWindow(
+    const SDL_WindowFlags window_flags = SDL_WINDOW_FULLSCREEN;
+    g_sdl_gfx.window = sophia8_sdl_create_window(
         "Sophia8",
-        SDL_WINDOWPOS_CENTERED,
-        SDL_WINDOWPOS_CENTERED,
         GraphicsC64::kWidth,
         GraphicsC64::kHeight,
         window_flags);
@@ -445,17 +562,7 @@ static bool init_sdl_graphics()
         return false;
     }
 
-    g_sdl_gfx.renderer = SDL_CreateRenderer(
-        g_sdl_gfx.window,
-        -1,
-        SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-    if (!g_sdl_gfx.renderer)
-    {
-        g_sdl_gfx.renderer = SDL_CreateRenderer(
-            g_sdl_gfx.window,
-            -1,
-            SDL_RENDERER_SOFTWARE);
-    }
+    g_sdl_gfx.renderer = sophia8_sdl_create_renderer(g_sdl_gfx.window);
     if (!g_sdl_gfx.renderer)
     {
         printf("SDL_CreateRenderer failed: %s\n", SDL_GetError());
@@ -465,8 +572,13 @@ static bool init_sdl_graphics()
         return false;
     }
 
-    SDL_RenderSetLogicalSize(g_sdl_gfx.renderer, GraphicsC64::kWidth, GraphicsC64::kHeight);
-    SDL_RenderSetIntegerScale(g_sdl_gfx.renderer, SDL_TRUE);
+    if (!sophia8_sdl_set_logical_presentation(
+            g_sdl_gfx.renderer,
+            GraphicsC64::kWidth,
+            GraphicsC64::kHeight))
+    {
+        printf("SDL_SetRenderLogicalPresentation failed: %s\n", SDL_GetError());
+    }
 
     g_sdl_gfx.texture = SDL_CreateTexture(
         g_sdl_gfx.renderer,
@@ -486,10 +598,19 @@ static bool init_sdl_graphics()
     }
 
     g_sdl_gfx.rgb.resize(static_cast<size_t>(GraphicsC64::kWidth * GraphicsC64::kHeight * 3));
+#if SOPHIA8_USE_SDL3
+    if (!SDL_SetTextureScaleMode(g_sdl_gfx.texture, SDL_SCALEMODE_NEAREST))
+    {
+        printf("SDL_SetTextureScaleMode failed: %s\n", SDL_GetError());
+    }
+#endif
     SDL_RaiseWindow(g_sdl_gfx.window);
-    SDL_SetWindowGrab(g_sdl_gfx.window, SDL_TRUE);
-    SDL_SetWindowKeyboardGrab(g_sdl_gfx.window, SDL_TRUE);
+#if SOPHIA8_USE_SDL3
+    SDL_StartTextInput(g_sdl_gfx.window);
+#else
     SDL_StartTextInput();
+#endif
+    sophia8_sdl_set_mouse_grab(g_sdl_gfx.window, true);
     g_sdl_gfx.initialized = true;
     return true;
 }
@@ -502,8 +623,12 @@ static void shutdown_sdl_graphics()
         return;
     }
 
-    SDL_SetWindowKeyboardGrab(g_sdl_gfx.window, SDL_FALSE);
-    SDL_SetWindowGrab(g_sdl_gfx.window, SDL_FALSE);
+#if SOPHIA8_USE_SDL3
+    SDL_StopTextInput(g_sdl_gfx.window);
+#else
+    SDL_StopTextInput();
+#endif
+    sophia8_sdl_set_mouse_grab(g_sdl_gfx.window, false);
     if (g_sdl_gfx.texture) SDL_DestroyTexture(g_sdl_gfx.texture);
     if (g_sdl_gfx.renderer) SDL_DestroyRenderer(g_sdl_gfx.renderer);
     if (g_sdl_gfx.window) SDL_DestroyWindow(g_sdl_gfx.window);
@@ -513,24 +638,23 @@ static void shutdown_sdl_graphics()
     g_sdl_gfx.window = nullptr;
     g_sdl_gfx.rgb.clear();
     g_sdl_gfx.initialized = false;
-    SDL_StopTextInput();
     SDL_Quit();
 }
 
 static void sdl_handle_event(const SDL_Event& ev)
 {
-    if (ev.type == SDL_QUIT)
+    if (ev.type == kSdlEventQuit)
     {
         g_ui_quit_requested.store(true, std::memory_order_release);
         request_stop();
     }
-    else if (ev.type == SDL_TEXTINPUT)
+    else if (ev.type == kSdlEventTextInput)
     {
         kbd_queue_push_ascii_text(ev.text.text);
     }
-    else if (ev.type == SDL_KEYDOWN)
+    else if (ev.type == kSdlEventKeyDown)
     {
-        switch (ev.key.keysym.sym)
+        switch (sophia8_sdl_event_keycode(ev))
         {
             case SDLK_BACKSPACE:
                 kbd_queue_push(0x08);
@@ -572,25 +696,36 @@ static void render_sdl_frame(const bool show_footer)
         snap.charset.data(),
         snap.text_state.data());
 
-    if (SDL_UpdateTexture(
+    if (!sophia8_sdl_update_texture(
             g_sdl_gfx.texture,
-            nullptr,
             g_sdl_gfx.rgb.data(),
-            GraphicsC64::kWidth * 3) != 0)
+            GraphicsC64::kWidth * 3))
     {
         printf("SDL_UpdateTexture failed: %s\n", SDL_GetError());
         return;
     }
 
     SDL_SetRenderDrawColor(g_sdl_gfx.renderer, 0, 0, 0, 255);
-    SDL_RenderClear(g_sdl_gfx.renderer);
-    SDL_RenderCopy(g_sdl_gfx.renderer, g_sdl_gfx.texture, nullptr, nullptr);
+    if (!sophia8_sdl_render_clear(g_sdl_gfx.renderer))
+    {
+        printf("SDL_RenderClear failed: %s\n", SDL_GetError());
+        return;
+    }
+    if (!sophia8_sdl_render_texture(g_sdl_gfx.renderer, g_sdl_gfx.texture))
+    {
+        printf("SDL_RenderTexture failed: %s\n", SDL_GetError());
+        return;
+    }
 
     if (show_footer)
     {
-        SDL_Rect footer{0, GraphicsC64::kHeight - kGfxFooterHeight, GraphicsC64::kWidth, kGfxFooterHeight};
         SDL_SetRenderDrawColor(g_sdl_gfx.renderer, 0, 0, 0, 255);
-        SDL_RenderFillRect(g_sdl_gfx.renderer, &footer);
+        sophia8_sdl_render_fill_rect(
+            g_sdl_gfx.renderer,
+            0.0f,
+            static_cast<float>(GraphicsC64::kHeight - kGfxFooterHeight),
+            static_cast<float>(GraphicsC64::kWidth),
+            static_cast<float>(kGfxFooterHeight));
         draw_text(g_sdl_gfx.renderer, 8, GraphicsC64::kHeight - 14, "PROGRAM ENDED, PRESS ESC", kGfxTextScale);
     }
 
@@ -607,11 +742,11 @@ static void wait_for_escape_after_end()
         SDL_Event ev;
         while (SDL_PollEvent(&ev))
         {
-            if (ev.type == SDL_QUIT)
+            if (ev.type == kSdlEventQuit)
             {
                 done = true;
             }
-            else if (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_ESCAPE)
+            else if (ev.type == kSdlEventKeyDown && sophia8_sdl_event_keycode(ev) == SDLK_ESCAPE)
             {
                 done = true;
             }
@@ -650,8 +785,8 @@ static void print_help(const char* prog)
     printf("  --gfx\n");
     printf("      Enable C64-style graphics rendering from fixed base 0x8000 (9000 bytes).\n");
     printf("      Opens a fullscreen SDL window and renders continuously from mapped memory.\n");
-    printf("  --gfx-out <file.ppm>\n");
-    printf("      Write the final frame to a PPM file at the given path.\n");
+    printf("  --gfx-out <file.ppm|file.png>\n");
+    printf("      Write the final frame to a PPM or PNG file at the given path.\n");
     printf("  --gfx-scale <n>\n");
     printf("      Reserved for future windowed backend. Intended to scale 320x200 by n.\n");
     printf("  --gfx-fullscreen\n");
@@ -1081,6 +1216,14 @@ static std::unordered_map<uint16_t, const DebLine*> g_code_by_addr;
 
 static bool ends_with(const std::string& s, const std::string& suf) {
     return s.size() >= suf.size() && s.compare(s.size() - suf.size(), suf.size(), suf) == 0;
+}
+
+static bool ends_with_ci(std::string s, const char* suf)
+{
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    std::string suffix(suf);
+    std::transform(suffix.begin(), suffix.end(), suffix.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    return ends_with(s, suffix);
 }
 
 static std::string trim(const std::string& s) {
@@ -3429,12 +3572,24 @@ int main(int argc, char** argv)
                 GfxSnapshot snap;
                 if (copy_gfx_snapshot(snap))
                 {
-                    graphics_c64_draw_ppm(
-                        snap.gfx.data(),
-                        g_gfx_out_path.c_str(),
-                        snap.text.data(),
-                        snap.charset.data(),
-                        snap.text_state.data());
+                    if (ends_with_ci(g_gfx_out_path, ".png"))
+                    {
+                        graphics_c64_draw_png(
+                            snap.gfx.data(),
+                            g_gfx_out_path.c_str(),
+                            snap.text.data(),
+                            snap.charset.data(),
+                            snap.text_state.data());
+                    }
+                    else
+                    {
+                        graphics_c64_draw_ppm(
+                            snap.gfx.data(),
+                            g_gfx_out_path.c_str(),
+                            snap.text.data(),
+                            snap.charset.data(),
+                            snap.text_state.data());
+                    }
                 }
             }
 

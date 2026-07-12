@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <vector>
 #include <string>
+#include <cstring>
 
 static std::vector<uint8_t> read_file(const char* path)
 {
@@ -27,6 +28,14 @@ static std::vector<uint8_t> read_file(const char* path)
     }
     std::fclose(f);
     return buf;
+}
+
+static uint32_t read_u32_be(const std::vector<uint8_t>& data, const size_t off)
+{
+    return (static_cast<uint32_t>(data[off + 0]) << 24) |
+           (static_cast<uint32_t>(data[off + 1]) << 16) |
+           (static_cast<uint32_t>(data[off + 2]) << 8) |
+           static_cast<uint32_t>(data[off + 3]);
 }
 
 static size_t find_header_end(const std::vector<uint8_t>& data)
@@ -81,6 +90,19 @@ int main()
     assert(ppm[pixel11 + 0] == 0xFF);
     assert(ppm[pixel11 + 1] == 0xFF);
     assert(ppm[pixel11 + 2] == 0xFF);
+
+    const char* png_out = "test_frame.png";
+    graphics_c64_draw_png(gfx.data(), png_out);
+    auto png = read_file(png_out);
+    assert(png.size() > 32);
+    const uint8_t png_sig[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    assert(std::memcmp(png.data(), png_sig, sizeof(png_sig)) == 0);
+    assert(read_u32_be(png, 8) == 13);
+    assert(png[12] == 'I' && png[13] == 'H' && png[14] == 'D' && png[15] == 'R');
+    assert(read_u32_be(png, 16) == static_cast<uint32_t>(GraphicsC64::kWidth));
+    assert(read_u32_be(png, 20) == static_cast<uint32_t>(GraphicsC64::kHeight));
+    assert(png[24] == 8);
+    assert(png[25] == 2);
 
     // Text overlay: a custom 8x8 glyph at (0,0).
     std::vector<uint8_t> text(GraphicsC64::kTextBytes, static_cast<uint8_t>(' '));

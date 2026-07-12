@@ -14,8 +14,8 @@
 //                                low  nibble = background (0..15)
 // - Total bytes: 40*25*(8+1) = 9000
 //
-// Output backend for now: binary PPM (P6) file.
-// This keeps the feature portable and testable without external libs.
+// Output backend supports binary PPM (P6) and PNG files.
+// PNG is selected by filename extension in the VM CLI.
 
 struct GraphicsC64
 {
@@ -46,6 +46,13 @@ struct GraphicsC64
 // Draws the screen described by gfx_mem (must point to the first byte at base 0x8000)
 // into a PPM file.
 void graphics_c64_draw_ppm(const uint8_t* gfx_mem,
+                           const char* out_path,
+                           const uint8_t* text_mem = nullptr,
+                           const uint8_t* charset_mem = nullptr,
+                           const uint8_t* text_state = nullptr);
+
+// Draws the same screen into a PNG file.
+void graphics_c64_draw_png(const uint8_t* gfx_mem,
                            const char* out_path,
                            const uint8_t* text_mem = nullptr,
                            const uint8_t* charset_mem = nullptr,

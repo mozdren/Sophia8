@@ -156,7 +156,7 @@ Current CTest coverage is 18 tests, including the `test_basic_high_lines` DATA/R
 - `sophia_basic_test_auto.bas` — BASIC integration coverage
 
 ## Graphics
-The VM supports a C64-style graphics mode sourced from memory base `0x8000` (9000 bytes). `--gfx` opens a fullscreen SDL window that renders directly from mapped memory, captures keyboard input through SDL, and `--gfx-out <file.ppm>` optionally writes the final frame to PPM.
+The VM supports a C64-style graphics mode sourced from memory base `0x8000` (9000 bytes). `--gfx` opens a fullscreen SDL window that renders directly from mapped memory, captures keyboard input through SDL, and `--gfx-out <file.ppm|file.png>` optionally writes the final frame to PPM or PNG based on the file extension.
 
 Current memory layout:
 - `0x0000..0x0002`: assembler entry stub
