@@ -144,7 +144,7 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Current CTest coverage is 9 tests, including the `test_basic_high_lines` DATA/RESTORE regression.
+Current CTest coverage is 10 tests, including the `test_basic_high_lines` DATA/RESTORE regression and `test_basic_for` coverage for `FOR / NEXT`.
 
 ## Main project files
 - `s8asm.cpp` — assembler
