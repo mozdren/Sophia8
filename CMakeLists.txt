@@ -82,6 +82,20 @@ add_test(
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBasicTest.cmake
 )
 
+add_test(
+    NAME test_basic_dim
+    COMMAND ${CMAKE_COMMAND}
+        -DTEST_NAME=test_basic_dim
+        -DASM=$<TARGET_FILE:s8asm>
+        -DVM=$<TARGET_FILE:sophia8>
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DBINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+        -DBASIC_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/sophia_basic_test_dim.bas
+        -DEXPECTED_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/expected/basic_dim.txt
+        -DMARKER=SOPHIA_BASIC_DIM_TEST
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBasicTest.cmake
+)
+
 if(FALSE)
     add_test(
         NAME test_basic_high_lines
