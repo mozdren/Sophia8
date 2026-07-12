@@ -300,6 +300,7 @@
       "test_basic_goto covers plain GOTO line jumps.",
       "test_basic_halt covers HALT stopping the VM directly from BASIC code.",
       "test_basic_print covers PRINT separators and trailing semicolon newline suppression.",
+      "test_basic_mixed_flow covers GOSUB / RETURN together with FOR / NEXT and block-loop nesting.",
       "If behavior changes in a refactor, inspect both the .pre.s8.asm and .deb outputs before assuming the VM is wrong."
     ]
   },

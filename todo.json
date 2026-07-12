@@ -7,6 +7,7 @@
     "Implemented line-oriented DO..WHILE and WHILE..ENDWHILE handlers in basic_flow.s8.asm.",
     "Added runtime structure-scanning helpers that classify WHILE lines as either block openers or DO-terminators.",
     "Added an integration test program sophia_basic_test_loops.bas and wired it into CTest as test_basic_loops.",
+    "Added a mixed-flow regression test that combines GOSUB / RETURN with FOR / NEXT and block-loop nesting.",
     "Updated README.md, sophia8.md, and sophia8.context.json with the new loop feature and the related memory-map lesson."
   ],
   "what_was_found": [
@@ -17,7 +18,6 @@
   ],
   "next_to_do": [
     "Consider adding explicit memory-map reservations for BASIC runtime stack regions in the context docs.",
-    "Consider adding a regression test that exercises GOSUB/FOR together with loop blocks in one program.",
     "Consider sorting stored BASIC lines by line number during insertion if deterministic execution order independent of entry order becomes a goal."
   ],
   "tests": {
