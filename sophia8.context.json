@@ -295,6 +295,7 @@
       "test_basic_high_lines is part of normal CTest coverage again.",
       "test_basic_for covers FOR / NEXT, including STEP and negative STEP behavior.",
       "test_basic_data covers mixed numeric/string DATA with RESTORE behavior.",
+      "test_basic_rng covers RANDOMIZE and deterministic RND() / RND(n) behavior.",
       "If behavior changes in a refactor, inspect both the .pre.s8.asm and .deb outputs before assuming the VM is wrong."
     ]
   },
