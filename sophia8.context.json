@@ -296,6 +296,7 @@
       "test_basic_for covers FOR / NEXT, including STEP and negative STEP behavior.",
       "test_basic_data covers mixed numeric/string DATA with RESTORE behavior.",
       "test_basic_rng covers RANDOMIZE and deterministic RND() / RND(n) behavior.",
+      "test_basic_stop covers STOP returning to the BASIC prompt with an immediate command afterward.",
       "If behavior changes in a refactor, inspect both the .pre.s8.asm and .deb outputs before assuming the VM is wrong."
     ]
   },
