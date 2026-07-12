@@ -1903,7 +1903,36 @@
         "current_backend": "SDL fullscreen window from mapped memory",
         "window_backend_note": "Optional PPM or PNG snapshot via --gfx-out; future windowed mode can scale to fit while preserving 320x200 aspect ratio (letterbox/pillarbox)."
       },
-      "scale_flag": "--gfx-scale"
+      "scale_flag": "--gfx-scale",
+      "basic_commands": {
+        "summary": "Sophia BASIC exposes a small immediate-mode graphics API on the C64-style framebuffer.",
+        "commands": [
+          {
+            "name": "CLS",
+            "behavior": "Clears the full 320x200 framebuffer to zero."
+          },
+          {
+            "name": "PSET",
+            "behavior": "Sets a single pixel at x,y using the optional color argument (default 1)."
+          },
+          {
+            "name": "LINE",
+            "behavior": "Draws a straight line between x1,y1 and x2,y2 using the optional color argument (default 1)."
+          },
+          {
+            "name": "RECT",
+            "behavior": "Draws an outline rectangle from the first corner to the opposite corner."
+          },
+          {
+            "name": "SQUARE",
+            "behavior": "Draws an outline square from the top-left corner using size as the side length."
+          },
+          {
+            "name": "CIRCLE",
+            "behavior": "Draws a circle outline centered at x,y using radius and the optional color argument (default 1)."
+          }
+        ]
+      }
     },
     "tool_name": "sophia8",
     "usage": [

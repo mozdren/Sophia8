@@ -32,6 +32,7 @@
 .include "basic_errors.s8.asm"
 .include "basic_helpers.s8.asm"
 .include "basic_vars.s8.asm"
+.include "basic_gfx.s8.asm"
 
 ; Charset is packed at the end of the BASIC image so the code block can be
 ; moved upward and the graphics framebuffer can use the cleared low block.

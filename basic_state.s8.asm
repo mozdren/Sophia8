@@ -74,6 +74,39 @@ SCAN_PTR_H: .byte 0
 SCAN_PTR_L: .byte 0
 PRINT_SEP_KIND: .byte 0
 
+; Graphics scratch area used by BASIC drawing commands.
+GFX_X1_H: .byte 0
+GFX_X1_L: .byte 0
+GFX_Y1_H: .byte 0
+GFX_Y1_L: .byte 0
+GFX_X2_H: .byte 0
+GFX_X2_L: .byte 0
+GFX_Y2_H: .byte 0
+GFX_Y2_L: .byte 0
+GFX_DX_H: .byte 0
+GFX_DX_L: .byte 0
+GFX_DY_H: .byte 0
+GFX_DY_L: .byte 0
+GFX_ERR_H: .byte 0
+GFX_ERR_L: .byte 0
+GFX_COLOR: .byte 0
+GFX_AXIS: .byte 0
+GFX_SX: .byte 0
+GFX_SY: .byte 0
+GFX_TMP_H: .byte 0
+GFX_TMP_L: .byte 0
+GFX_CELL_X: .byte 0
+GFX_CELL_Y: .byte 0
+GFX_RECT_X1_H: .byte 0
+GFX_RECT_X1_L: .byte 0
+GFX_RECT_Y1_H: .byte 0
+GFX_RECT_Y1_L: .byte 0
+GFX_RECT_X2_H: .byte 0
+GFX_RECT_X2_L: .byte 0
+GFX_RECT_Y2_H: .byte 0
+GFX_RECT_Y2_L: .byte 0
+
+
 ; GOSUB stack: 16 return pointers (H,L pairs) stored sequentially at BASIC_GOSUB_STACK_BASE
 ; FOR stack entries at BASIC_FOR_STACK_BASE, max 8 entries:
 ;   +0..1 var entry ptr (H,L)

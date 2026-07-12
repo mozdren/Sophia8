@@ -45,8 +45,8 @@
 .equ BASIC_CODE_RESUME,        0x68FA  ; code resumes after runtime state
 .equ BASIC_CODE_RESUME_H,      0x68    ; high byte of BASIC_CODE_RESUME
 .equ BASIC_CODE_RESUME_L,      0xFA    ; low byte of BASIC_CODE_RESUME
-.equ BASIC_UTIL_BASE,          0x4500  ; free hole after text.s8, before runtime state
-.equ BASIC_UTIL_BASE_H,        0x45    ; high byte of BASIC_UTIL_BASE
+.equ BASIC_UTIL_BASE,          0x4700  ; free hole after text.s8, before runtime state
+.equ BASIC_UTIL_BASE_H,        0x47    ; high byte of BASIC_UTIL_BASE
 .equ BASIC_UTIL_BASE_L,        0x00    ; low byte of BASIC_UTIL_BASE
 .equ BASIC_PROG_BASE,          0x6C5A  ; packed program store start
 .equ BASIC_PROG_BASE_H,        0x6C    ; high byte of BASIC_PROG_BASE
@@ -110,10 +110,6 @@
 .equ STR_ERR_UNDEFLINE,        0x026E  ; undefined-line message
 .equ STR_ERR_UNDEFLINE_H,      0x02    ; high byte of STR_ERR_UNDEFLINE
 .equ STR_ERR_UNDEFLINE_L,      0x6E    ; low byte of STR_ERR_UNDEFLINE
-.equ STR_ERR_OUTOFDATA,        0x0388  ; out-of-data message
-.equ STR_ERR_OUTOFDATA_H,      0x03    ; high byte of STR_ERR_OUTOFDATA
-.equ STR_ERR_OUTOFDATA_L,      0x88    ; low byte of STR_ERR_OUTOFDATA
-
 ; Keyword strings used by the statement dispatcher
 .equ KW_NEW,                   0x0280  ; NEW
 .equ KW_NEW_H,                 0x02
@@ -208,3 +204,24 @@
 .equ KW_ENDWHILE,              0x0378  ; ENDWHILE
 .equ KW_ENDWHILE_H,            0x03
 .equ KW_ENDWHILE_L,            0x78
+.equ KW_CLS,                   0x0388  ; CLS
+.equ KW_CLS_H,                 0x03
+.equ KW_CLS_L,                 0x88
+.equ KW_PSET,                  0x038C  ; PSET
+.equ KW_PSET_H,                0x03
+.equ KW_PSET_L,                0x8C
+.equ KW_LINE,                  0x0391  ; LINE
+.equ KW_LINE_H,                0x03
+.equ KW_LINE_L,                0x91
+.equ KW_RECT,                  0x0396  ; RECT
+.equ KW_RECT_H,                0x03
+.equ KW_RECT_L,                0x96
+.equ KW_SQUARE,                0x039B  ; SQUARE
+.equ KW_SQUARE_H,              0x03
+.equ KW_SQUARE_L,              0x9B
+.equ KW_CIRCLE,                0x03A2  ; CIRCLE
+.equ KW_CIRCLE_H,              0x03
+.equ KW_CIRCLE_L,              0xA2
+.equ STR_ERR_OUTOFDATA,        0x03A9  ; out-of-data message
+.equ STR_ERR_OUTOFDATA_H,      0x03    ; high byte of STR_ERR_OUTOFDATA
+.equ STR_ERR_OUTOFDATA_L,      0xA9    ; low byte of STR_ERR_OUTOFDATA

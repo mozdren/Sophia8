@@ -91,6 +91,20 @@ K_REM:   .string "REM"
 .org KW_DIM
 K_DIM:   .string "DIM"
 
+; Graphics keywords
+.org KW_CLS
+K_CLS:   .string "CLS"
+.org KW_PSET
+K_PSET:  .string "PSET"
+.org KW_LINE
+K_LINE:  .string "LINE"
+.org KW_RECT
+K_RECT:  .string "RECT"
+.org KW_SQUARE
+K_SQUARE: .string "SQUARE"
+.org KW_CIRCLE
+K_CIRCLE: .string "CIRCLE"
+
 ; Phase 14 keywords (DATA / READ / RESTORE)
 .org KW_DATA
 K_DATA:  .string "DATA"

@@ -158,6 +158,16 @@ Current CTest coverage is 18 tests, including the `test_basic_high_lines` DATA/R
 ## Graphics
 The VM supports a C64-style graphics mode sourced from memory base `0x8000` (9000 bytes). `--gfx` opens a fullscreen SDL window that renders directly from mapped memory, captures keyboard input through SDL, and `--gfx-out <file.ppm|file.png>` optionally writes the final frame to PPM or PNG based on the file extension.
 
+BASIC drawing commands:
+- `CLS` clears the framebuffer to zero.
+- `PSET x, y [, color]` sets a single pixel.
+- `LINE x1, y1, x2, y2 [, color]` draws a straight line.
+- `RECT x1, y1, x2, y2 [, color]` draws an outline rectangle.
+- `SQUARE x, y, size [, color]` draws a square outline from the top-left corner.
+- `CIRCLE x, y, radius [, color]` draws a circle outline.
+
+Coordinates are pixel-based in the 320x200 framebuffer. The optional color defaults to foreground color `1`.
+
 Current memory layout:
 - `0x0000..0x0002`: assembler entry stub
 - `0x0200+`: fixed strings used by the runtime and BASIC
