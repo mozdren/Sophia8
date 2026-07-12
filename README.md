@@ -28,14 +28,17 @@ The VM can:
 - run a `.bin` image directly
 - run from a `.deb` file and automatically load the referenced `.bin`
 - stop on a source breakpoint (`file:line`)
+- show a small source window, registers, and last memory writes when a breakpoint hits
 - save `debug.img` snapshots and resume from them
 - emit verbose instruction logs with `-v`
+- widen or shrink the breakpoint source window with `--break-context <n>`
 
 Useful commands:
 ```bash
 ./sophia8 program.bin
 ./sophia8 program.deb source.s8.asm 123
 ./sophia8 --deb program.deb -v program.bin
+./sophia8 --break-context 4 program.deb source.s8.asm 123
 ./sophia8 debug.img program.deb source.s8.asm 123
 ./sophia8 --help
 ```

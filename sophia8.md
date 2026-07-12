@@ -34,6 +34,8 @@ Debugging support includes:
 - source breakpoint support from `.deb`
 - validation that a breakpoint line really maps to executable code
 - `debug.img` snapshot generation when a breakpoint is hit
+- breakpoint stops print a small source window plus registers and last memory writes
+- `--break-context <n>` to widen or shrink that source window (default 2)
 - resume from `debug.img`
 - `-v` verbose per-instruction logging
 
@@ -220,7 +222,7 @@ BASIC regressions are often integration issues, not isolated parser bugs. Every 
 3. Assemble the BASIC image and inspect `<output>.pre.s8.asm` when include order or `.org` placement is suspicious.
 4. Use `<output>.deb` to find the exact machine address for a source line.
 5. Run the VM with `-v` when execution appears stuck or corrupted.
-6. Use source breakpoints to emit `debug.img` and inspect machine state at a precise location.
+6. Use source breakpoints to emit `debug.img` and inspect machine state at a precise location. Breakpoint stops now print a small source window, registers, and the last memory writes. Use `--break-context <n>` to widen or shrink that window (default 2).
 
 The current CTest integration is platform-neutral and avoids shell-only features such as `bash`, `awk`, `grep`, `diff`, and `timeout`.
 It appends `HALT` after `RUN` in the BASIC integration tests so each run exits the VM cleanly instead of waiting at the prompt.

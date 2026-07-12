@@ -1857,7 +1857,9 @@
   "vm": {
     "breakpoint_behavior": [
       "On breakpoint hit, VM prints BREAK <file>:<line> (0xADDR).",
-      "Then prints registers (R0..R7, IP, SP, BP, C).",
+      "Then prints a small source window around the line when .deb mapping is available.",
+      "Use --break-context <n> to change the source window radius (default 2).",
+      "Then prints registers (R0..R7, IP, SP, BP, C) and the last memory writes.",
       "Then saves debug.img and stops."
     ],
     "debug_snapshot": {
@@ -1908,7 +1910,7 @@
         "pattern": "sophia8 <program.deb>"
       },
       {
-        "meaning": "Runs and stops when IP reaches address mapped from source location (file:line). Writes debug.img snapshot and prints registers.",
+        "meaning": "Runs and stops when IP reaches address mapped from source location (file:line). Writes debug.img snapshot, prints a source window, registers, and last memory writes.",
         "pattern": "sophia8 <program.deb> <break_file> <break_line>"
       },
       {
@@ -1916,7 +1918,11 @@
         "pattern": "sophia8 debug.img"
       },
       {
-        "meaning": "Resumes from snapshot and can still use .deb mapping for a new breakpoint.",
+        "meaning": "Controls how many source lines above and below a breakpoint hit are shown in the stop summary (default 2).",
+        "pattern": "sophia8 --break-context <n>"
+      },
+      {
+        "meaning": "Resumes from snapshot and can still use .deb mapping for a new breakpoint with the same source/register/memory summary.",
         "pattern": "sophia8 debug.img <program.deb> <break_file> <break_line>"
       },
       {

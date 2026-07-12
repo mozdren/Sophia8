@@ -633,7 +633,8 @@ static void print_help(const char* prog)
     printf("      Load a .deb debug map (emitted by s8asm), then load its referenced .bin, then run.\n\n");
     printf("  %s <program.deb> <break_file> <break_line>\n", prog);
     printf("      Run and stop when execution reaches the source location mapped from file:line.\n");
-    printf("      When hit: prints registers, writes debug.img snapshot, and stops.\n\n");
+    printf("      When hit: prints a source window, registers, and last memory writes.\n");
+    printf("      Use --break-context <n> to change the window radius (default 2).\n\n");
     printf("  %s debug.img\n", prog);
     printf("      Resume execution from a previously saved debug snapshot.\n\n");
     printf("  %s debug.img <program.deb> <break_file> <break_line>\n", prog);
@@ -928,6 +929,7 @@ struct MemWriteEvent {
 static bool g_verbose = false;
 static std::ofstream g_vlog;
 static uint64_t g_step_counter = 0;
+static int g_break_context_radius = 2;
 static std::vector<MemWriteEvent> g_mem_writes;
 
 static inline void mem_write(const uint16_t address, const uint8_t value)
@@ -1137,6 +1139,111 @@ static bool has_any_mapping_for_line(const std::vector<DebLine>& lines,
     }
     return false;
 }
+
+static bool source_location_matches(const DebLine& dl,
+                                    const std::string& want_file,
+                                    const std::string& want_base)
+{
+    if (dl.file == want_file) return true;
+    fs::path p(dl.file);
+    return p.filename().string() == want_base;
+}
+
+static const DebLine* pick_source_line(const std::vector<DebLine>& lines,
+                                       const std::string& want_file,
+                                       const int want_line)
+{
+    fs::path wantp(want_file);
+    const std::string want_base = wantp.filename().string();
+    const DebLine* best = nullptr;
+
+    for (const auto& l : lines)
+    {
+        if (l.line_no != want_line) continue;
+        if (!source_location_matches(l, want_file, want_base)) continue;
+        if (!best || (l.is_code && !best->is_code) || (l.is_code == best->is_code && l.addr < best->addr))
+        {
+            best = &l;
+        }
+    }
+
+    return best;
+}
+
+static void print_source_window(const std::vector<DebLine>& lines,
+                                const DebLine* center,
+                                const int radius = 2)
+{
+    if (!center) return;
+
+    fs::path center_path(center->file);
+    const std::string center_base = center_path.filename().string();
+    const int start_line = std::max(1, center->line_no - radius);
+    const int end_line = center->line_no + radius;
+
+    std::vector<const DebLine*> rows;
+    for (const auto& l : lines)
+    {
+        if (l.line_no < start_line || l.line_no > end_line) continue;
+        if (!source_location_matches(l, center->file, center_base)) continue;
+
+        bool matched = false;
+        for (auto*& row : rows)
+        {
+            if (row->line_no != l.line_no) continue;
+            if (!row->is_code && l.is_code)
+            {
+                row = &l;
+            }
+            else if (row->is_code == l.is_code && l.addr < row->addr)
+            {
+                row = &l;
+            }
+            matched = true;
+            break;
+        }
+        if (!matched)
+        {
+            rows.push_back(&l);
+        }
+    }
+
+    if (rows.empty()) return;
+
+    std::sort(rows.begin(), rows.end(), [](const DebLine* a, const DebLine* b) {
+        if (a->line_no != b->line_no) return a->line_no < b->line_no;
+        if (a->is_code != b->is_code) return a->is_code > b->is_code;
+        return a->addr < b->addr;
+    });
+
+    printf("Source context for %s:%d:\n", center->file.c_str(), center->line_no);
+    for (const auto* row : rows)
+    {
+        printf(" %c %5d | %s\n",
+               (row->line_no == center->line_no) ? '>' : ' ',
+               row->line_no,
+               row->text.c_str());
+    }
+}
+
+static void print_mem_writes_block(const std::vector<MemWriteEvent>& writes)
+{
+    printf("Last memory writes:\n");
+    if (writes.empty())
+    {
+        printf("  <none>\n");
+        return;
+    }
+
+    for (const auto& w : writes)
+    {
+        printf("  0x%04X: %02X -> %02X\n",
+               static_cast<unsigned>(w.addr),
+               static_cast<unsigned>(w.oldv),
+               static_cast<unsigned>(w.newv));
+    }
+}
+
 
 static void write_u16_be(std::ofstream& f, const uint16_t v) {
     const uint8_t b[2] = { static_cast<uint8_t>((v >> 8) & 0xFF), static_cast<uint8_t>(v & 0xFF) };
@@ -2645,7 +2752,7 @@ void process_instruction()
 {
     const uint16_t orig_ip = ip;
     const std::string decoded = (g_verbose ? decode_instruction_at(orig_ip) : std::string());
-    if (g_verbose) { g_mem_writes.clear(); }
+    g_mem_writes.clear();
 
     switch (mem[ip])
     {
@@ -2747,7 +2854,8 @@ void print_registers()
 void run(const bool break_enabled = false,
          const uint16_t break_addr = 0,
          const char* break_file = nullptr,
-         const int break_line = 0)
+         const int break_line = 0,
+         const std::vector<DebLine>* deb_lines = nullptr)
 {
     using clock_t = std::chrono::steady_clock;
     auto last_snapshot = clock_t::now();
@@ -2756,7 +2864,14 @@ void run(const bool break_enabled = false,
     {
         if (break_enabled && ip == break_addr)
         {
-            if (const DebLine* dl = deb_lookup_by_addr(g_code_by_addr, break_addr)) {
+            const DebLine* dl = deb_lookup_by_addr(g_code_by_addr, break_addr);
+            const DebLine* context = dl;
+            if (!context && deb_lines && break_file)
+            {
+                context = pick_source_line(*deb_lines, break_file, break_line);
+            }
+
+            if (dl) {
                 printf("BREAK at %s (0x%04X)\n",
                        format_source_label(dl).c_str(),
                        static_cast<unsigned>(break_addr));
@@ -2766,7 +2881,12 @@ void run(const bool break_enabled = false,
                        break_line,
                        static_cast<unsigned>(break_addr));
             }
+            if (deb_lines && context)
+            {
+                print_source_window(*deb_lines, context, g_break_context_radius);
+            }
             print_registers();
+            print_mem_writes_block(g_mem_writes);
             (void)save_debug_image("debug.img");
             request_stop();
             break;
@@ -2964,6 +3084,7 @@ int main(int argc, char** argv)
     //   -h / --help
     //   -v                 verbose per-instruction logging (requires a .deb map)
     //   --deb <file.deb>   explicit .deb map (used for -v and/or breakpoints)
+    //   --break-context <n> breakpoint source window radius (default 2)
     bool opt_verbose = false;
     std::string opt_deb_path;
 
@@ -3004,6 +3125,22 @@ int main(int argc, char** argv)
         if (a == "--gfx")
         {
             opt_gfx = true;
+            continue;
+        }
+        if (a == "--break-context")
+        {
+            if (i + 1 >= argc)
+            {
+                printf("Missing value for --break-context\n");
+                return 1;
+            }
+            g_break_context_radius = std::atoi(argv[i + 1]);
+            if (g_break_context_radius < 0 || g_break_context_radius > 20)
+            {
+                printf("Invalid --break-context (0..20): %s\n", argv[i + 1]);
+                return 1;
+            }
+            i++;
             continue;
         }
         if (a == "--gfx-out")
@@ -3194,7 +3331,7 @@ int main(int argc, char** argv)
         g_vm_done.store(false, std::memory_order_release);
 
         std::thread vm_thread([&]() {
-            run(break_enabled, break_addr, break_file, break_line);
+            run(break_enabled, break_addr, break_file, break_line, &deb_lines);
             g_vm_done.store(true, std::memory_order_release);
         });
 
@@ -3229,7 +3366,7 @@ int main(int argc, char** argv)
     }
     else
     {
-        run(break_enabled, break_addr, break_file, break_line);
+        run(break_enabled, break_addr, break_file, break_line, &deb_lines);
     }
 
     return 0;
