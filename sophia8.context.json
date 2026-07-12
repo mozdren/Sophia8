@@ -294,6 +294,7 @@
       "Treat 0x9600/0x9601 as reserved BASIC scratch/test-safe addresses unless the memory map and tests are intentionally redesigned.",
       "test_basic_high_lines is part of normal CTest coverage again.",
       "test_basic_for covers FOR / NEXT, including STEP and negative STEP behavior.",
+      "test_basic_data covers mixed numeric/string DATA with RESTORE behavior.",
       "If behavior changes in a refactor, inspect both the .pre.s8.asm and .deb outputs before assuming the VM is wrong."
     ]
   },

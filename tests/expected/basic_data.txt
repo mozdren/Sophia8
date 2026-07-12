@@ -1,0 +1,8 @@
+7
+ALPHA
+-3
+BETA
+7
+ALPHA
+-3
+BETA

@@ -125,6 +125,20 @@ add_test(
 )
 
 add_test(
+    NAME test_basic_data
+    COMMAND ${CMAKE_COMMAND}
+        -DTEST_NAME=test_basic_data
+        -DASM=$<TARGET_FILE:s8asm>
+        -DVM=$<TARGET_FILE:sophia8>
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DBINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+        -DBASIC_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/sophia_basic_test_data.bas
+        -DEXPECTED_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/expected/basic_data.txt
+        -DMARKER=SOPHIA_BASIC_DATA_TEST
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBasicTest.cmake
+)
+
+add_test(
     NAME test_basic_io
     COMMAND ${CMAKE_COMMAND}
         -DTEST_NAME=test_basic_io
