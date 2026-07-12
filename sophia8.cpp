@@ -956,6 +956,7 @@ struct DebLine {
     bool is_code = false;
     std::string file;
     int line_no = 0;
+    std::string text;
 };
 
 static std::unordered_map<uint16_t, const DebLine*> g_code_by_addr;
@@ -1030,11 +1031,14 @@ static bool load_deb_map(const char* deb_path,
             continue;
         }
 
+        std::string text_part = trim(line.substr(c1 + 1));
+
         DebLine dl;
         dl.addr = static_cast<uint16_t>(addr_val & 0xFFFF);
         dl.is_code = (kind_str == "CODE");
         dl.file = file_part;
         dl.line_no = line_no;
+        dl.text = std::move(text_part);
         out_lines.push_back(std::move(dl));
     }
 
@@ -1056,6 +1060,18 @@ static bool load_deb_map(const char* deb_path,
     }
 
     return true;
+}
+
+static std::string format_source_label(const DebLine* dl)
+{
+    if (!dl) return "<unknown>:0";
+
+    std::ostringstream oss;
+    oss << dl->file << ":" << dl->line_no;
+    if (!dl->text.empty()) {
+        oss << ": " << dl->text;
+    }
+    return oss.str();
 }
 
 static bool find_break_addr(const std::vector<DebLine>& lines,
@@ -2675,17 +2691,13 @@ void process_instruction()
 
     if (g_verbose)
     {
-        std::string src_loc = "<unknown>:0";
-        if (const DebLine* dl = deb_lookup_by_addr(g_code_by_addr, orig_ip))
-        {
-            src_loc = dl->file + ":" + std::to_string(dl->line_no);
-        }
+        const std::string src_loc = format_source_label(deb_lookup_by_addr(g_code_by_addr, orig_ip));
 
         std::ostringstream oss;
         oss << std::dec << g_step_counter++ << " PC=0x"
             << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << static_cast<unsigned>(orig_ip)
             << " SRC=" << src_loc
-            << " INST="" << decoded << """
+            << " INST=\"" << decoded << "\""
             << format_mem_writes()
             << " REGS{" << format_regs() << "}";
         vlog_append_line(oss.str());
@@ -2744,10 +2756,16 @@ void run(const bool break_enabled = false,
     {
         if (break_enabled && ip == break_addr)
         {
-            printf("BREAK at %s:%d (0x%04X)\n",
-                   break_file ? break_file : "<unknown>",
-                   break_line,
-                   static_cast<unsigned>(break_addr));
+            if (const DebLine* dl = deb_lookup_by_addr(g_code_by_addr, break_addr)) {
+                printf("BREAK at %s (0x%04X)\n",
+                       format_source_label(dl).c_str(),
+                       static_cast<unsigned>(break_addr));
+            } else {
+                printf("BREAK at %s:%d (0x%04X)\n",
+                       break_file ? break_file : "<unknown>",
+                       break_line,
+                       static_cast<unsigned>(break_addr));
+            }
             print_registers();
             (void)save_debug_image("debug.img");
             request_stop();
