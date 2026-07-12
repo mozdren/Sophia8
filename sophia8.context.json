@@ -292,6 +292,7 @@
       "Start BASIC changes in the focused module that owns the behavior, then wire new code through basic_all.s8.asm if needed.",
       "Check the final .deb map after any code growth that might affect layout-sensitive addresses.",
       "Treat 0x9600/0x9601 as reserved BASIC scratch/test-safe addresses unless the memory map and tests are intentionally redesigned.",
+      "test_basic_high_lines is part of normal CTest coverage again.",
       "If behavior changes in a refactor, inspect both the .pre.s8.asm and .deb outputs before assuming the VM is wrong."
     ]
   },

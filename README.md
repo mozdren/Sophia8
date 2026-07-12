@@ -144,7 +144,7 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Current CTest coverage is 6 tests because `test_basic_high_lines` is intentionally disabled while the DATA/RESTORE path is being refactored.
+Current CTest coverage is 9 tests, including the `test_basic_high_lines` DATA/RESTORE regression.
 
 ## Main project files
 - `s8asm.cpp` — assembler
